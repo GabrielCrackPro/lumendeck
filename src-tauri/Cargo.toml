@@ -1,0 +1,42 @@
+[package]
+name = "lumendeck"
+version = "0.1.0"
+description = "Wallpaper-driven RGB lighting, live wallpapers and screen stickers for Windows."
+edition = "2021"
+
+[lib]
+name = "lumendeck_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+openrgb = "0.1.2"
+tokio = { version = "1", features = ["full"] }
+dirs = "6"
+notify = "8"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+png = "0.17"
+log = "0.4"
+env_logger = "0.11"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Dwm",
+  "Win32_System_Power",
+  "Win32_System_LibraryLoader",
+  "Win32_UI_Shell",
+  "Win32_Storage_Xps",
+  "Win32_System_Com",
+  "Win32_System_Registry",
+] }

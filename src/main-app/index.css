@@ -1,0 +1,371 @@
+@import "@fontsource/outfit/latin-300.css";
+@import "@fontsource/outfit/latin-400.css";
+@import "@fontsource/outfit/latin-500.css";
+@import "@fontsource/outfit/latin-600.css";
+@import "@fontsource/outfit/latin-700.css";
+@import "@fontsource/unbounded/latin-400.css";
+@import "@fontsource/unbounded/latin-600.css";
+@import "@fontsource/unbounded/latin-800.css";
+@import "@fontsource/jetbrains-mono/latin-400.css";
+@import "@fontsource/jetbrains-mono/latin-500.css";
+@import "@fontsource/jetbrains-mono/latin-600.css";
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------- design tokens ---------- */
+
+:root {
+  color-scheme: light;
+
+  /* The living accent: a colour triplet (r g b). Driven by the RGB engine
+     output at runtime (Shell sets --glow); these are the offline defaults. */
+  --glow: 56 189 248;
+
+  --bg: #eceef4;
+  --panel: rgba(255, 255, 255, 0.78);
+  --panel-strong: rgba(255, 255, 255, 0.94);
+  --line: rgba(15, 23, 42, 0.12);
+  --line-strong: rgba(15, 23, 42, 0.22);
+  --text: #0a0f1d;
+  --text-dim: #454f6a;
+  --text-faint: #6c7691;
+  --shadow: 0 18px 48px -26px rgba(15, 23, 42, 0.28);
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: #06080e;
+  --panel: rgba(255, 255, 255, 0.035);
+  --panel-strong: rgba(255, 255, 255, 0.06);
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --text: #eef1f8;
+  --text-dim: #a3abc0;
+  --text-faint: #626a82;
+  --shadow: 0 24px 70px -32px rgba(0, 0, 0, 0.8);
+}
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Unbounded", "Outfit", ui-sans-serif, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
+}
+
+/* ---------- base ---------- */
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgb(var(--glow) / 0.28);
+}
+
+*:focus-visible {
+  outline: 2px solid rgb(var(--glow) / 0.6);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* thin luminous scrollbar */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 99px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--glow) / 0.45);
+  background-clip: content-box;
+}
+
+/* ---------- atmosphere ---------- */
+
+/* Fixed room-glow backdrop: one orb follows the live accent colour so the
+   interface itself lights up the way the devices light the room. */
+.aura {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      56rem 34rem at 15% -8%,
+      rgb(var(--glow) / 0.16),
+      transparent 62%
+    ),
+    radial-gradient(
+      44rem 34rem at 108% 12%,
+      rgb(56 189 248 / 0.1),
+      transparent 58%
+    ),
+    radial-gradient(
+      70rem 60rem at 50% 118%,
+      rgb(99 102 241 / 0.13),
+      transparent 62%
+    ),
+    var(--bg);
+  transition:
+    background 0.6s ease,
+    color 0.3s ease;
+}
+
+/* film grain over everything (kept subtle so glass panels read clean) */
+.grain::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------- primitives ---------- */
+
+.glass {
+  position: relative;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  transition:
+    border-color 0.25s ease,
+    background 0.25s ease;
+}
+.glass:hover {
+  border-color: var(--line-strong);
+}
+
+/* Light mode: solid up the glass, add a crisp inner border + softer shadow
+   so cards read as distinct panels instead of washed-out streaks. */
+:root:not(.dark) .glass {
+  background: var(--panel-strong);
+  box-shadow:
+    0 10px 30px -18px rgba(15, 23, 42, 0.25),
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgb(255 255 255 / 0.9);
+}
+:root:not(.dark) .glass:hover {
+  box-shadow:
+    0 14px 36px -18px rgba(15, 23, 42, 0.3),
+    0 1px 2px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgb(255 255 255 / 0.9);
+}
+:root:not(.dark) .grain::after {
+  opacity: 0.025;
+}
+
+.kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* LED readout style for live numbers */
+.lednum {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* raised glowing primary surface */
+.glow-fill {
+  background: rgb(var(--glow));
+  color: #06121f;
+  box-shadow: 0 8px 28px -10px rgb(var(--glow) / 0.7);
+}
+.glow-fill:hover {
+  filter: brightness(1.08);
+}
+.glow-tint {
+  background: rgb(var(--glow) / 0.14);
+  color: rgb(var(--glow));
+  border-color: rgb(var(--glow) / 0.35);
+}
+
+/* ---------- controls ---------- */
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 99px;
+  background: linear-gradient(
+    to right,
+    rgb(var(--glow) / 0.85) 0%,
+    rgb(var(--glow) / 0.85) var(--fill, 50%),
+    var(--line-strong) var(--fill, 50%),
+    var(--line-strong) 100%
+  );
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -5.5px;
+  height: 16px;
+  width: 16px;
+  border-radius: 99px;
+  background: #fff;
+  border: 2px solid rgb(var(--glow));
+  box-shadow: 0 0 0 4px rgb(var(--glow) / 0.15), 0 4px 14px -2px rgba(0, 0, 0, 0.6);
+  transition: transform 0.15s ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+input[type="range"]::-moz-range-track {
+  height: 5px;
+  border-radius: 99px;
+  background: var(--line-strong);
+}
+input[type="range"]::-moz-range-progress {
+  height: 5px;
+  border-radius: 99px;
+  background: rgb(var(--glow) / 0.85);
+}
+input[type="range"]::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 99px;
+  background: #fff;
+  border: 2px solid rgb(var(--glow));
+  box-shadow: 0 0 0 4px rgb(var(--glow) / 0.15);
+}
+
+/* number input: hide spinners for cleanliness on compact readouts */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* picker input (native colour) reset for the ColorInput swatch */
+input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+  padding: 0;
+  background: none;
+}
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 12px;
+}
+
+/* ---------- motion ---------- */
+
+@keyframes lfade {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lpulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 0 rgb(var(--glow) / 0.35);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 12px 2px rgb(var(--glow) / 0.5);
+  }
+}
+
+@keyframes lbreath {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.05);
+    filter: brightness(1.25);
+  }
+}
+
+.page-enter {
+  animation: lfade 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* staggered reveal for card grids: animation-delay scales with child order */
+.stagger > * {
+  animation: lfade 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.stagger > *:nth-child(1) {
+  animation-delay: 0.02s;
+}
+.stagger > *:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.stagger > *:nth-child(3) {
+  animation-delay: 0.1s;
+}
+.stagger > *:nth-child(4) {
+  animation-delay: 0.14s;
+}
+.stagger > *:nth-child(5) {
+  animation-delay: 0.18s;
+}
+.stagger > *:nth-child(6) {
+  animation-delay: 0.22s;
+}
+.stagger > *:nth-child(7) {
+  animation-delay: 0.26s;
+}
+.stagger > *:nth-child(8) {
+  animation-delay: 0.3s;
+}
+.stagger > *:nth-child(9) {
+  animation-delay: 0.34s;
+}
+.stagger > *:nth-child(10) {
+  animation-delay: 0.38s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

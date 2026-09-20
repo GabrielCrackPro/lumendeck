@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Agent workspace metadata
+.freebuff/
