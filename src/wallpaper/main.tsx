@@ -110,7 +110,14 @@ function WallpaperRoot() {
               JSON.stringify(prev.config) === JSON.stringify(fresh.config) &&
               JSON.stringify(prev.stickers) === JSON.stringify(fresh.stickers) &&
               JSON.stringify(prev.snap) === JSON.stringify(fresh.snap) &&
-              prev.scale === fresh.scale;
+              prev.scale === fresh.scale &&
+              // Monitor reassignment (display reorder/unplug) must repaint:
+              // the label→monitor mapping shifts behind our back.
+              prev.monitor.device === fresh.monitor.device &&
+              prev.monitor.x === fresh.monitor.x &&
+              prev.monitor.y === fresh.monitor.y &&
+              prev.monitor.w === fresh.monitor.w &&
+              prev.monitor.h === fresh.monitor.h;
             return same ? prev : { ...prev, ...fresh };
           });
         })
@@ -888,7 +895,12 @@ function MediaSurface({
           playsInline
           style={{ display: "none" }}
           onLoadedData={() => fireReady()}
-          onError={(e) => console.error("wallpaper video error", e)}
+          onError={(e) => {
+            console.error("wallpaper video error for", source, e);
+            // A failed source must not wedge the crossfade: release the
+            // stage so the layer timeout / prune logic can take over.
+            fireReady();
+          }}
         />
         <VideoCanvas videoRef={videoRef} fit={videoFitStyle} fx={fx} onReady={fireReady} />
       </div>
@@ -973,6 +985,18 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
     const t = window.setTimeout(() => {
       setShown((s) => [s[s.length - 1]!]);
     }, 320);
+    return () => window.clearTimeout(t);
+  }, [shown, topReady]);
+
+  // Safety net: if the top layer never reports ready (dead source, decode
+  // error, 404), force the crossfade after 8s so the stage never strands on a
+  // black layer with the old wallpaper stuck underneath at opacity 1.
+  useEffect(() => {
+    if (shown.length < 2 || topReady) return;
+    const t = window.setTimeout(() => {
+      console.warn("wallpaper layer timed out; forcing crossfade");
+      setTopReady(true);
+    }, 8000);
     return () => window.clearTimeout(t);
   }, [shown, topReady]);
 

@@ -1,0 +1,89 @@
+// Custom window titlebar: drag region, app mark, window controls.
+// The main window is created with `decorations(false)`; this replaces the
+// native frame with the app's glass language.
+import { useEffect, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
+const win = getCurrentWindow();
+
+/** Window control buttons, Windows-style hover zones. */
+function Controls() {
+  const [maximized, setMaximized] = useState(false);
+
+  useEffect(() => {
+    let disposed = false;
+    const sync = () => {
+      win.isMaximized().then((m) => !disposed && setMaximized(m)).catch(() => {});
+    };
+    sync();
+    const t = setInterval(sync, 1000);
+    const onResize = () => sync();
+    window.addEventListener("resize", onResize);
+    return () => {
+      disposed = true;
+      clearInterval(t);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  const btn =
+    "flex h-8 w-11 items-center justify-center text-[var(--text-dim)] transition-colors first:rounded-l-lg";
+  return (
+    <div className="flex items-stretch">
+      <button
+        title="Minimize"
+        className={`${btn} hover:bg-[var(--panel-strong)] hover:text-[var(--text)]`}
+        onClick={() => win.minimize()}
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10">
+          <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
+        </svg>
+      </button>
+      <button
+        title={maximized ? "Restore" : "Maximize"}
+        className={`${btn} hover:bg-[var(--panel-strong)] hover:text-[var(--text)]`}
+        onClick={() => win.toggleMaximize()}
+      >
+        {maximized ? (
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
+            <path d="M2.5 0.5h7v7M0.5 2.5h7v7h-7z" strokeWidth="1" />
+          </svg>
+        ) : (
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor">
+            <rect x="0.5" y="0.5" width="9" height="9" strokeWidth="1" />
+          </svg>
+        )}
+      </button>
+      <button
+        title="Close"
+        className="flex h-8 w-11 items-center justify-center rounded-r-lg text-[var(--text-dim)] transition-colors hover:bg-red-500/80 hover:text-white"
+        onClick={() => win.close()}
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10">
+          <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+export default function TitleBar() {
+  return (
+    <div className="flex h-9 shrink-0 items-center justify-between pl-3 select-none">
+      {/* drag region doubles as the app mark */}
+      <div
+        data-tauri-drag-region
+        className="flex h-full flex-1 items-center gap-2"
+        onDoubleClick={() => win.toggleMaximize()}
+      >
+        <img
+          src="/app-icon.png"
+          alt=""
+          className="h-4 w-4 rounded-[5px] border border-[rgb(var(--glow)/0.4)]"
+        />
+        <span className="kicker select-none">lumendeck</span>
+      </div>
+      <Controls />
+    </div>
+  );
+}

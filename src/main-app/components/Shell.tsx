@@ -3,6 +3,7 @@ import { useStore } from "../store";
 import { Chip } from "./ui";
 import { IconBulb, IconImage, IconSticker, IconGear, IconPause, IconZap, IconRailCollapse } from "./icons";
 import { DEFAULT_GLOW } from "@shared/constants";
+import TitleBar from "./TitleBar";
 
 // Tab code is split so the initial bundle only carries the Overview; other
 // tabs stream in on first visit (Tauri serves chunks locally, so it's fast).
@@ -260,8 +261,11 @@ export default function Shell() {
   const current = TABS.find((t) => t.id === tab) ?? (tab === SETTINGS_TAB.id ? SETTINGS_TAB : TABS[0])!;
 
   return (
-    <div className="grain relative flex h-screen overflow-hidden p-2">
+    <div className="grain relative flex h-screen flex-col overflow-hidden">
       <div className="aura" />
+      {/* custom frame: drag region + window controls (window is frameless) */}
+      <TitleBar />
+      <div className="flex min-h-0 flex-1 p-2 pt-0">
 
       {/* config-save in flight: hairline progress under the header */}
       {saving && (
@@ -270,7 +274,7 @@ export default function Shell() {
         </div>
       )}
 
-      <div className="relative z-10 flex h-full w-full gap-2">
+      <div className="relative z-10 flex min-h-0 w-full flex-1 gap-2">
         {/* ---------- floating glass rail ---------- */}
         <nav
           className={`flex shrink-0 flex-col rounded-2xl border border-[var(--line)] bg-[var(--panel)] shadow-[var(--shadow)] backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
@@ -360,6 +364,7 @@ export default function Shell() {
           </>
           )}
         </main>
+      </div>
       </div>
 
       <Toasts />

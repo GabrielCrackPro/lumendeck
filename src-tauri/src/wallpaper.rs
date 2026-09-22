@@ -32,27 +32,37 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
         let label = label_for(index);
         match app.get_webview_window(&label) {
             Some(existing) => {
-                // Skip redundant work when the window already covers the right
-                // monitor rect and is still attached under the shell. Re-running
-                // SetParent/SetWindowPos + the Progman 0x052C broadcast on every
-                // config save is what makes the wallpaper layer flicker.
-                let pos_ok = existing
-                    .outer_position()
-                    .map(|p| (p.x - m.x).abs() <= 1 && (p.y - m.y).abs() <= 1)
-                    .unwrap_or(false);
-                let size_ok = existing
-                    .outer_size()
-                    .map(|s| {
-                        (s.width as i64 - m.w.max(1) as i64).abs() <= 1
-                            && (s.height as i64 - m.h.max(1) as i64).abs() <= 1
-                    })
+                // Skip redundant work only when the window covers EXACTLY this
+                // monitor's rect and is still attached under the shell.
+                // Re-running SetParent/SetWindowPos + the Progman 0x052C
+                // broadcast on every config save makes the layer flicker, but
+                // a window that merely exists is NOT enough: after a monitor
+                // reorder the label→monitor mapping shifts and every window
+                // must be verified against its assigned rect, not its label.
+                let pos = existing.outer_position().map(|p| (p.x, p.y));
+                let size = existing.outer_size().map(|s| (s.width as i64, s.height as i64));
+                let pos_ok = pos.map(|(x, y)| (x - m.x).abs() <= 1 && (y - m.y).abs() <= 1).unwrap_or(false);
+                let size_ok = size
+                    .map(|(w, h)| (w - m.w.max(1) as i64).abs() <= 1 && (h - m.h.max(1) as i64).abs() <= 1)
                     .unwrap_or(false);
                 let attached = hwnd_of(&existing)
                     .map(crate::workerw::is_attached)
                     .unwrap_or(false);
                 if !pos_ok || !size_ok || !attached {
+                    log::info!(
+                        "wallpaper-{label}: repairing (pos_ok={pos_ok} size_ok={size_ok} attached={attached})"
+                    );
                     crate::window_utils::reposition_window(&existing, m.x, m.y, m.w.max(1), m.h.max(1));
                     attach_existing(&existing, (m.x, m.y, m.w.max(1) as u32, m.h.max(1) as u32))?;
+                    // The webview's cached monitor geometry is now wrong —
+                    // nudge it to re-fetch immediately.
+                    if let Some(app) = crate::app_handle() {
+                        crate::events::emit_all(
+                            &app,
+                            crate::events::DISPLAY_CHANGED,
+                            &win32::monitors(),
+                        );
+                    }
                 }
             }
             None => {

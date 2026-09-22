@@ -312,9 +312,9 @@ pub fn run() {
             #[cfg(debug_assertions)]
             dev_watchdog::spawn(app.handle().clone());
 
-            // Main dashboard window — created LAST in setup but still before
-            // the event loop runs; everything above it is fast/in-memory so
-            // this order maximizes how soon WebView2 starts loading the UI.
+            // Main dashboard window — frameless: the UI draws its own
+            // titlebar (drag region + window controls) matching the glass
+            // design. Resizing stays native via WM_NCHITTEST handled by tao.
             tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -324,6 +324,7 @@ pub fn run() {
             .inner_size(1100.0, 760.0)
             .min_inner_size(900.0, 640.0)
             .resizable(true)
+            .decorations(false)
             .build()?;
 
             log::info!("startup: tauri setup done in {:?}", setup_at.elapsed());

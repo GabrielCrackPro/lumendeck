@@ -10,10 +10,10 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect, SetWindowLongPtrW,
-    SetWindowPos, GWL_EXSTYLE, HWND_BOTTOM, HWND_TOP, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-    WINDOW_EX_STYLE,
+    GetClassNameW, GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect,
+    SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_BOTTOM, HWND_TOP, SM_CXVIRTUALSCREEN,
+    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SWP_NOZORDER, WINDOW_EX_STYLE,
 };
 
 pub const WS_EX_LAYERED: WINDOW_EX_STYLE = WINDOW_EX_STYLE(0x0008_0000);
@@ -158,6 +158,15 @@ pub fn has_fullscreen_foreground() -> bool {
     unsafe {
         let fg = GetForegroundWindow();
         if fg.is_invalid() {
+            return false;
+        }
+        // Our own wallpaper windows are behind the desktop and never
+        // foreground, but a misplaced class-name match (e.g. after a re-parent
+        // where the shell hands focus back) must never pause ourselves.
+        let mut buf = [0u16; 64];
+        let n = GetClassNameW(fg, &mut buf);
+        let class = String::from_utf16_lossy(&buf[..n as usize]);
+        if class == "WorkerW" || class == "Progman" {
             return false;
         }
         let mut r = RECT::default();
