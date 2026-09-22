@@ -15,6 +15,10 @@ pub struct WallpaperInfo {
     /// (from the window itself, not a devicePixelRatio guess).
     pub scale: f64,
     pub source: String,
+    /// Servable URL of the static wallpaper snapshot (poster frame for videos,
+    /// copy for images). Shown under the video so a failed/dead source
+    /// degrades to a still image instead of a black screen. Empty when none.
+    pub fallback_source: String,
     pub config: WallpaperConfig,
     pub paused: bool,
     /// All stickers (virtual-screen coords); each window clips to its monitor.
@@ -141,14 +145,24 @@ pub fn get_wallpaper_info(webview_window: tauri::WebviewWindow) -> WallpaperInfo
             mon.h
         );
     }
+    // Per-display wallpaper: when this monitor has an override, hand the
+    // webview an effective config carrying it (kind+source swapped in).
+    // resolve_for_monitor returns an already-resolved media URL — do NOT run
+    // resolve_source over it again (that would double-encode and break video).
+    let (pm_kind, pm_source) =
+        crate::wallpaper::resolve_for_monitor(&cfg.wallpaper, &mon.device);
+    let mut effective = cfg.wallpaper.clone();
+    effective.kind = pm_kind;
+    effective.source = pm_source.clone();
     WallpaperInfo {
         monitor: mon,
         scale,
         stickers: crate::stickers::render_list(),
         monitors: mons,
+        fallback_source: crate::wallpaper_bg::bg_media_url(),
         snap: cfg.sticker_snap,
-        source: crate::wallpaper::resolve_source(&cfg.wallpaper),
-        config: cfg.wallpaper,
+        source: pm_source,
+        config: effective,
         paused: crate::wallpaper::is_paused(),
     }
 }
@@ -188,6 +202,14 @@ fn spawn_editor_forwarder(app: AppHandle) {
 }
 
 /// Diagnostics: the wallpaper webview reports how each sticker rendered.
+/// Frontend diagnostics channel: webview console messages don't reach the
+/// log file, so wallpaper/sticker pages forward important events here.
+#[tauri::command]
+pub fn log_frontend(msg: String) {
+    log::info!("{}", msg);
+}
+
+/// (see log_frontend)
 #[tauri::command]
 pub fn log_sticker_render(
     id: String,
@@ -428,6 +450,52 @@ pub fn gallery_apply(app: AppHandle, id: String) -> Result<(), String> {
         c.wallpaper.kind = entry.kind;
         c.wallpaper.source = entry.source.clone();
     })?;
+    if crate::config_store::get().general.wallpaper_enabled {
+        crate::wallpaper::ensure(&app)?;
+    }
+    Ok(())
+}
+
+/// Apply a gallery entry to ONE display (per-monitor wallpaper). `monitor`
+/// is the device string (e.g. \\\\.\\DISPLAY1); `monitor: null` clears the
+/// override so the display falls back to the global wallpaper.
+#[tauri::command]
+pub fn gallery_apply_monitor(
+    app: AppHandle,
+    id: Option<String>,
+    monitor: String,
+) -> Result<(), String> {
+    // Validate the entry first so the update closure stays infallible.
+    let entry = match &id {
+        Some(id) => Some(
+            crate::config_store::get()
+                .gallery
+                .iter()
+                .find(|g| &g.id == id)
+                .cloned()
+                .ok_or_else(|| "gallery entry not found".to_string())?,
+        ),
+        None => None,
+    };
+    crate::config_store::update(|c| {
+        match id {
+            Some(_id) => {
+                c.wallpaper.per_monitor.insert(
+                    monitor,
+                    crate::config::PerMonitorWallpaper {
+                        kind: entry.as_ref().map(|e| e.kind).unwrap_or(c.wallpaper.kind),
+                        source: entry
+                            .map(|e| e.source)
+                            .unwrap_or_else(|| c.wallpaper.source.clone()),
+                    },
+                );
+            }
+            None => {
+                c.wallpaper.per_monitor.remove(&monitor);
+            }
+        }
+    })?;
+    // Config watcher broadcasts CONFIG_CHANGED; webviews re-resolve from it.
     if crate::config_store::get().general.wallpaper_enabled {
         crate::wallpaper::ensure(&app)?;
     }

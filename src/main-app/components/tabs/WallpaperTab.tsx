@@ -91,6 +91,8 @@ function GalleryThumb({ entry }: { entry: GalleryEntry }) {
   );
 }
 
+type MonEntry = Awaited<ReturnType<typeof api.monitors>>[number];
+
 export default function WallpaperTab() {
   const { cfg, rgb, save } = useStore();
   const [busy, setBusy] = useState(false);
@@ -98,6 +100,19 @@ export default function WallpaperTab() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState("");
   const [dropCount, setDropCount] = useState(0);
+  const [mons, setMons] = useState<MonEntry[]>([]);
+  const [assignFor, setAssignFor] = useState<string | null>(null); // gallery entry id
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .monitors()
+      .then((m) => alive && setMons(m))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Drag-and-drop import: Tauri intercepts file drops at the window level.
   useEffect(() => {    let disposed = false;
@@ -151,6 +166,32 @@ export default function WallpaperTab() {
   const wall = cfg.wallpaper;
   const gallery = [...cfg.gallery].sort((a, b) => b.addedMs - a.addedMs);
   const isActive = (g: GalleryEntry) => g.kind === wall.kind && g.source === wall.source;
+
+  const overrides = wall.perMonitor ?? {};
+  /** Displays an entry is running on: overrides matching it, or all displays when it's the global source. */
+  const displaysFor = (g: GalleryEntry): MonEntry[] => {
+    const matched = mons.filter((m) => {
+      const o = overrides[m.device];
+      return o && o.kind === g.kind && o.source === g.source;
+    });
+    if (isActive(g) && matched.length === 0) return mons;
+    return matched;
+  };
+  const applyToAll = (g: GalleryEntry) =>
+    api
+      .galleryApply(g.id)
+      .then(() => toast("ok", `Applied "${g.name}" to every display`))
+      .catch((e) => toast("error", `Apply failed: ${truncateError(e)}`));
+  const applyToMonitor = (g: GalleryEntry, device: string) =>
+    api
+      .galleryApplyMonitor(g.id, device)
+      .then(() => toast("ok", `Applied "${g.name}" to that display`))
+      .catch((e) => toast("error", `Apply failed: ${truncateError(e)}`));
+  const clearMonitor = (device: string) =>
+    api
+      .galleryApplyMonitor(null, device)
+      .then(() => toast("info", "Display reset to the global wallpaper"))
+      .catch((e) => toast("error", `Reset failed: ${truncateError(e)}`));
 
   const toast = (tone: "error" | "info" | "ok", msg: string) =>
     useStore.getState().toast(tone, msg);
@@ -262,22 +303,95 @@ export default function WallpaperTab() {
                       ? "border-[rgb(var(--glow)/0.7)] shadow-[0_14px_36px_-14px_rgb(var(--glow)/0.55)] ring-2 ring-[rgb(var(--glow)/0.22)]"
                       : "border-[var(--line)] bg-[var(--panel-strong)] hover:border-[var(--line-strong)] hover:shadow-[var(--shadow)]"
                   }`}
-                  onClick={() =>
-                    api
-                      .galleryApply(g.id)
-                      .then(() => toast("ok", `Applied "${g.name}"`))
-                      .catch((e) => toast("error", `Apply failed: ${truncateError(e)}`))
-                  }
+                  onClick={() => applyToAll(g)}
                 >
                   <div className="h-full w-full transition-transform duration-500 group-hover:scale-[1.05]">
                     <GalleryThumb entry={g} />
                   </div>
-                  {/* hover scrim + apply affordance */}
+                  {/* running-on badges: which displays show this entry */}
+                  {displaysFor(g).length > 0 && (
+                    <div className="absolute left-2 top-2 flex gap-1">
+                      {displaysFor(g).map((m, i) => (
+                        <span
+                          key={m.device || i}
+                          className="flex h-5 min-w-5 items-center justify-center rounded-md bg-[rgb(var(--glow))] px-1 font-mono text-[10px] font-bold text-[#06121f] shadow-[0_0_10px_rgb(var(--glow)/0.6)]"
+                          title={`${m.w}×${m.h}${m.primary ? " (primary)" : ""}`}
+                        >
+                          {mons.findIndex((x) => x.device === m.device) + 1}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* hover scrim + apply affordances: all displays / per-display split */}
                   {!isActive(g) && (
-                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/35 group-hover:opacity-100">
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/35 group-hover:opacity-100">
                       <span className="rounded-full border border-white/25 bg-black/55 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur">
-                        Apply
+                        All displays
                       </span>
+                      {mons.length > 1 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAssignFor(assignFor === g.id ? null : g.id);
+                          }}
+                          className="pointer-events-auto rounded-full border border-white/25 bg-black/55 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur transition-colors hover:bg-black/75"
+                        >
+                          Per display…
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {/* per-display assignment popover */}
+                  {assignFor === g.id && (
+                    <div
+                      className="absolute inset-0 z-10 flex flex-col gap-1.5 overflow-auto bg-black/80 p-3 backdrop-blur-sm"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="kicker !text-white/60">Assign to display</span>
+                        <button
+                          onClick={() => setAssignFor(null)}
+                          className="text-white/60 transition-colors hover:text-white"
+                          aria-label="Close"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      {mons.map((m, i) => {
+                        const o = overrides[m.device];
+                        const mine = o && o.kind === g.kind && o.source === g.source;
+                        return (
+                          <div key={m.device || i} className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                applyToMonitor(g, m.device);
+                                setAssignFor(null);
+                              }}
+                              className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-left transition-colors hover:bg-white/15"
+                            >
+                              <span className="font-mono text-[10px] font-bold text-white/50">{i + 1}</span>
+                              <span className="truncate text-xs font-semibold text-white">
+                                {m.w} × {m.h}
+                                {m.primary && <span className="ml-1 text-white/50">· primary</span>}
+                              </span>
+                              {o && !mine && (
+                                <span className="ml-auto shrink-0 text-[10px] text-white/40">
+                                  override
+                                </span>
+                              )}
+                            </button>
+                            {o && (
+                              <button
+                                onClick={() => clearMonitor(m.device)}
+                                title="Reset to global"
+                                className="shrink-0 rounded-md border border-white/15 px-1.5 py-1 text-[10px] text-white/50 transition-colors hover:text-white"
+                              >
+                                reset
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2.5 pb-1.5 pt-6">
@@ -529,7 +643,8 @@ export default function WallpaperTab() {
 
         <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-4 text-xs leading-relaxed text-[var(--text-faint)]">
           Each display gets its own wallpaper window sized to its exact resolution.
-          The same source renders on every display, scaled to fit.
+          Hover a vault tile to apply it to <b className="text-[var(--text)]">all displays</b> or
+          just one — tiles show which displays they're running on.
         </div>
 
         <Card title="Zone → device mapping">

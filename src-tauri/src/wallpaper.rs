@@ -7,13 +7,28 @@ use std::sync::Mutex;
 use tauri::Manager;
 
 static PAUSED: Mutex<bool> = Mutex::new(false);
+/// User-requested pause (tray / future hotkey), OR-ed with automatic rules.
+static MANUAL_PAUSE: Mutex<bool> = Mutex::new(false);
 
 pub fn is_paused() -> bool {
     *PAUSED.lock().expect("pause mutex poisoned")
+        || *MANUAL_PAUSE.lock().expect("pause mutex poisoned")
 }
 
 pub fn set_paused(p: bool) {
     *PAUSED.lock().expect("pause mutex poisoned") = p;
+}
+
+/// Toggle the manual pause and emit the new combined state.
+pub fn toggle_manual_pause() -> bool {
+    let mut m = MANUAL_PAUSE.lock().expect("pause mutex poisoned");
+    *m = !*m;
+    let combined = is_paused();
+    drop(m);
+    if let Some(app) = crate::app_handle() {
+        let _ = crate::events::emit_all(&app, crate::events::WALLPAUSE, &combined);
+    }
+    combined
 }
 
 /// Stable window label for a monitor index: "wallpaper-0", "wallpaper-1", …
@@ -154,5 +169,22 @@ pub fn resolve_source(cfg: &WallpaperConfig) -> String {
         WallpaperKind::Slideshow => String::new(), // webview scans folder via IPC
         WallpaperKind::Web => cfg.source.clone(),
         WallpaperKind::Shader => cfg.source.clone(),
+    }
+}
+
+/// Resolve the effective (kind, source) for one display: the per-monitor
+/// override when present, else the global wallpaper.
+pub fn resolve_for_monitor(cfg: &WallpaperConfig, device: &str) -> (WallpaperKind, String) {
+    match cfg.per_monitor.get(device) {
+        Some(pm) => (pm.kind, resolve_source_of(pm.kind, &pm.source)),
+        None => (cfg.kind, resolve_source(cfg)),
+    }
+}
+
+fn resolve_source_of(kind: WallpaperKind, source: &str) -> String {
+    match kind {
+        WallpaperKind::Video | WallpaperKind::Image => crate::media::to_media_url(source),
+        WallpaperKind::Slideshow => String::new(),
+        WallpaperKind::Web | WallpaperKind::Shader => source.to_string(),
     }
 }

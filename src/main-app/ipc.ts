@@ -31,6 +31,8 @@ export const api = {
   }) => invoke<GalleryEntry[]>("gallery_add", entry),
   galleryRemove: (id: string) => invoke<GalleryEntry[]>("gallery_remove", { id }),
   galleryApply: (id: string) => invoke<void>("gallery_apply", { id }),
+  galleryApplyMonitor: (id: string | null, monitor: string) =>
+    invoke<void>("gallery_apply_monitor", { id, monitor }),
   galleryImportFolder: (folder: string) =>
     invoke<GalleryEntry[]>("gallery_import_folder", { folder }),
   galleryImportPaths: (paths: string[]) =>

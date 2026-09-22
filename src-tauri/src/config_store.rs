@@ -131,6 +131,8 @@ pub fn set(new_cfg: Config) -> Result<(), String> {
     }
     if let Some(app) = crate::app_handle() {
         events::emit_all(&app, events::CONFIG_CHANGED, &new_cfg);
+        // Keep quick-controls (mode/profile checkmarks) in sync with dashboard edits.
+        crate::tray::refresh(&app);
     }
     Ok(())
 }

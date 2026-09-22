@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../../store";
 import { Card, Toggle, Slider, Btn, ColorInput, Dropdown, Section } from "../ui";
-import { IconRefresh, IconZap, IconWave, IconDevice } from "../icons";
+import { IconRefresh, IconZap, IconWave, IconDevice, IconPlus, IconTrash } from "../icons";
 import { RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import { rgbToHex } from "../../utilities";
 import type { RgbMode } from "@shared/types";
@@ -559,6 +559,13 @@ function hslHue([r, g, b]: [number, number, number]): number {
 export default function RgbTab() {
   const { cfg, rgb, save, audioLevel } = useStore();
   const deviceColors = useStore((s) => s.deviceColors);
+  const [profileNaming, setProfileNaming] = useState(false);
+  const [profileNameVal, setProfileNameVal] = useState("");
+  const promptProfileName = () => {
+    setProfileNaming(true);
+    setProfileNameVal(`Profile ${(cfg?.rgb.profiles.length ?? 0) + 1}`);
+    return null; // commit happens via the inline form below
+  };
   // Hooks must run unconditionally — derive everything after they complete.
   if (!cfg) return null;
   const rgbCfg = cfg.rgb;
@@ -912,6 +919,117 @@ export default function RgbTab() {
               </div>
             </div>
           ))}
+          {/* ---- profiles: save/apply named snapshots, also exposed in tray ---- */}
+          <div className="mt-6 border-t border-[var(--line)] pt-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[13px] font-semibold text-[var(--text)]">Profiles</div>
+                <div className="mt-0.5 text-[11px] text-[var(--text-faint)]">
+                  Save the current mode, color and speed as a snapshot — switchable from
+                  the tray menu.
+                </div>
+              </div>
+              {profileNaming ? (
+                <form
+                  className="flex items-center gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const name = profileNameVal.trim();
+                    if (name) {
+                      save((c) => {
+                        c.rgb.profiles = [
+                          ...c.rgb.profiles.filter((p) => p.name !== name),
+                          {
+                            name,
+                            mode: rgbCfg.mode,
+                            staticColor: rgbCfg.staticColor,
+                            animationSpeed: rgbCfg.animationSpeed,
+                          },
+                        ];
+                      });
+                    }
+                    setProfileNaming(false);
+                  }}
+                >
+                  <input
+                    autoFocus
+                    value={profileNameVal}
+                    onChange={(e) => setProfileNameVal(e.target.value)}
+                    onKeyDown={(e) => e.key === "Escape" && setProfileNaming(false)}
+                    placeholder="Profile name"
+                    className="w-36 rounded-lg border border-[rgb(var(--glow)/0.4)] bg-[var(--panel-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text)] outline-none"
+                  />
+                  <Btn variant="primary" onClick={() => {}}>
+                    Save
+                  </Btn>
+                </form>
+              ) : (
+                <Btn onClick={promptProfileName}>
+                  <IconPlus className="h-4 w-4" />
+                  Save current
+                </Btn>
+              )}
+            </div>
+            {(rgbCfg.profiles?.length ?? 0) === 0 ? (
+              <div className="rounded-xl border border-dashed border-[var(--line-strong)] px-4 py-5 text-center text-xs text-[var(--text-faint)]">
+                No profiles yet — tune the lights, then save the look.
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {rgbCfg.profiles.map((p) => {
+                  const activeNow =
+                    p.mode === rgbCfg.mode &&
+                    p.staticColor.join() === rgbCfg.staticColor.join() &&
+                    Math.abs(p.animationSpeed - rgbCfg.animationSpeed) < 0.01;
+                  return (
+                    <div
+                      key={p.name}
+                      className={`group flex items-center gap-2 rounded-xl border py-1.5 pl-1.5 pr-2 transition-all ${
+                        activeNow
+                          ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.1)]"
+                          : "border-[var(--line)] bg-[var(--panel-strong)] hover:border-[var(--line-strong)]"
+                      }`
+                    }
+                    >
+                      <button
+                        onClick={() =>
+                          save((c) => {
+                            const src = c.rgb.profiles.find((x) => x.name === p.name);
+                            if (!src) return;
+                            c.rgb.mode = src.mode;
+                            c.rgb.staticColor = src.staticColor;
+                            c.rgb.animationSpeed = src.animationSpeed;
+                          })
+                        }
+                        className="flex items-center gap-2"
+                        title={`Apply "${p.name}"`}
+                      >
+                        <span
+                          className="h-4 w-4 shrink-0 rounded-full border border-white/20"
+                          style={{ background: rgbToHex(p.staticColor) }}
+                        />
+                        <span className="text-xs font-semibold text-[var(--text)]">{p.name}</span>
+                        <span className="font-mono text-[10px] text-[var(--text-faint)]">
+                          {p.mode === "audioReactive" ? "audio" : p.mode} · {p.animationSpeed.toFixed(1)}×
+                        </span>
+                      </button>
+                      <button
+                        aria-label={`Delete profile ${p.name}`}
+                        onClick={() =>
+                          save((c) => {
+                            c.rgb.profiles = c.rgb.profiles.filter((x) => x.name !== p.name);
+                          })
+                        }
+                        className="hidden text-[var(--text-faint)] transition-colors hover:text-red-400 group-hover:block"
+                      >
+                        <IconTrash className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           {/* ---- mode-specific options + mixer: two-column disposition ---- */}
           {(rgbCfg.mode === "static" || rgbCfg.mode === "breathe" || rgbCfg.mode === "audioReactive") && (
             <ColorInput

@@ -89,6 +89,18 @@ pub struct WallpaperConfig {
     pub video_saturation: f32,
     /// Video color grading: hue rotation in degrees (-180..180).
     pub video_hue: f32,
+    /// Per-display wallpaper overrides, keyed by monitor device string
+    /// (e.g. "\\.\DISPLAY1"). A display with no entry uses the global
+    /// wallpaper config. Only kind+source are overridden; playback options
+    /// (fit, speed, grading, volume) stay global.
+    pub per_monitor: std::collections::BTreeMap<String, PerMonitorWallpaper>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PerMonitorWallpaper {
+    pub kind: WallpaperKind,
+    pub source: String,
 }
 
 impl Default for WallpaperConfig {
@@ -103,6 +115,7 @@ impl Default for WallpaperConfig {
             video_brightness: 1.0,
             video_saturation: 1.0,
             video_hue: 0.0,
+            per_monitor: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -204,6 +217,18 @@ pub struct RgbConfig {
     pub wave_direction: i32,
     /// Cycle mode rainbow spread across the strip in degrees (30..720).
     pub cycle_spread: f64,
+    /// Named lighting profiles: snapshot of mode/color/speed for quick switching.
+    pub profiles: Vec<RgbProfile>,
+}
+
+/// A named lighting profile bundling the most-tweaked RGB knobs.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RgbProfile {
+    pub name: String,
+    pub mode: RgbMode,
+    pub static_color: [u8; 3],
+    pub animation_speed: f64,
 }
 
 impl Default for RgbConfig {
@@ -227,6 +252,7 @@ impl Default for RgbConfig {
             audio_source: "system".into(),
             wave_direction: 1,
             cycle_spread: 360.0,
+            profiles: Vec::new(),
         }
     }
 }

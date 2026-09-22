@@ -32,6 +32,14 @@ export interface WallpaperConfig {
   videoSaturation: number;
   /** Video grading: hue rotation in degrees. */
   videoHue: number;
+  /** Per-display wallpaper overrides keyed by monitor device string. */
+  perMonitor: Record<string, PerMonitorWallpaper>;
+}
+
+/** Per-display wallpaper override (kind+source only; playback opts are global). */
+export interface PerMonitorWallpaper {
+  kind: WallpaperKind;
+  source: string;
 }
 
 export type RgbMode = "ambient" | "zone" | "pulse" | "static" | "cycle" | "wave" | "breathe" | "audioReactive";
@@ -83,6 +91,15 @@ export interface RgbConfig {
   waveDirection: 1 | -1;
   /** Cycle rainbow spread across the strip in degrees (30..720). */
   cycleSpread: number;
+  /** Named lighting profiles for quick switching (tray + dashboard). */
+  profiles: RgbProfile[];
+}
+
+export interface RgbProfile {
+  name: string;
+  mode: RgbMode;
+  staticColor: [number, number, number];
+  animationSpeed: number;
 }
 
 export type StickerFit = "contain" | "cover" | "fill";

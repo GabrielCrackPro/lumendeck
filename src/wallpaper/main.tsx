@@ -25,6 +25,8 @@ interface WallpaperInfo {
   /** Physical px per logical px (authoritative, from the backend window). */
   scale: number;
   source: string;
+  /** Static snapshot (poster frame) shown under video sources on failure. */
+  fallbackSource: string;
   config: Config["wallpaper"];
   paused: boolean;
   stickers: StickerDef[];
@@ -35,6 +37,11 @@ interface WallpaperInfo {
 }
 
 type VideoFit = "cover" | "contain" | "fill" | "auto";
+
+/** Prefix + timestamp for frontend diagnostics forwarded to the Rust log. */
+function formatLog(msg: string): string {
+  return `[wallpaper-webview] ${new Date().toISOString()} ${msg}`;
+}
 
 let pausedGlobal = false;
 
@@ -732,6 +739,7 @@ function MediaSurface({
   screen,
   onReady,
   style,
+  fallback,
 }: {
   kind: WallpaperKind;
   source: string;
@@ -742,12 +750,14 @@ function MediaSurface({
   screen: MonitorInfo;
   onReady?: () => void;
   style?: CSSProperties;
+  fallback?: string;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [shaderOk, setShaderOk] = useState(true);
   const [videoFitStyle, setVideoFitStyle] = useState<CSSProperties["objectFit"]>("cover");
+  const [videoFailed, setVideoFailed] = useState(false);
   const [slideFiles, setSlideFiles] = useState<string[]>([]);
   const [slideIdx, setSlideIdx] = useState(0);
   const [fade, setFade] = useState(1);
@@ -758,6 +768,11 @@ function MediaSurface({
     armed.current = true;
     onReady?.();
   };
+
+  // A new source gets a clean failure slate (the error state is per-source).
+  useEffect(() => {
+    setVideoFailed(false);
+  }, [source]);
 
   // Resolution-aware video fit once the video metadata is known. Inline style
   // (not a class) so the value never depends on Tailwind's static-class scan.
@@ -882,6 +897,19 @@ function MediaSurface({
         className="flex h-full w-full items-center justify-center overflow-hidden bg-black"
         style={style}
       >
+        {/* Fallback: the backend's poster-frame snapshot of this source. When
+            the video 404s or the codec is unsupported, the desktop shows the
+            still image instead of a black void. Rendered underneath, so it
+            also shows through during decode startup. */}
+        {fallback && (
+          <img
+            src={fallback}
+            alt=""
+            crossOrigin="anonymous"
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{ visibility: videoFailed ? "visible" : "hidden" }}
+          />
+        )}
         <video
           ref={videoRef}
           src={source}
@@ -894,9 +922,19 @@ function MediaSurface({
           muted={volume === 0}
           playsInline
           style={{ display: "none" }}
-          onLoadedData={() => fireReady()}
+          onLoadedData={() => {
+            invoke("log_frontend", {
+              msg: formatLog(`video loaded-data ok src=${source} ${videoRef.current?.videoWidth}x${videoRef.current?.videoHeight}`),
+            }).catch(() => {});
+            fireReady();
+          }}
           onError={(e) => {
+            const err = videoRef.current?.error;
+            invoke("log_frontend", {
+              msg: formatLog(`video ERROR src=${source} code=${err?.code} msg=${err?.message}`),
+            }).catch(() => {});
             console.error("wallpaper video error for", source, e);
+            setVideoFailed(true);
             // A failed source must not wedge the crossfade: release the
             // stage so the layer timeout / prune logic can take over.
             fireReady();
@@ -1088,6 +1126,7 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
               fx={videoFx}
               slideshow={slideshow}
               screen={screen}
+              fallback={info.fallbackSource || undefined}
               onReady={isTop ? () => setTopReady(true) : undefined}
               style={{
                 opacity,

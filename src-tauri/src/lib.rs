@@ -19,6 +19,7 @@ pub mod rgb;
 pub mod stickers;
 pub mod sticker_windows;
 pub mod thumbs;
+pub mod tray;
 pub mod wallpaper;
 pub mod wallpaper_bg;
 pub mod win32;
@@ -215,6 +216,7 @@ pub fn run() {
             ipc::set_config,
             ipc::reload_config,
             ipc::log_sticker_render,
+            ipc::log_frontend,
             ipc::begin_sticker_editor,
             ipc::end_sticker_editor,
             ipc::get_wallpaper_info,
@@ -222,6 +224,7 @@ pub fn run() {
             ipc::gallery_add,
             ipc::gallery_remove,
             ipc::gallery_apply,
+            ipc::gallery_apply_monitor,
             ipc::gallery_import_folder,
             ipc::gallery_import_paths,
             ipc::set_wallpaper_enabled,
@@ -290,9 +293,10 @@ pub fn run() {
                             let _ = w.set_focus();
                         }
                     }
-                    _ => {}
+                    other => crate::tray::on_menu_event(app, other),
                 })
                 .build(app)?;
+            crate::tray::refresh(app.handle());
 
             // First-run: create dashboard + wallpaper.
             let cfg = config_store::get();

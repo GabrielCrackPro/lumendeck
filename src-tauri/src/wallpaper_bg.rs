@@ -21,6 +21,17 @@ fn bg_path() -> PathBuf {
         .join("wallpaper-bg.jpg")
 }
 
+/// Servable URL for the static fallback frame, for the wallpaper webview's
+/// under-video layer. Empty string when no snapshot exists yet.
+pub fn bg_media_url() -> String {
+    let p = bg_path();
+    if p.is_file() {
+        media::media_url_for_file(&p.to_string_lossy())
+    } else {
+        String::new()
+    }
+}
+
 /// Resolve the wallpaper source to a local file path (images and videos only).
 fn resolve_file(source: &str) -> Option<PathBuf> {
     let raw = media::decode_media_ref(source);
