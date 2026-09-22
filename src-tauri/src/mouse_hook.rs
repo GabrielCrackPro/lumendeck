@@ -54,6 +54,13 @@ pub fn disarm() {
     fire(ClickResult::Cancel);
 }
 
+/// Resolve the armed placement at a specific point (corner quick-place).
+pub fn resolve_place_at(x: i32, y: i32) {
+    ARMED.store(false, Ordering::SeqCst);
+    log::info!("[mouse-hook] place via corner zone at ({x}, {y})");
+    fire(ClickResult::Place(x, y));
+}
+
 /// Await the next armed click (must be called from a Tauri async command).
 pub async fn wait() -> ClickResult {
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -117,6 +124,9 @@ unsafe fn install() -> windows::core::Result<windows::Win32::UI::WindowsAndMessa
 /// One streamed mouse observation: position + button state.
 pub type MouseEv = (i32, i32, bool, bool); // x, y, left-down, right-down
 
+/// Wheel deltas streamed while placement is armed (positive = up/zoom in).
+pub static WHEEL_TX: Mutex<Option<tokio::sync::mpsc::UnboundedSender<i32>>> = Mutex::new(None);
+
 unsafe extern "system" fn hook_proc(
     code: i32,
     wparam: windows::Win32::Foundation::WPARAM,
@@ -125,7 +135,7 @@ unsafe extern "system" fn hook_proc(
     use windows::Win32::Foundation::LRESULT;
     use windows::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, MSLLHOOKSTRUCT, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-        WM_RBUTTONDOWN, WM_RBUTTONUP,
+        WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP,
     };
 
     if code >= 0 {
@@ -139,6 +149,15 @@ unsafe extern "system" fn hook_proc(
                 let _ = CURSOR_TX.lock().map(|tx| {
                     if let Some(tx) = tx.as_ref() {
                         let _ = tx.send((info.pt.x, info.pt.y, false, false));
+                    }
+                });
+            }
+            if msg == WM_MOUSEWHEEL {
+                // HIWORD of mouseData: positive when scrolled up.
+                let delta = (info.mouseData as u16 as i32) >> 16;
+                let _ = WHEEL_TX.lock().map(|tx| {
+                    if let Some(tx) = tx.as_ref() {
+                        let _ = tx.send(delta);
                     }
                 });
             }

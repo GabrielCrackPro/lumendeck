@@ -1,5 +1,5 @@
 // Line-icon set (stroke-based, inherits currentColor). No emoji anywhere.
-import type { SVGProps } from "react";
+import type { ReactNode, SVGProps } from "react";
 
 type P = SVGProps<SVGSVGElement>;
 
@@ -159,3 +159,131 @@ export const IconZones = (props: P) => (
     <path d="M4 10h6M10 10v4M10 14H4M12 4v6M12 4h8M14 10m2 4v6M13 14v6" />
   </svg>
 );
+
+export const IconPencil = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3Z" />
+    <path d="M13.5 6.5l3 3" />
+  </svg>
+);
+
+export const IconGear = (props: P) => (
+  <svg {...base(props)}>
+    <circle cx="12" cy="12" r="3.2" />
+    <path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.9 1.9M16.6 16.6l1.9 1.9M18.5 5.5l-1.9 1.9M7.4 16.6l-1.9 1.9" />
+  </svg>
+);
+
+export const IconRailCollapse = (props: P) => (
+  <svg {...base(props)}>
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <path d="M9 4v16M13.5 12h5M16.5 9.5 19 12l-2.5 2.5" />
+  </svg>
+);
+
+export const IconChevronDown = (props: P) => (
+  <svg {...base(props)}>
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);
+
+export const IconCheck = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M5 13l4 4L19 7" />
+  </svg>
+);
+
+export const IconPipette = (props: P) => (
+  <svg {...base(props)}>
+    <path d="m11 11 6.5-6.5a2.1 2.1 0 0 1 3 3L14 14" />
+    <path d="m12.5 8.5 3 3" />
+    <path d="M11 11 5.5 16.5c-.6.6-.9 1.3-1 2.1l-.2 1.6c-.05.4.25.7.65.65l1.6-.2c.8-.1 1.5-.4 2.1-1L14 14" />
+  </svg>
+);
+
+/** Per-device-type hardware icon, chosen from the OpenRGB type string. */
+const DEVICE_ICONS: Record<string, ReactNode> = {
+  keyboard: (
+    <>
+      <rect x="2.5" y="6" width="19" height="12" rx="2.5" />
+      <path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M6 14.5h12" />
+    </>
+  ),
+  mouse: (
+    <>
+      <rect x="7" y="3" width="10" height="18" rx="5" />
+      <path d="M12 3v6" />
+    </>
+  ),
+  mousemat: (
+    <>
+      <rect x="2.5" y="8" width="19" height="9" rx="2" />
+      <path d="M6 12.5h12" />
+    </>
+  ),
+  headset: (
+    <>
+      <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
+      <rect x="3" y="14" width="4.5" height="6" rx="1.6" />
+      <rect x="16.5" y="14" width="4.5" height="6" rx="1.6" />
+    </>
+  ),
+  motherboard: (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="M8 4v6h5M16 20v-5h-4M9 17h3" />
+    </>
+  ),
+  gpu: (
+    <>
+      <rect x="3" y="7" width="17" height="10" rx="2" />
+      <path d="M20 10h2v5h-2M7 17v3M12 17v3M7 11h6" />
+    </>
+  ),
+  dram: (
+    <>
+      <rect x="6" y="5" width="12" height="14" rx="1.5" />
+      <path d="M9 8h6M9 11h6M9 14h6M8 19v2M12 19v2M16 19v2" />
+    </>
+  ),
+  strip: (
+    <>
+      <path d="M3 12h18M6 12V8m4 4V8m4 4V8m4 4V8M6 16v-1m4 1v-1m4 1v-1m4 1v-1" />
+    </>
+  ),
+  fan: (
+    <>
+      <circle cx="12" cy="12" r="2.2" />
+      <path d="M12 9.8C12 6 10 4.5 7.5 5c-.4 3 1.6 5 4.5 4.8Zm2.2 2.2c3.8 0 5.3-2 4.8-4.5-3-.4-5 1.6-4.8 4.5Zm-2.2 2.2c0 3.8 2 5.3 4.5 4.8.4-3-1.6-5-4.5-4.8Zm-2.2-2.2C6 12 4.5 14 5 16.5c3 .4 5-1.6 4.8-4.5Z" />
+    </>
+  ),
+  keypad: (
+    <>
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <path d="M8 7h.01M12 7h.01M16 7h.01M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01" />
+    </>
+  ),
+};
+
+export function IconDevice({ type, ...props }: { type: string } & P) {
+  const t = type.toLowerCase();
+  const key =
+    (t.includes("keyboard") && "keyboard") ||
+    (t.includes("mouse") && !t.includes("mat") && !t.includes("pad") && "mouse") ||
+    (t.includes("mouse") && "mousemat") ||
+    (t.includes("headset") || t.includes("headphone") || t.includes("audio") ? "headset" : false) ||
+    (t.includes("motherboard") || t.includes("mainboard") ? "motherboard" : false) ||
+    (t.includes("gpu") || t.includes("graphic") || t.includes("video") ? "gpu" : false) ||
+    (t.includes("dram") || t.includes("memory") ? "dram" : false) ||
+    (t.includes("strip") || t.includes("led") || t.includes("ambient") ? "strip" : false) ||
+    (t.includes("fan") || t.includes("cooler") || t.includes("cooling") ? "fan" : false) ||
+    (t.includes("keypad") ? "keypad" : false) ||
+    "other";
+  const glyph = DEVICE_ICONS[key] ?? (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+      <circle cx="12" cy="12" r="3.5" />
+    </>
+  );
+  return <svg {...base(props)}>{glyph}</svg>;
+}

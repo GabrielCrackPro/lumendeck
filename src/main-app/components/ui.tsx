@@ -1,6 +1,47 @@
-import { useId, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { IconRefresh, IconMonitor, IconCheck, IconPipette, IconChevronDown } from "./icons";
+import { rgbToHex } from "../utilities";
 
-/** Frosted-glass panel with a living LED in the header. */
+/**
+ * Collapsible sub-section inside a Card: a one-line toggle header that folds
+ * a group of related controls away. Default-open when `defaultOpen`, or when
+ * it contains the most recently touched control.
+ */
+export function Section({
+  title,
+  children,
+  defaultOpen = false,
+  badge,
+}: {
+  title: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  badge?: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="-mx-1">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className={`flex w-full items-center gap-2 rounded-lg px-1 py-2 text-left transition-colors ${
+          open ? "text-[var(--text)]" : "text-[var(--text-dim)] hover:text-[var(--text)]"
+        }`}
+      >
+        <IconChevronDown
+          className={`h-3.5 w-3.5 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${
+            open ? "" : "-rotate-90"
+          }`}
+        />
+        <span className="kicker !tracking-[0.14em]">{title}</span>
+        {badge != null && <span className="ml-auto shrink-0">{badge}</span>}
+      </button>
+      {open && <div className="pb-2 pl-6 pr-1">{children}</div>}
+    </div>
+  );
+}
+
+/** Frosted-glass panel with a quiet section header. */
 export function Card({
   title,
   children,
@@ -13,15 +54,12 @@ export function Card({
   return (
     <section className="glass">
       {/* top edge light */}
-      <div className="pointer-events-none absolute inset-x-5 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-      <div className="relative p-6">
-        <header className="mb-5 flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[rgb(var(--glow))] shadow-[0_0_10px_rgb(var(--glow))]" />
-            <h2 className="truncate text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-dim)]">
-              {title}
-            </h2>
-          </div>
+      <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+      <div className="relative p-5">
+        <header className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="truncate text-[13px] font-semibold tracking-tight text-[var(--text)]">
+            {title}
+          </h2>
           {right}
         </header>
         {children}
@@ -89,12 +127,14 @@ export function Toggle({
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`relative h-6 w-11 shrink-0 rounded-full border transition-all duration-200 ${
+        className={`switch-btn relative h-6 w-11 shrink-0 rounded-full border transition-all duration-200 ${
           checked
             ? "border-transparent bg-[rgb(var(--glow))] shadow-[0_2px_14px_-2px_rgb(var(--glow)/0.7)]"
             : "border-[var(--line-strong)] bg-[var(--panel-strong)]"
         }`}
       >
+        {/* ripple burst on toggle */}
+        <span key={String(checked)} className="switch-ripple absolute inset-0 rounded-full" />
         <span
           className={`absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all duration-200 ${
             checked ? "left-[24px]" : "left-[3px]"
@@ -158,22 +198,62 @@ export function Select<T extends string>({
   return (
     <label className="block py-3 text-sm">
       {label && <div className="mb-1.5 font-medium text-[var(--text)]">{label}</div>}
-      <div className="relative">
-        <select
-          value={value}
-          onChange={(e) => onChange(e.target.value as T)}
-          className="w-full appearance-none rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2 pr-9 text-sm text-[var(--text)] shadow-inner outline-none transition-colors hover:border-[var(--line-strong)] focus:border-[rgb(var(--glow)/0.6)]"
-        >
-          {options.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-              {o.hint ? ` — ${o.hint}` : ""}
-            </option>
-          ))}
-        </select>
+      <Dropdown
+        value={value}
+        options={options}
+        onChange={(v) => onChange(v as T)}
+      />
+    </label>
+  );
+}
+
+/** Custom dropdown matching the app's glass/ring language (no native select). */
+export function Dropdown<T extends string | number>({
+  value,
+  options,
+  onChange,
+  className,
+}: {
+  value: T;
+  options: { id: T; label: string }[];
+  onChange: (v: T) => void;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const current = options.find((o) => o.id === value);
+  return (
+    <div ref={ref} className={`relative ${className ?? ""}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={`flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors ${
+          open
+            ? "border-[rgb(var(--glow)/0.6)]"
+            : "border-[var(--line)] hover:border-[var(--line-strong)]"
+        } bg-[var(--panel-strong)] text-[var(--text)]`}
+      >
+        <span className="min-w-0 truncate">{current?.label ?? String(value)}</span>
         <svg
-          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-faint)]"
           viewBox="0 0 24 24"
+          className={`h-4 w-4 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
           fill="none"
           stroke="currentColor"
           strokeWidth="1.8"
@@ -182,8 +262,40 @@ export function Select<T extends string>({
         >
           <path d="m6 9 6 6 6-6" />
         </svg>
-      </div>
-    </label>
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          className="page-enter-header absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-64 overflow-y-auto rounded-xl border border-[var(--line)] bg-[color-mix(in_srgb,var(--bg)_92%,transparent)] p-1 shadow-[0_20px_50px_-16px_rgb(0_0_0/0.7)] backdrop-blur-xl"
+        >
+          {options.map((o) => {
+            const active = o.id === value;
+            return (
+              <button
+                key={String(o.id)}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onClick={() => {
+                  onChange(o.id);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
+                  active
+                    ? "bg-[rgb(var(--glow)/0.12)] font-semibold text-[rgb(var(--glow))]"
+                    : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
+                }`}
+              >
+                <span className="min-w-0 truncate">{o.label}</span>
+                {active && (
+                  <IconCheck className="h-3.5 w-3.5 shrink-0" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -217,6 +329,54 @@ export function Btn({
   );
 }
 
+// ---------- RGB <-> HSV helpers (internal to the picker) ----------
+
+function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const d = max - min;
+  let h = 0;
+  if (d > 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return [h, max === 0 ? 0 : d / max, max];
+}
+
+function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
+  const c = v * s;
+  const hp = h / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  let r = 0, g = 0, b = 0;
+  if (hp < 1) [r, g, b] = [c, x, 0];
+  else if (hp < 2) [r, g, b] = [x, c, 0];
+  else if (hp < 3) [r, g, b] = [0, c, x];
+  else if (hp < 4) [r, g, b] = [0, x, c];
+  else if (hp < 5) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const m = v - c;
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+}
+
+const PRESETS: [string, string][] = [
+  ["#5078FF", "sky"],
+  ["#8B5CF6", "violet"],
+  ["#EC4899", "magenta"],
+  ["#EF4444", "red"],
+  ["#F59E0B", "amber"],
+  ["#22C55E", "green"],
+  ["#06B6D4", "cyan"],
+  ["#FFFFFF", "white"],
+];
+
+/**
+ * Custom color picker: swatch trigger opening a popover with an HSV
+ * saturation/value field, hue slider, preset swatches and a hex input.
+ * Same API as the old native-input ColorInput.
+ */
 export function ColorInput({
   value,
   onChange,
@@ -226,41 +386,215 @@ export function ColorInput({
   onChange: (v: [number, number, number]) => void;
   label: string;
 }) {
-  const uid = useId();
-  const hex =
-    "#" + value.map((c) => c.toString(16).padStart(2, "0")).join("").toUpperCase();
+  const hex = rgbToHex(value);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const svRef = useRef<HTMLDivElement>(null);
+  const [h, s, v] = rgbToHsv(value[0], value[1], value[2]);
+  const [hue, setHue] = useState(h);
+  const [hexDraft, setHexDraft] = useState<string | null>(null);
+
+  // Track hue separately while dragging so the SV square's base color stays put.
+  useEffect(() => {
+    if (!open) setHue(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const emit = (nh: number, ns: number, nv: number) => onChange(hsvToRgb(nh, ns, nv));
+
+  const svPoint = (e: PointerEvent | React.PointerEvent): [number, number] => {
+    const rect = svRef.current!.getBoundingClientRect();
+    const sx = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const sy = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+    return [sx, sy];
+  };
+
+  const startSvDrag = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const [sx, sy] = svPoint(e);
+    emit(hue, sx, 1 - sy);
+    const move = (ev: PointerEvent) => {
+      const [mx, my] = svPoint(ev);
+      emit(hue, mx, 1 - my);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const hueHex = rgbToHex(hsvToRgb(hue, 1, 1));
+  const displayHex = hexDraft ?? hex.toUpperCase();
+
+  const commitHex = (text: string) => {
+    const m = /^#?([0-9a-fA-F]{6})$/.exec(text.trim());
+    if (m && m[1]) {
+      const t = m[1];
+      onChange([
+        parseInt(t.slice(0, 2), 16),
+        parseInt(t.slice(2, 4), 16),
+        parseInt(t.slice(4, 6), 16),
+      ]);
+    }
+    setHexDraft(null);
+  };
+
   return (
-    <label className="flex items-center justify-between gap-4 py-3 text-sm">
+    <div ref={rootRef} className="relative flex items-center justify-between gap-4 py-3 text-sm">
       <span className="font-medium text-[var(--text)]">{label}</span>
       <div className="flex items-center gap-3">
-        <span className="font-mono text-xs tracking-wide text-[var(--text-dim)]">{hex}</span>
-        <div className="relative h-9 w-16 overflow-hidden rounded-xl border border-[var(--line-strong)] shadow-[0_6px_18px_-8px_rgb(0_0_0/0.5)]">
-          <input
-            id={uid}
-            type="color"
-            value={`#${value.map((c) => c.toString(16).padStart(2, "0")).join("")}`}
-            onChange={(e) => {
-              const h = e.target.value;
-              onChange([
-                parseInt(h.slice(1, 3), 16),
-                parseInt(h.slice(3, 5), 16),
-                parseInt(h.slice(5, 7), 16),
-              ]);
-            }}
-            className="absolute -left-2 -top-2 h-20 w-24 cursor-pointer"
-          />
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background: `linear-gradient(135deg, ${hex} 0%, ${hex}CC 60%, rgb(0 0 0 / 0.35) 160%)`,
-              boxShadow: `inset 0 0 18px -4px ${hex}CC, inset 0 0 0 1px rgb(255 255 255 / 0.12)`,
-            }}
-          />
-        </div>
+        <span className="font-mono text-xs tracking-wide text-[var(--text-dim)]">
+          {hex.toUpperCase()}
+        </span>
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="group relative h-9 w-16 overflow-hidden rounded-xl border border-[var(--line-strong)] shadow-[0_6px_18px_-8px_rgb(0_0_0/0.5)] transition-all hover:border-[var(--line-strong)] hover:brightness-110"
+          style={{
+            background: `linear-gradient(135deg, ${hex} 0%, ${hex}CC 60%, rgb(0 0 0 / 0.35) 160%)`,
+            boxShadow: `inset 0 0 18px -4px ${hex}CC, inset 0 0 0 1px rgb(255 255 255 / 0.12)`,
+          }}
+          title="Edit color"
+        />
       </div>
-    </label>
+
+      {open && (
+        <div className="absolute right-0 top-full z-40 mt-2 w-64 rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-3.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.7)] backdrop-blur-xl page-enter-header">
+          {/* saturation / value square */}
+          <div
+            ref={svRef}
+            onPointerDown={startSvDrag}
+            className="relative h-32 w-full cursor-crosshair touch-none rounded-lg border border-[var(--line)]"
+            style={{
+              background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hueHex})`,
+            }}
+          >
+            <span
+              className="pointer-events-none absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgb(0_0_0/0.6),0_0_10px_rgb(0_0_0/0.5)]"
+              style={{
+                left: `${s * 100}%`,
+                top: `${(1 - v) * 100}%`,
+                background: hex,
+              }}
+            />
+          </div>
+
+          {/* hue slider */}
+          <div className="relative mt-3 h-3.5 overflow-hidden rounded-full border border-[var(--line)]">
+            <div
+              className="absolute inset-0"
+              style={{
+                background:
+                  "linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%)",
+              }}
+            />
+            <div
+              className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgb(0_0_0/0.6)]"
+              style={{ left: `${(hue / 360) * 100}%`, background: hueHex }}
+            />
+            <input
+              type="range"
+              min={0}
+              max={359}
+              value={Math.round(hue)}
+              onChange={(e) => {
+                const nh = Number(e.target.value);
+                setHue(nh);
+                emit(nh, s, v);
+              }}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            />
+          </div>
+
+          {/* presets */}
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {PRESETS.map(([ph, name]) => (
+              <button
+                key={ph}
+                title={name}
+                onClick={() => {
+                  const [pr, pg, pb] = [
+                    parseInt(ph.slice(1, 3), 16),
+                    parseInt(ph.slice(3, 5), 16),
+                    parseInt(ph.slice(5, 7), 16),
+                  ];
+                  const [phh] = rgbToHsv(pr, pg, pb);
+                  setHue(phh);
+                  onChange([pr, pg, pb]);
+                }}
+                className={`h-5 w-5 rounded-md border transition-transform hover:scale-110 ${
+                  hex.toUpperCase() === ph ? "border-white" : "border-white/20"
+                }`}
+                style={{ background: ph }}
+              />
+            ))}
+          </div>
+
+          {/* eyedropper row + hex input */}
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              title="Pick a color from the screen"
+              onClick={async () => {
+                try {
+                  // EyeDropper API (Chromium / WebView2): full-screen pixel sampling.
+                  const ED = (
+                    window as unknown as {
+                      EyeDropper?: { new (): { open: (o?: { signal?: AbortSignal }) => Promise<{ sRGBHex: string }> } };
+                    }
+                  ).EyeDropper;
+                  if (!ED) throw new Error("unsupported");
+                  const { sRGBHex } = await new ED().open();
+                  const t = sRGBHex.replace("#", "");
+                  const pr = parseInt(t.slice(0, 2), 16);
+                  const pg = parseInt(t.slice(2, 4), 16);
+                  const pb = parseInt(t.slice(4, 6), 16);
+                  const [ph] = rgbToHsv(pr, pg, pb);
+                  setHue(ph);
+                  onChange([pr, pg, pb]);
+                } catch {
+                  // user cancelled or API unsupported — no-op
+                }
+              }}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[var(--line)] text-[var(--text-dim)] transition-colors hover:border-[var(--line-strong)] hover:text-[rgb(var(--glow))]"
+            >
+              <IconPipette className="h-3.5 w-3.5" />
+            </button>
+            <input
+              value={displayHex}
+              onChange={(e) => setHexDraft(e.target.value)}
+              onBlur={(e) => commitHex(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitHex((e.target as HTMLInputElement).value);
+              }}
+              spellCheck={false}
+              className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--panel)] px-3 py-1.5 font-mono text-xs uppercase tracking-wider text-[var(--text)] outline-none transition-colors focus:border-[rgb(var(--glow)/0.5)]"
+              placeholder="#RRGGBB"
+            />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
+
+
 
 export function TextInput({
   value,
@@ -344,6 +678,144 @@ export function StatTile({
   );
 }
 
-export function useStateSafe<T>(init: T): [T, (v: T) => void] {
-  return useState<T>(init);
+/** Empty-state panel with dashed border, icon, title, and optional action. */
+export function EmptyState({
+  icon,
+  title,
+  description,
+  action,
+}: {
+  icon: ReactNode;
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3.5 rounded-2xl border border-dashed border-[var(--line-strong)] px-8 py-14 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--panel-strong)] text-[var(--text-faint)]">
+        {icon}
+      </div>
+      <div>
+        <div className="text-sm font-semibold text-[var(--text)]">{title}</div>
+        {description && (
+          <p className="mt-1 text-xs text-[var(--text-faint)]">{description}</p>
+        )}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+/** Icon in a rounded box — used for device icons, shortcut cards, etc. */
+export function IconBox({
+  children,
+  size = "md",
+  variant = "neutral",
+  className,
+}: {
+  children: ReactNode;
+  size?: "sm" | "md" | "lg";
+  variant?: "neutral" | "glow" | "amber";
+  className?: string;
+}) {
+  const sizeClass = {
+    sm: "h-7 w-7",
+    md: "h-9 w-9",
+    lg: "h-12 w-12",
+  }[size];
+  const iconSize = { sm: "h-3.5 w-3.5", md: "h-[18px] w-[18px]", lg: "h-5 w-5" }[size];
+  const border = {
+    neutral: "border-[var(--line)] bg-[var(--panel-strong)] text-[var(--text-dim)]",
+    glow: "border-[rgb(var(--glow)/0.25)] bg-[rgb(var(--glow)/0.08)] text-[rgb(var(--glow))]",
+    amber: "border-amber-500/25 bg-amber-500/10 text-amber-300",
+  }[variant];
+  return (
+    <span
+      className={`flex shrink-0 items-center justify-center rounded-xl border ${sizeClass} ${border} ${className ?? ""}`}
+    >
+      <span className={iconSize}>{children}</span>
+    </span>
+  );
+}
+
+/** Standardized refresh/retry button. */
+export function RefreshBtn({
+  label = "Refresh",
+  variant = "ghost",
+}: {
+  label?: string;
+  variant?: "ghost" | "default";
+}) {
+  const base =
+    variant === "ghost"
+      ? "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
+      : "border border-[var(--line)] bg-[var(--panel-strong)] text-[var(--text)] hover:border-[var(--line-strong)] hover:brightness-110";
+  return (
+    <button
+      onClick={() => {
+        // Lazy import to avoid circular deps.
+        import("../store").then(({ useStore }) => useStore.getState().load());
+      }}
+      className={`inline-flex select-none items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all active:scale-[0.97] ${base}`}
+    >
+      <IconRefresh className="h-4 w-4" />
+      {label}
+    </button>
+  );
+}
+
+/** Shared displays panel used across multiple tabs. */
+export function DisplaysCard({ compact }: { compact?: boolean }) {
+  const [mons, setMons] = useState<
+    { device: string; x: number; y: number; w: number; h: number; primary: boolean }[]
+  >([]);
+  useEffect(() => {
+    import("@tauri-apps/api/core")
+      .then(({ invoke }) =>
+        invoke<{ device: string; x: number; y: number; w: number; h: number; primary: boolean }[]>("monitors")
+          .then(setMons)
+          .catch(() => setMons([])),
+      )
+      .catch(() => {});
+  }, []);
+  return (
+    <Card title="Displays">
+      <div className={`grid gap-3 ${compact ? "sm:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
+        {mons.map((m, i) => (
+          <div
+            key={`${m.device}-${i}`}
+            className={`flex items-center gap-3 rounded-2xl border px-4 py-3.5 ${
+              m.primary
+                ? "border-[rgb(var(--glow)/0.35)] bg-[rgb(var(--glow)/0.07)]"
+                : "border-[var(--line)] bg-[var(--panel-strong)]"
+            }`}
+          >
+            <div
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
+                m.primary ? "bg-[rgb(var(--glow)/0.15)]" : "bg-[var(--panel)]"
+              }`}
+            >
+              <IconMonitor className="h-5 w-5 text-[var(--text-dim)]" />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-[var(--text)]">
+                {m.device.replace(/\\/g, "") || `Display ${i + 1}`}
+                {m.primary && (
+                  <span className="ml-2 font-mono text-[9px] uppercase tracking-widest text-[rgb(var(--glow))]">
+                    primary
+                  </span>
+                )}
+              </div>
+              <div className="font-mono text-[11px] text-[var(--text-faint)]">
+                {m.w} × {m.h}{compact ? "" : ` @ (${m.x}, ${m.y})`}
+              </div>
+            </div>
+          </div>
+        ))}
+        {mons.length === 0 && (
+          <div className="col-span-full text-sm text-[var(--text-faint)]">Detecting displays…</div>
+        )}
+      </div>
+    </Card>
+  );
 }

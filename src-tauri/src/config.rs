@@ -22,6 +22,8 @@ pub struct GeneralConfig {
     pub pause_on_battery_saver: bool,
     pub pause_on_fullscreen: bool,
     pub wallpaper_enabled: bool,
+    /// UI accent follows live device colors (true) or frozen to the static color (false).
+    pub accent_live: bool,
 }
 
 impl Default for GeneralConfig {
@@ -32,6 +34,7 @@ impl Default for GeneralConfig {
             pause_on_battery_saver: true,
             pause_on_fullscreen: true,
             wallpaper_enabled: true,
+            accent_live: false,
         }
     }
 }
@@ -78,6 +81,14 @@ pub struct WallpaperConfig {
     /// (letterbox, aspect-correct), "fill" (stretch), or "auto" (cover when
     /// the video aspect is within 10% of the display, else contain).
     pub video_fit: String,
+    /// Video playback rate (1.0 = normal). Clamped in the runtime to 0.1..8.
+    pub video_speed: f32,
+    /// Video color grading: multiplier on brightness (1 = unchanged).
+    pub video_brightness: f32,
+    /// Video color grading: saturation multiplier (1 = unchanged, 0 = gray).
+    pub video_saturation: f32,
+    /// Video color grading: hue rotation in degrees (-180..180).
+    pub video_hue: f32,
 }
 
 impl Default for WallpaperConfig {
@@ -88,6 +99,10 @@ impl Default for WallpaperConfig {
             volume: 0.0,
             slideshow: SlideshowConfig::default(),
             video_fit: "auto".into(),
+            video_speed: 1.0,
+            video_brightness: 1.0,
+            video_saturation: 1.0,
+            video_hue: 0.0,
         }
     }
 }
@@ -107,6 +122,9 @@ pub enum RgbMode {
     Cycle,
     /// Smooth brightness breathing on the static color.
     Breathe,
+    /// LEDs pulse in sync with system audio.
+    #[serde(rename = "audioReactive")]
+    AudioReactive,
 }
 
 impl RgbMode {
@@ -114,7 +132,10 @@ impl RgbMode {
     /// wallpaper samples. They also want a faster push cadence than the
     /// reactive modes so motion looks fluid.
     pub fn is_animation(&self) -> bool {
-        matches!(self, RgbMode::Wave | RgbMode::Cycle | RgbMode::Breathe)
+        matches!(
+            self,
+            RgbMode::Wave | RgbMode::Cycle | RgbMode::Breathe | RgbMode::AudioReactive
+        )
     }
 }
 
@@ -171,6 +192,18 @@ pub struct RgbConfig {
     pub idle_timeout_sec: u64,
     /// How often (seconds) to check for idle state (1..60).
     pub idle_check_interval_sec: u64,
+    /// Device driving the dashboard accent color (None = auto, Some(-1) = static).
+    pub accent_device: Option<u32>,
+    /// Audio-reactive sensitivity (0.1..3, 1 = normal).
+    pub audio_sensitivity: f64,
+    /// Audio-reactive smoothing (0 = snap, 1 = very slow).
+    pub audio_smoothing: f64,
+    /// Audio capture source: "system" (WASAPI loopback) or "microphone" (WASAPI capture).
+    pub audio_source: String,
+    /// Wave mode travel direction: 1 = forward, -1 = reverse.
+    pub wave_direction: i32,
+    /// Cycle mode rainbow spread across the strip in degrees (30..720).
+    pub cycle_spread: f64,
 }
 
 impl Default for RgbConfig {
@@ -186,8 +219,14 @@ impl Default for RgbConfig {
             min_update_ms: 100,
             excluded_devices: Vec::new(),
             animation_speed: 1.0,
-            idle_timeout_sec: 0,
-            idle_check_interval_sec: 10,
+            idle_timeout_sec: 30,
+            idle_check_interval_sec: 5,
+            accent_device: None,
+            audio_sensitivity: 1.0,
+            audio_smoothing: 0.3,
+            audio_source: "system".into(),
+            wave_direction: 1,
+            cycle_spread: 360.0,
         }
     }
 }
@@ -217,6 +256,10 @@ pub struct StickerDef {
     pub opacity: f64,
     pub muted: bool,
     pub visible: bool,
+    /// Render in a topmost OS window above all applications instead of the
+    /// wallpaper layer (which sits behind desktop icons).
+    #[serde(default)]
+    pub on_top: bool,
 }
 
 impl Default for StickerDef {
@@ -233,6 +276,7 @@ impl Default for StickerDef {
             opacity: 1.0,
             muted: false,
             visible: true,
+            on_top: false,
         }
     }
 }

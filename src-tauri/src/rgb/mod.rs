@@ -1,6 +1,7 @@
 //! RGB engine: palette math, zone mapping, and the sample drain loop.
 //! The OpenRGB connection itself lives in `openrgb_client`.
 
+pub mod audio;
 pub mod openrgb_client;
 pub mod palette;
 
@@ -41,6 +42,21 @@ const MAX_LED_PREVIEW: usize = 96;
 /// When true, the engine pushes black (off) to all devices instead of normal
 /// output. Toggled by the idle timer on inactivity.
 static SLEEPING: AtomicBool = AtomicBool::new(false);
+
+/// Device ids whose exclusion state changed since the last engine tick, so a
+/// farewell sweep can play on the hardware as it's switched off/on.
+
+
+/// Current LED count for a device (0 when unknown).
+fn status_len(client: &RgbClientHandle, device_id: u32) -> usize {
+    client
+        .status()
+        .devices
+        .iter()
+        .find(|d| d.id == device_id)
+        .map(|d| d.leds as usize)
+        .unwrap_or(0)
+}
 
 /// Set the idle-sleep state. When `true`, the engine immediately starts
 /// pushing black to all devices; when `false`, normal output resumes.
@@ -115,6 +131,9 @@ pub fn target_color_for_device(
         RgbMode::Ambient => full()
             .map(|s| s.rgb)
             .or_else(|| palette::dominant_over_samples(samples))
+            // A mild saturation boost keeps wallpaper-derived colors from
+            // reading muddy on wide-spectrum RGB hardware.
+            .map(|c| palette::saturate(c, 1.25))
             .map(mixed),
         RgbMode::Pulse => {
             let dom = full()
@@ -125,7 +144,10 @@ pub fn target_color_for_device(
                 .unwrap_or_else(|| {
                     samples.iter().map(|(_, s)| s.luma).sum::<f64>() / samples.len().max(1) as f64
                 });
-            Some(mixed(palette::scale_luma(dom, luma)))
+            // Perceptual curve: floor at 35% so the device never fully dies,
+            // lift midtones (pow < 1) so scene changes read as bold swells.
+            let factor = 0.35 + 0.65 * luma.clamp(0.0, 1.0).powf(0.8);
+            Some(mixed(palette::scale_luma(dom, factor)))
         }
         RgbMode::Zone => {
             let zone = cfg
@@ -148,7 +170,7 @@ pub fn target_color_for_device(
             ];
             Some(mixed(avg))
         }
-        RgbMode::Wave | RgbMode::Cycle | RgbMode::Breathe => None,
+        RgbMode::Wave | RgbMode::Cycle | RgbMode::Breathe | RgbMode::AudioReactive => None,
     }
 }
 
@@ -156,6 +178,15 @@ pub fn target_color_for_device(
 /// representative color (LED 0 / the current phase) for the UI plus the full
 /// per-LED frame, with the mixer's saturation/brightness baked in. Reactive
 /// modes return `None` — they are driven by wallpaper samples instead.
+/// Hue (0..1) -> RGB, for sweep colors in animation modes.
+fn hsl_to_rgb(h: f32) -> [u8; 3] {
+    let c = |n: f32| {
+        let k = (n + h * 6.0) % 6.0;
+        (255.0 * (1.0 - (k - 3.0).abs()).clamp(0.0, 1.0).min(0.92)) as u8
+    };
+    [c(5.0), c(3.0), c(1.0)]
+}
+
 pub fn animation_frame(cfg: &RgbConfig, led_count: usize, t: f64) -> Option<([u8; 3], Vec<[u8; 3]>)> {
     if led_count == 0 || !cfg.mode.is_animation() {
         return None;
@@ -169,19 +200,15 @@ pub fn animation_frame(cfg: &RgbConfig, led_count: usize, t: f64) -> Option<([u8
 
     match cfg.mode {
         RgbMode::Cycle => {
-            // Whole device sweeps through the spectrum; ~6s per lap at 1x.
-            let color = palette::hsv_to_rgb((t * 60.0 * speed).rem_euclid(360.0), sat, val);
-            Some((color, vec![color; led_count]))
-        }
-        RgbMode::Wave => {
-            // Two hue gradients side by side, marching up the strip; a full
-            // gap passes every ~3s at 1x.
-            let repeats = 2.0;
+            // Spectrum stretched across the strip per `cycle_spread`, the
+            // rainbow sliding along the device; every LED shows a different
+            // hue. Spread > 360 wraps the wheel; < 360 shows a partial arc.
+            let spread = cfg.cycle_spread.clamp(30.0, 720.0);
             let frame = (0..led_count)
                 .map(|i| {
-                    let p = i as f64 / led_count as f64;
+                    let p = i as f64 / led_count.max(1) as f64;
                     palette::hsv_to_rgb(
-                        (360.0 * (p * repeats + t * speed / 3.0)).rem_euclid(360.0),
+                        (t * 45.0 * speed + p * spread).rem_euclid(360.0),
                         sat,
                         val,
                     )
@@ -189,15 +216,77 @@ pub fn animation_frame(cfg: &RgbConfig, led_count: usize, t: f64) -> Option<([u8
                 .collect::<Vec<_>>();
             Some((frame[0], frame))
         }
+        RgbMode::Wave => {
+            // Two hue gradients marching along the strip (direction from
+            // config), each LED dimmed by a travelling comet pulse.
+            let repeats = 2.0;
+            let dir = if cfg.wave_direction < 0 { -1.0 } else { 1.0 };
+            let frame = (0..led_count)
+                .map(|i| {
+                    let p = i as f64 / led_count.max(1) as f64;
+                    let comet = 0.65
+                        + 0.35 * ((p - dir * t * speed / 3.0) * std::f64::consts::TAU * repeats).sin();
+                    palette::hsv_to_rgb(
+                        (360.0 * (p * repeats - dir * t * speed / 3.0)).rem_euclid(360.0),
+                        sat,
+                        (val * comet).clamp(0.0, 1.0),
+                    )
+                })
+                .collect::<Vec<_>>();
+            Some((frame[0], frame))
+        }
         RgbMode::Breathe => {
-            // Static color pulsing between 25% and full brightness, ~4s per
-            // breath at 1x.
+            // Organic breath cycle: quick 40% inhale, slow 60% exhale, with
+            // smoothstep easing — no mechanical sine. Floor at 15%.
             let (h, s, v) = palette::rgb_to_hsv(cfg.static_color);
-            let wave = 0.5 + 0.5 * ((t * speed * std::f64::consts::PI / 2.0).sin());
-            let v = (v * val * (0.25 + 0.75 * wave)).clamp(0.0, 1.0);
+            let period = 4.5 / speed.max(0.05);
+            let p = (t % period) / period; // 0..1 within one breath
+            let ease = |x: f64| x * x * (3.0 - 2.0 * x);
+            let wave = if p < 0.4 {
+                ease(p / 0.4)
+            } else {
+                1.0 - ease((p - 0.4) / 0.6)
+            };
+            let v = (v * val * (0.15 + 0.85 * wave)).clamp(0.0, 1.0);
             let s = (s * sat).clamp(0.0, 1.0);
             let color = palette::hsv_to_rgb(h, s, v);
             Some((color, vec![color; led_count]))
+        }
+        RgbMode::AudioReactive => {
+            audio::ensure_started();
+            audio::set_sensitivity(cfg.audio_sensitivity as f32);
+
+            let vol = audio::volume();
+            let is_beat = audio::beat();
+            let (h, s, _) = palette::rgb_to_hsv(cfg.static_color);
+            let smooth = cfg.audio_smoothing;
+
+            let beat_boost = if is_beat { 1.0 } else { 0.0 };
+            // Floor the volume at 0.3 so the base color is always visible;
+            // audio only modulates brightness on top of that.
+            let base_v = vol.max(0.3) as f64 * val;
+            let v = ((base_v + beat_boost * 0.6) * (1.0 - smooth * 0.5)).clamp(0.0, 1.0);
+            let s = (s * sat).clamp(0.0, 1.0);
+
+            let rep = palette::hsv_to_rgb(h, s, v);
+            let frame = (0..led_count)
+                .map(|i| {
+                    let p = i as f64 / led_count.max(1) as f64;
+                    // Spectral tilt: hue drifts up to +40deg along the strip
+                    // scaled by loudness, like a bass-to-treble gradient.
+                    let hue = h + 40.0 * p * vol as f64;
+                    let wave = if is_beat {
+                        // Beat: a ring expanding from the strip center.
+                        let edge = (p - 0.5).abs() * 2.0;
+                        (1.0 - edge * 0.4).max(0.0)
+                    } else {
+                        0.7 + 0.3 * (p * std::f64::consts::TAU - t * 4.0).sin()
+                    };
+                    let lv = (v * wave).clamp(0.0, 1.0);
+                    palette::hsv_to_rgb(hue, s, lv)
+                })
+                .collect();
+            Some((rep, frame))
         }
         RgbMode::Ambient | RgbMode::Zone | RgbMode::Pulse | RgbMode::Static => None,
     }
@@ -241,6 +330,10 @@ async fn engine_loop(
     let mut cfg_rx = crate::config_store::watch();
     let mut ticker = tokio::time::interval(std::time::Duration::from_millis(25));
     let phase_start = std::time::Instant::now();
+    let mut last_excluded: Vec<u32> = Vec::new();
+    let mut last_enabled: Option<bool> = None;
+    // Ensure audio capture thread is spawned (idempotent, only starts once).
+    audio::ensure_started();
 
     loop {
         tokio::select! {
@@ -258,6 +351,104 @@ async fn engine_loop(
         }
 
         let cfg: RgbConfig = cfg_rx.borrow_and_update().rgb.clone();
+
+        // Sync audio source from config.
+        audio::set_source(&cfg.audio_source);
+
+        // On/off transitions get a quick hardware sweep so the toggle feels
+        // physical: diff the excluded set against the previous tick.
+        let transitions: Vec<(u32, bool)> = {
+            let mut out: Vec<(u32, bool)> = cfg
+                .excluded_devices
+                .iter()
+                .filter(|id| !last_excluded.contains(id))
+                .copied()
+                .map(|id| (id, true))
+                .collect();
+            out.extend(
+                last_excluded
+                    .iter()
+                    .filter(|id| !cfg.excluded_devices.contains(id))
+                    .copied()
+                    .map(|id| (id, false)),
+            );
+            out
+        };
+        last_excluded = cfg.excluded_devices.clone();
+
+        // Global RGB sync toggle: play the sweep across ALL devices in
+        // sequence — off drains in mode color, on rises in mode color.
+        let global_flip = match last_enabled {
+            Some(prev) if prev != cfg.enabled => Some(cfg.enabled),
+            None => None,
+            _ => None,
+        };
+        last_enabled = Some(cfg.enabled);
+        if let Some(turning_on) = global_flip {
+            let base: [u8; 3] = match cfg.mode {
+                RgbMode::Static | RgbMode::Breathe | RgbMode::AudioReactive => cfg.static_color,
+                RgbMode::Cycle | RgbMode::Wave => hsl_to_rgb(0.55),
+                _ => latest.last().map(|(_, s)| s.rgb).unwrap_or([56, 189, 248]),
+            };
+            for dev in &client.status().devices {
+                let n = dev.leds as usize;
+                if n == 0 {
+                    continue;
+                }
+                let sweep: Vec<Color> = (0..n)
+                    .map(|i| {
+                        let f = i as f32 / (n as f32 - 1.0).max(1.0);
+                        let w = ((f * 2.0 - 1.0).abs() * 3.0 - 1.0).clamp(0.0, 1.0);
+                        let v = if turning_on { w } else { 1.0 - w };
+                        Color {
+                            r: (base[0] as f32 * v) as u8,
+                            g: (base[1] as f32 * v) as u8,
+                            b: (base[2] as f32 * v) as u8,
+                        }
+                    })
+                    .collect();
+                client.push_device_colors(dev.id, sweep).await;
+                // The sequencing is the show: each device lights as the
+                // previous one finishes its wave.
+                tokio::time::sleep(std::time::Duration::from_millis(70)).await;
+            }
+        }
+
+        if !transitions.is_empty() {
+            // Sweep in the mode's own color: static/breathe use the chosen
+            // color; reactive modes use the latest wallpaper sample; fallback
+            // is a pleasant blue. Animation modes get a mid-rainbow hue.
+            let base: [u8; 3] = match cfg.mode {
+                RgbMode::Static | RgbMode::Breathe | RgbMode::AudioReactive => cfg.static_color,
+                RgbMode::Cycle | RgbMode::Wave => hsl_to_rgb(0.55),
+                _ => latest
+                    .last()
+                    .map(|(_, s)| s.rgb)
+                    .unwrap_or([56, 189, 248]),
+            };
+            for (dev_id, excluded) in transitions {
+                let n = status_len(&client, dev_id);
+                if n == 0 {
+                    continue;
+                }
+                let sweep: Vec<Color> = (0..n)
+                    .map(|i| {
+                        let f = i as f32 / (n as f32 - 1.0).max(1.0);
+                        // Off: a brightness wave draining left-to-right. On:
+                        // the same wave rising, ending in the mode's color.
+                        let w = ((f * 2.0 - 1.0).abs() * 3.0 - 1.0).clamp(0.0, 1.0);
+                        let v = if excluded { 1.0 - w } else { w };
+                        Color {
+                            r: (base[0] as f32 * v) as u8,
+                            g: (base[1] as f32 * v) as u8,
+                            b: (base[2] as f32 * v) as u8,
+                        }
+                    })
+                    .collect();
+                client.push_device_colors(dev_id, sweep).await;
+                tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+            }
+        }
         if !cfg.enabled {
             continue;
         }
@@ -293,7 +484,21 @@ async fn engine_loop(
         let mut frame: Vec<DeviceColor> = Vec::new();
         for dev in &status.devices {
             let n = dev.leds as usize;
-            if n == 0 || cfg.excluded_devices.contains(&dev.id) {
+            if n == 0 {
+                continue;
+            }
+            // Excluded devices: actively push black so the toggle visibly
+            // turns the hardware off (it would otherwise keep its last color).
+            if cfg.excluded_devices.contains(&dev.id) {
+                if !sleeping {
+                    let black: Vec<Color> = vec![Color { r: 0, g: 0, b: 0 }; n];
+                    client.push_device_colors(dev.id, black).await;
+                }
+                frame.push(DeviceColor {
+                    id: dev.id,
+                    rgb: [0, 0, 0],
+                    led_colors: Vec::new(),
+                });
                 continue;
             }
             let (rep, per_led) = if sleeping {
@@ -332,6 +537,23 @@ async fn engine_loop(
         if !frame.is_empty() {
             if let Some(app) = crate::app_handle() {
                 crate::events::emit_all(&app, crate::events::RGB_FRAME, &frame);
+            }
+        }
+        // Emit audio level for UI visualization when in audio reactive mode.
+        if cfg.mode == RgbMode::AudioReactive {
+            if let Some(app) = crate::app_handle() {
+                #[derive(Clone, serde::Serialize)]
+                struct AudioLevelPayload {
+                    volume: f32,
+                    beat: bool,
+                    device_name: String,
+                }
+                let payload = AudioLevelPayload {
+                    volume: audio::volume(),
+                    beat: audio::beat(),
+                    device_name: audio::device_name(),
+                };
+                crate::events::emit_all(&app, crate::events::AUDIO_LEVEL, &payload);
             }
         }
     }
@@ -400,7 +622,8 @@ mod tests {
             sample("z2", [0, 255, 0], 0.4),
         ];
         let out = target_color_for_device(0, &cfg, &samples).unwrap();
-        assert_eq!(out, [128, 128, 0]);
+        // Ambient now applies a 1.25x saturation boost to the sample average.
+        assert_eq!(out, [130, 130, 0]);
     }
 
     #[test]
@@ -441,12 +664,11 @@ mod tests {
             },
             ..Default::default()
         };
-        let (a, fa) = animation_frame(&cfg, 12, 0.0).unwrap();
-        let (b, fb) = animation_frame(&cfg, 12, 1.0).unwrap();
-        // Uniform across LEDs, but the whole device hue moves with time.
-        assert!(fa.iter().all(|c| *c == a));
-        assert!(fb.iter().all(|c| *c == b));
-        assert_ne!(a, b, "cycle should sweep the hue");
+        let (_, fa) = animation_frame(&cfg, 12, 0.0).unwrap();
+        let (_, fb) = animation_frame(&cfg, 12, 1.0).unwrap();
+        // Cycle now spreads the spectrum across the strip, sliding with time.
+        assert_ne!(fa[0], fa[11], "rainbow must span the strip");
+        assert_ne!(fa[0], fb[0], "cycle should march in time");
     }
 
     #[test]

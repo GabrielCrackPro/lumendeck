@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useStore, bindEvents } from "./store";
 import Shell from "./components/Shell";
+import { IconRefresh } from "./components/icons";
+import { GLOW_TEXT_DARK } from "@shared/constants";
 
 export default function App() {
   const { cfg, loaded, loadError, load } = useStore();
@@ -92,20 +94,9 @@ function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
         <button
           onClick={onRetry}
           className="glow-fill inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-transform active:scale-[0.97]"
+          style={{ color: GLOW_TEXT_DARK }}
         >
-          <svg
-            width={16}
-            height={16}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M20 11.5A8 8 0 1 0 18.4 17" />
-            <path d="M20 5.5v6h-6" />
-          </svg>
+          <IconRefresh className="h-4 w-4" />
           Retry connection
         </button>
       </div>

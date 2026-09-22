@@ -14,12 +14,15 @@ pub mod ipc;
 pub mod media;
 pub mod mouse_hook;
 pub mod pause;
+pub mod placement_overlay;
 pub mod rgb;
 pub mod stickers;
+pub mod sticker_windows;
 pub mod thumbs;
 pub mod wallpaper;
 pub mod wallpaper_bg;
 pub mod win32;
+pub mod window_utils;
 pub mod workerw;
 
 #[cfg(not(windows))]
@@ -72,17 +75,40 @@ fn init_logging() {
             if !self.enabled(record.metadata()) {
                 return;
             }
-            let secs = std::time::SystemTime::now()
+            let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            let line = format!(
-                "[{secs} {:<5} {}] {}\n",
-                record.level(),
-                record.target(),
-                record.args()
+                .unwrap_or_default();
+            let secs = now.as_secs();
+            let millis = now.subsec_millis();
+
+            // Short module: last segment only ("lumendeck_lib::ipc" → "ipc")
+            let target = record
+                .target()
+                .rsplit_once("::")
+                .map_or(record.target(), |(_, s)| s);
+
+            let ts = format!(
+                "{}.{:03}",
+                chrono_datetime(secs),
+                millis,
             );
-            eprint!("{line}");
+
+            let line = format!(
+                "[{ts} {:<5} {target}] {}\n",
+                record.level(),
+                record.args(),
+            );
+
+            // stderr with ANSI colors
+            let colored = match record.level() {
+                log::Level::Info  => format!("[\x1b[36m{ts}\x1b[0m \x1b[32mINFO \x1b[0m \x1b[90m{target}\x1b[0m] {}\n", record.args()),
+                log::Level::Warn  => format!("[\x1b[36m{ts}\x1b[0m \x1b[33mWARN \x1b[0m \x1b[90m{target}\x1b[0m] {}\n", record.args()),
+                log::Level::Error => format!("[\x1b[36m{ts}\x1b[0m \x1b[31mERROR\x1b[0m \x1b[90m{target}\x1b[0m] {}\n", record.args()),
+                log::Level::Debug => format!("[\x1b[36m{ts}\x1b[0m \x1b[35mDEBUG\x1b[0m \x1b[90m{target}\x1b[0m] {}\n", record.args()),
+                _ => line.clone(),
+            };
+            eprint!("{colored}");
+
             if let Ok(mut guard) = self.0.lock() {
                 if let Some(f) = guard.as_mut() {
                     let _ = f.write_all(line.as_bytes());
@@ -112,11 +138,37 @@ fn init_logging() {
     let _ = log::set_boxed_logger(Box::new(DualLog(Mutex::new(file))));
 }
 
+/// Convert unix epoch seconds to `HH:MM:SS` (UTC) without pulling in chrono.
+fn chrono_datetime(secs: u64) -> String {
+    let days = secs / 86400;
+    let time = secs % 86400;
+    let h = time / 3600;
+    let m = (time % 3600) / 60;
+    let s = time % 60;
+    // Civil date from days since epoch (1970-01-01 is day 0, a Thursday).
+    let (y, mo, d) = days_to_ymd(days + 719468);
+    format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02}")
+}
+
+fn days_to_ymd(g: u64) -> (u64, u64, u64) {
+    let y = (10000 * g + 14780) / 3652425;
+    let mut doy = g - (365 * y + y / 4 - y / 100 + y / 400);
+    if doy > 365 {
+        doy += 1;
+    }
+    let mi = (100 * doy + 52) / 3060;
+    let mo = (mi + 2) % 12 + 1;
+    let y = y + (mi + 2) / 12;
+    let d = doy - (mi * 306 + 5) / 10 + 1;
+    (y, mo, d)
+}
+
 pub fn app_handle() -> Option<tauri::AppHandle> {
     APP.get().cloned()
 }
 
 pub fn run() {
+    let boot = std::time::Instant::now();
     // Must run before any WebView2 environment is created.
     disable_video_overlays();
     init_logging();
@@ -133,8 +185,10 @@ pub fn run() {
         crate::media::allow_media_ref(&s.url);
     }
     // Generate transparent variants for stickers placed before background
-    // removal existed (no-op when everything is already processed).
+    // removal existed (no-op when everything is already processed). Runs on a
+    // background thread — never blocks the first webview paint.
     crate::stickers::spawn_bg_removal_pass();
+    log::info!("startup: pre-tauri init done in {:?}", boot.elapsed());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -160,7 +214,6 @@ pub fn run() {
             ipc::get_config,
             ipc::set_config,
             ipc::reload_config,
-            ipc::get_wallpaper_payload,
             ipc::log_sticker_render,
             ipc::begin_sticker_editor,
             ipc::end_sticker_editor,
@@ -181,14 +234,20 @@ pub fn run() {
             ipc::update_rgb_config,
             ipc::begin_sticker_placement,
             ipc::cancel_sticker_placement,
+            ipc::get_placement_info,
+            ipc::placement_resize,
+            ipc::placement_set_interactive,
+            ipc::placement_place_at,
             ipc::add_sticker,
             ipc::update_sticker,
             ipc::remove_sticker,
             ipc::is_paused,
             ipc::monitors,
-            ipc::quit
+            ipc::quit,
+            ipc::factory_reset
         ])
         .setup(|app| {
+            let setup_at = std::time::Instant::now();
             let _ = APP.set(app.handle().clone());
 
             // Apply autostart preference.
@@ -253,7 +312,9 @@ pub fn run() {
             #[cfg(debug_assertions)]
             dev_watchdog::spawn(app.handle().clone());
 
-            // Main dashboard window.
+            // Main dashboard window — created LAST in setup but still before
+            // the event loop runs; everything above it is fast/in-memory so
+            // this order maximizes how soon WebView2 starts loading the UI.
             tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -265,6 +326,7 @@ pub fn run() {
             .resizable(true)
             .build()?;
 
+            log::info!("startup: tauri setup done in {:?}", setup_at.elapsed());
             Ok(())
         })
         .run(tauri::generate_context!())

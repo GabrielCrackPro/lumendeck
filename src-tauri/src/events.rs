@@ -10,6 +10,8 @@ pub const ZONE_SAMPLE: &str = "zone-sample";
 pub const PLACING: &str = "sticker-placing";
 /// Live cursor position while placing; payload {x, y} physical screen px.
 pub const PLACING_CURSOR: &str = "sticker-placing-cursor";
+/// Live preview size while placing (mouse wheel); payload: i32 physical px.
+pub const PLACING_SIZE: &str = "sticker-placing-size";
 /// Sticker-editor mouse stream: (x, y, leftDown, rightDown) physical px.
 pub const EDITOR_MOUSE: &str = "sticker-editor-mouse";
 /// Sticker-editor on/off; payload: bool.
@@ -20,6 +22,19 @@ pub const WALLPAUSE: &str = "wallpaper-pause";
 pub const DISPLAY_CHANGED: &str = "display-changed";
 /// Emitted by the RGB engine after each push; payload: Vec<{id, rgb}>.
 pub const RGB_FRAME: &str = "rgb-frame";
+/// Emitted with audio level data; payload: { volume: f32, beat: bool }.
+pub const AUDIO_LEVEL: &str = "audio-level";
+
+/// Final preview size chosen with the wheel during the last placement.
+static PLACEMENT_SIZE: std::sync::Mutex<Option<i32>> = std::sync::Mutex::new(None);
+
+pub fn set_placement_size(px: i32) {
+    *PLACEMENT_SIZE.lock().expect("size poisoned") = Some(px);
+}
+
+pub fn take_placement_size() -> Option<i32> {
+    PLACEMENT_SIZE.lock().expect("size poisoned").take()
+}
 
 /// Emit an event to all webviews (main app, wallpaper, stickers, placement).
 pub fn emit_all<T: serde::Serialize + Clone>(app: &tauri::AppHandle, event: &str, payload: &T) {

@@ -123,20 +123,116 @@ async fn connection_task(mut rx: mpsc::Receiver<PushMsg>, status_tx: watch::Send
                     s.last_error = None;
                 });
 
+                // Hotplug watch: re-enumerate controllers every 1s.
+                let mut poll = tokio::time::interval(Duration::from_secs(1));
+                poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                // Track which devices failed update_leds so we can reconnect
+                // immediately when a device disappears (clears OpenRGB cache).
+                let mut push_fails: std::collections::HashSet<u32> = std::collections::HashSet::new();
                 loop {
-                    match rx.recv().await {
-                        Some(PushMsg::Colors { device, colors }) => {
-                            if let Err(e) = client.update_leds(device, colors).await {
-                                log::warn!("update_leds failed: {e}");
-                                set_status(&status_tx, |s| {
-                                    s.last_error = Some(e.to_string());
-                                    s.connected = false;
-                                });
-                                break; // force reconnect
+                    tokio::select! {
+                        msg = rx.recv() => {
+                            match msg {
+                                Some(PushMsg::Colors { device, colors }) => {
+                                    match client.update_leds(device, colors).await {
+                                        Ok(()) => {
+                                            push_fails.remove(&device);
+                                        }
+                                        Err(e) => {
+                                            log::warn!("update_leds failed for device {device}: {e}");
+                                            push_fails.insert(device);
+                                            // Remove the dead device from the list
+                                            // immediately. Internal keyboards never
+                                            // fail update_leds so they stay.
+                                            set_status(&status_tx, |s| {
+                                                s.devices.retain(|d| d.id != device);
+                                            });
+                                            // If multiple devices fail, OpenRGB
+                                            // connection is likely dead — reconnect.
+                                            if push_fails.len() >= 2 {
+                                                set_status(&status_tx, |s| {
+                                                    s.last_error = Some(e.to_string());
+                                                    s.connected = false;
+                                                });
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                Some(PushMsg::Refresh) => break,
+                                None => return, // app shutting down
                             }
                         }
-                        Some(PushMsg::Refresh) => break,
-                        None => return, // app shutting down
+                        _ = poll.tick() => {
+                            let count = client.get_controller_count().await.unwrap_or(0);
+                            let mut fresh: Vec<(u32, Controller)> = Vec::new();
+                            for id in 0..count {
+                                if let Ok(c) = client.get_controller(id).await {
+                                    fresh.push((id, c));
+                                }
+                            }
+                            let new_registry = registry_from(fresh);
+
+                            let old_ids: Vec<u32> = status_tx.borrow().devices.iter().map(|d| d.id).collect();
+                            let new_ids: Vec<u32> = new_registry.iter().map(|d| d.id).collect();
+                            let changed = old_ids != new_ids;
+
+                            if changed {
+                                let added: Vec<u32> = new_ids.iter().filter(|id| !old_ids.contains(id)).copied().collect();
+                                let removed: Vec<u32> = old_ids.iter().filter(|id| !new_ids.contains(id)).copied().collect();
+                                if !added.is_empty() {
+                                    log::info!("hotplug: added device(s) {added:?}");
+                                }
+                                if !removed.is_empty() {
+                                    log::info!("hotplug: removed device(s) {removed:?} (will keep in list until confirmed offline)");
+                                }
+
+                                // Merge: keep old devices, update/add new ones.
+                                // Devices are never removed from the list here —
+                                // only when update_leds explicitly fails for them.
+                                // This prevents internal keyboards from flickering
+                                // off during reconnection.
+                                let old_devices = status_tx.borrow().devices.clone();
+                                let mut merged: Vec<DeviceInfo> = old_devices;
+                                for dev in &new_registry {
+                                    if let Some(existing) = merged.iter_mut().find(|d| d.id == dev.id) {
+                                        *existing = dev.clone();
+                                    } else {
+                                        merged.push(dev.clone());
+                                    }
+                                }
+                                set_status(&status_tx, |s| {
+                                    s.devices = merged;
+                                });
+                                for id in added {
+                                    let leds = new_registry.iter().find(|d| d.id == id).map(|d| d.leds as usize).unwrap_or(0);
+                                    if leds == 0 {
+                                        continue;
+                                    }
+                                    log::info!("hotplug: welcome sweep for device {id}");
+                                    let sweep: Vec<crate::rgb::Color> = (0..leds)
+                                        .map(|i| {
+                                            let f = i as f32 / (leds as f32 - 1.0).max(1.0);
+                                            let w = ((f * 2.0 - 1.0).abs() * 3.0 - 1.0)
+                                                .clamp(0.0, 1.0);
+                                            let v = w;
+                                            crate::rgb::Color {
+                                                r: (56.0 * v + 20.0) as u8,
+                                                g: (189.0 * v + 20.0) as u8,
+                                                b: (248.0 * v + 30.0) as u8,
+                                            }
+                                        })
+                                        .collect();
+                                    let _ = client.update_leds(id, sweep).await;
+                                    tokio::time::sleep(Duration::from_millis(60)).await;
+                                }
+                            } else if new_ids.len() < old_ids.len() {
+                                // Count shrank but IDs didn't change.
+                                // Force reconnect to clear cache.
+                                log::info!("hotplug: device count shrank ({} -> {}), forcing reconnect", old_ids.len(), new_ids.len());
+                                break;
+                            }
+                        }
                     }
                 }
             }

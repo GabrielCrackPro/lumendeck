@@ -24,9 +24,17 @@ export interface WallpaperConfig {
   slideshow: SlideshowConfig;
   /** How video fills each monitor: cover | contain | fill | auto. */
   videoFit: "cover" | "contain" | "fill" | "auto";
+  /** Video playback rate (1 = normal). */
+  videoSpeed: number;
+  /** Video grading: brightness multiplier. */
+  videoBrightness: number;
+  /** Video grading: saturation multiplier (0 = gray). */
+  videoSaturation: number;
+  /** Video grading: hue rotation in degrees. */
+  videoHue: number;
 }
 
-export type RgbMode = "ambient" | "zone" | "pulse" | "static" | "cycle" | "wave" | "breathe";
+export type RgbMode = "ambient" | "zone" | "pulse" | "static" | "cycle" | "wave" | "breathe" | "audioReactive";
 
 export interface RgbMixer {
   brightness: number;
@@ -63,6 +71,18 @@ export interface RgbConfig {
   idleTimeoutSec: number;
   /** How often (seconds) to check for idle state (1..60). */
   idleCheckIntervalSec: number;
+  /** Device driving the dashboard accent color (null = auto, -1 = static color). */
+  accentDevice: number | null;
+  /** Audio-reactive sensitivity (0.1..3, 1 = normal). */
+  audioSensitivity: number;
+  /** Audio-reactive smoothing (0 = snap, 1 = very slow). */
+  audioSmoothing: number;
+  /** Audio capture source: "system" or "microphone". */
+  audioSource: "system" | "microphone";
+  /** Wave travel direction: 1 = forward, -1 = reverse. */
+  waveDirection: 1 | -1;
+  /** Cycle rainbow spread across the strip in degrees (30..720). */
+  cycleSpread: number;
 }
 
 export type StickerFit = "contain" | "cover" | "fill";
@@ -82,6 +102,8 @@ export interface StickerDef {
   fit: StickerFit;
   muted: boolean;
   visible: boolean;
+  /** Render in a topmost OS window above all applications. */
+  onTop: boolean;
 }
 
 export interface GeneralConfig {
@@ -90,6 +112,8 @@ export interface GeneralConfig {
   pauseOnBatterySaver: boolean;
   pauseOnFullscreen: boolean;
   wallpaperEnabled: boolean;
+  /** UI accent follows live device colors (true) or frozen to the static color (false). */
+  accentLive: boolean;
 }
 
 export interface GalleryEntry {
@@ -169,4 +193,12 @@ export interface DeviceColor {
   rgb: [number, number, number];
   /** Per-LED colors for animation modes (evenly sampled, capped). */
   ledColors: [number, number, number][];
+}
+
+/** Audio level data emitted from the RGB engine. */
+export interface AudioLevel {
+  volume: number;
+  beat: boolean;
+  /** WASAPI device name currently being captured (e.g. "Speakers (Realtek Audio)"). */
+  deviceName: string;
 }

@@ -1,26 +1,18 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useStore } from "../../store";
-import { Card, Toggle, Select, Btn } from "../ui";
-import { IconMonitor } from "../icons";
+import { Card, Toggle, Select, Btn, DisplaysCard } from "../ui";
 import { api } from "../../ipc";
+import { truncateError } from "../../utilities";
 import type { ThemeMode } from "@shared/types";
 
 export default function GeneralTab() {
   const { cfg, save, wallpaperPaused } = useStore();
-  const [mons, setMons] = useState<
-    { device: string; x: number; y: number; w: number; h: number; primary: boolean }[]
-  >([]);
-
-  useEffect(() => {
-    api.monitors().then(setMons).catch(() => setMons([]));
-  }, []);
+  const [confirmWipe, setConfirmWipe] = useState(false);
 
   if (!cfg) return null;
 
-  return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-6">
-      <div className="stagger space-y-6">
-        <Card title="Appearance">
+  return (    <div className="stagger space-y-6">
+      <Card title="General">
           <Select<ThemeMode>
             label="Theme"
             value={cfg.general.theme}
@@ -31,9 +23,7 @@ export default function GeneralTab() {
             ]}
             onChange={(v) => save((c) => (c.general.theme = v))}
           />
-        </Card>
-
-        <Card title="Behavior">
+          <div className="border-t border-[var(--line)]" />
           <Toggle
             label="Launch at startup"
             description="Start LumenDeck with Windows so your lights follow your screen from the boot."
@@ -69,66 +59,58 @@ export default function GeneralTab() {
           </div>
         </Card>
 
-        <Card title="Displays">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {mons.map((m, i) => (
-              <div
-                key={`${m.device}-${i}`}
-                className={`flex items-center gap-3 rounded-2xl border px-4 py-3.5 ${
-                  m.primary
-                    ? "border-[rgb(var(--glow)/0.35)] bg-[rgb(var(--glow)/0.07)]"
-                    : "border-[var(--line)] bg-[var(--panel-strong)]"
-                }`}
-              >
-                <div
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
-                    m.primary ? "bg-[rgb(var(--glow)/0.15)]" : "bg-[var(--panel)]"
-                  }`}
-                >
-                  <IconMonitor className="h-5 w-5 text-[var(--text-dim)]" />
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-[var(--text)]">
-                    {m.device.replace(/\\/g, "") || `Display ${i + 1}`}
-                    {m.primary && (
-                      <span className="ml-2 font-mono text-[9px] uppercase tracking-widest text-[rgb(var(--glow))]">
-                        primary
-                      </span>
-                    )}
-                  </div>
-                  <div className="font-mono text-[11px] text-[var(--text-faint)]">
-                    {m.w} × {m.h} @ ({m.x}, {m.y})
-                  </div>
-                </div>
-              </div>
-            ))}
-            {mons.length === 0 && (
-              <div className="col-span-2 text-sm text-[var(--text-faint)]">Detecting displays…</div>
-            )}
-          </div>
-        </Card>
+        <DisplaysCard />
 
         <Card title="Danger zone">
-          <div className="flex flex-wrap gap-2.5">
-            <Btn
-              variant="danger"
-              onClick={() => {
-                if (confirm("Reset all LumenDeck settings to defaults?")) {
-                  location.reload();
-                }
-              }}
-            >
-              Reset settings
-            </Btn>
-            <Btn variant="danger" onClick={() => api.quit?.()}>
-              Quit LumenDeck
-            </Btn>
-          </div>
+          {confirmWipe ? (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+              <div className="text-sm font-semibold text-red-200">Wipe ALL LumenDeck data?</div>
+              <p className="mt-1 text-xs leading-relaxed text-red-200/80">
+                Deletes settings, the wallpaper vault, stickers and cached thumbnails, then
+                closes the app. Your media files are not touched. This cannot be undone.
+              </p>
+              <div className="mt-3 flex gap-2.5">
+                <Btn
+                  variant="danger"
+                  onClick={() => {
+                    setConfirmWipe(false);
+                    api
+                      .factoryReset()
+                      .then(() =>
+                        useStore
+                          .getState()
+                          .toast("info", "App data wiped — closing LumenDeck…"),
+                      )
+                      .catch((e) => {
+                        console.error("factory reset failed", e);
+                        useStore
+                          .getState()
+                          .toast("error", `Factory reset failed: ${truncateError(e)}`);
+                      });
+                  }}
+                >
+                  Yes, wipe everything
+                </Btn>
+                <Btn variant="ghost" onClick={() => setConfirmWipe(false)}>
+                  Cancel
+                </Btn>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2.5">
+              <Btn variant="danger" onClick={() => setConfirmWipe(true)}>
+                Wipe app data
+              </Btn>
+              <Btn variant="danger" onClick={() => api.quit?.()}>
+                Quit LumenDeck
+              </Btn>
+            </div>
+          )}
           <p className="mt-4 text-xs leading-relaxed text-[var(--text-faint)]">
             Resetting returns every value to the factory default and restarts the engine.
+            Wiping removes all data and closes the app — your media files stay untouched.
           </p>
         </Card>
-      </div>
     </div>
   );
 }

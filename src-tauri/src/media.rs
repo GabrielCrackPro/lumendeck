@@ -58,6 +58,14 @@ pub fn allowed_roots() -> Vec<PathBuf> {
     ALLOWED_ROOTS.lock().expect("roots poisoned").clone()
 }
 
+/// Lock-free-ish allow check for the request hot path: borrows the root list
+/// instead of cloning it (video playback fires hundreds of range requests).
+fn is_allowed(path: &std::path::Path) -> bool {
+    let roots = ALLOWED_ROOTS.lock().expect("roots poisoned");
+    // No roots registered yet -> allow (first run, wallpaper set before any picker use).
+    roots.is_empty() || roots.iter().any(|r| path.starts_with(r))
+}
+
 /// Normalize a sticker source into a servable media URL and allow-list the
 /// file. Accepts either an absolute filesystem path or a `media://` URL (as
 /// stored by older configs) — both end up allow-listed and URL-encoded.
@@ -89,12 +97,6 @@ pub fn media_url_for_file(path_or_url: &str) -> String {
         .collect::<Vec<_>>()
         .join("/");
     format!("http://media.localhost/{encoded}")
-}
-
-fn is_allowed(path: &std::path::Path) -> bool {
-    let roots = allowed_roots();
-    // No roots registered yet -> allow (first run, wallpaper set before any picker use).
-    roots.is_empty() || roots.iter().any(|r| path.starts_with(r))
 }
 
 const EXT_MIME: &[(&str, &str)] = &[

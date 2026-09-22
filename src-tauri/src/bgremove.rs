@@ -53,7 +53,7 @@ pub fn process_file(src: &Path) -> Result<Processed, String> {
     match detect_format(&bytes, src)? {
         ImageFormat::Gif => process_gif(&bytes, &out_path),
         ImageFormat::Png => process_png(&bytes, &out_path),
-        _ => process_static(&bytes, &out_path),
+        _ => process_png(&bytes, &out_path),
     }
 }
 
@@ -100,11 +100,6 @@ fn is_apng(path: &Path) -> bool {
 // ---------- Static images ----------
 
 fn process_png(bytes: &[u8], out_path: &Path) -> Result<Processed, String> {
-    let img = image::load_from_memory(bytes).map_err(|e| format!("decode failed: {e}"))?;
-    finish_still(img.to_rgba8(), bytes, out_path)
-}
-
-fn process_static(bytes: &[u8], out_path: &Path) -> Result<Processed, String> {
     let img = image::load_from_memory(bytes).map_err(|e| format!("decode failed: {e}"))?;
     finish_still(img.to_rgba8(), bytes, out_path)
 }

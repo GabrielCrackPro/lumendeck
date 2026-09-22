@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
-import { Card, Btn, Slider, Toggle, TextInput, NumberField } from "../ui";
-import { IconImage, IconLayers, IconGlobe, IconMonitor, IconPlus, IconTrash } from "../icons";
-import { SHADERS } from "@shared/constants";
+import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section } from "../ui";
+import { IconImage, IconLayers, IconGlobe, IconPlus, IconTrash, IconPencil, IconPlay } from "../icons";
+import { SHADERS, SHADER_ART } from "@shared/constants";
 import type { GalleryEntry, WallpaperKind, ZoneDef } from "@shared/types";
 import { api } from "../../ipc";
+import { truncateError } from "../../utilities";
 
 const KIND_META: Record<WallpaperKind, { label: string }> = {
   video: { label: "Video" },
@@ -16,32 +17,28 @@ const KIND_META: Record<WallpaperKind, { label: string }> = {
   shader: { label: "Shader" },
 };
 
-const SHADER_ART: Record<string, string> = {
-  aurora:
-    "conic-gradient(from 210deg at 60% 20%, #06281b 0%, #0f7a4d 30%, #25c07a 50%, #0b1026 75%, #06281b 100%)",
-  liquid:
-    "conic-gradient(from 40deg at 40% 80%, #02021e 0%, #2743c9 40%, #9333ea 70%, #02021e 100%)",
-  plasma:
-    "conic-gradient(from 300deg at 50% 50%, #1a0033 0%, #c026d3 45%, #f97316 80%, #1a0033 100%)",
-  starfield:
-    "radial-gradient(60% 60% at 30% 25%, #334155 0%, #0f172a 45%, #000000 100%)",
-};
-
 /** Thumbnail for a gallery entry: hover-playing video, image, or art tile. */
 function GalleryThumb({ entry }: { entry: GalleryEntry }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
 
+  const [thumbLoaded, setThumbLoaded] = useState(false);
+
   if (entry.kind === "video") {
     return (
-      <div className="relative h-full w-full">
+      <div className="relative h-full w-full bg-[var(--panel-strong)]">
+        {!thumbLoaded && !playing && (
+          <div className="absolute inset-0 animate-pulse bg-[linear-gradient(110deg,var(--panel-strong),var(--panel)_45%,var(--panel-strong))]" />
+        )}
         <video
           ref={videoRef}
-          src={convertFileSrc(entry.source, "media")}
+          // #t=1 makes the browser decode & paint a frame at 1s eagerly, so the
+          // tile shows real imagery without any hover (preload=metadata).
+          src={`${convertFileSrc(entry.source, "media")}#t=1`}
           muted
           loop
           playsInline
-          preload="none"
+          preload="metadata"
           className="h-full w-full object-cover"
           onMouseEnter={() => videoRef.current?.play().catch(() => {})}
           onMouseLeave={() => videoRef.current?.pause()}
@@ -52,13 +49,14 @@ function GalleryThumb({ entry }: { entry: GalleryEntry }) {
           <img
             src={entry.thumb}
             alt={entry.name}
+            onLoad={() => setThumbLoaded(true)}
             className="absolute inset-0 h-full w-full bg-black/50 object-cover"
           />
         )}
         {!playing && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity group-hover:opacity-0">
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur">
-              <PlayMark />
+              <IconPlay className="h-3.5 w-3.5" fill="currentColor" stroke="none" />
             </span>
           </div>
         )}
@@ -67,11 +65,14 @@ function GalleryThumb({ entry }: { entry: GalleryEntry }) {
   }
   if (entry.kind === "image") {
     return (
-      <img
-        src={entry.thumb ?? convertFileSrc(entry.source, "media")}
-        alt={entry.name}
-        className="h-full w-full bg-black/50 object-cover"
-      />
+      <div className="relative h-full w-full bg-[var(--panel-strong)]">
+        <img
+          src={entry.thumb ?? convertFileSrc(entry.source, "media")}
+          alt={entry.name}
+          loading="lazy"
+          className="h-full w-full bg-black/50 object-cover"
+        />
+      </div>
     );
   }
   if (entry.kind === "shader") {
@@ -90,21 +91,16 @@ function GalleryThumb({ entry }: { entry: GalleryEntry }) {
   );
 }
 
-const PlayMark = () => (
-  <svg width={14} height={14} viewBox="0 0 24 24" fill="currentColor">
-    <path d="M7 5.5v13l11-6.5z" />
-  </svg>
-);
-
 export default function WallpaperTab() {
   const { cfg, rgb, save } = useStore();
   const [busy, setBusy] = useState(false);
   const [dropActive, setDropActive] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameVal, setRenameVal] = useState("");
   const [dropCount, setDropCount] = useState(0);
 
   // Drag-and-drop import: Tauri intercepts file drops at the window level.
-  useEffect(() => {
-    let disposed = false;
+  useEffect(() => {    let disposed = false;
     let unlisten: (() => void) | undefined;
     let importSeq = 0;
 
@@ -126,9 +122,12 @@ export default function WallpaperTab() {
             .galleryImportPaths(paths)
             .then((list) => {
               if (seq !== importSeq) return;
-              console.info(`gallery: drop processed, ${list.length} item(s) in library`);
+              toast("ok", `Imported ${list.length} item${list.length === 1 ? "" : "s"}`);
             })
-            .catch((e) => console.error("gallery drop import failed:", e))
+            .catch((e) => {
+              console.error("gallery drop import failed:", e);
+              toast("error", `Drop import failed: ${truncateError(e)}`);
+            })
             .finally(() => {
               if (seq === importSeq) setBusy(false);
             });
@@ -147,23 +146,24 @@ export default function WallpaperTab() {
       unlisten?.();
     };
   }, []);
-  const [mons, setMons] = useState<
-    { device: string; x: number; y: number; w: number; h: number; primary: boolean }[]
-  >([]);
-
-  useEffect(() => {
-    api.monitors().then(setMons).catch(() => setMons([]));
-  }, [cfg?.wallpaper.kind, cfg?.wallpaper.source]);
 
   if (!cfg) return null;
   const wall = cfg.wallpaper;
   const gallery = [...cfg.gallery].sort((a, b) => b.addedMs - a.addedMs);
   const isActive = (g: GalleryEntry) => g.kind === wall.kind && g.source === wall.source;
 
+  const toast = (tone: "error" | "info" | "ok", msg: string) =>
+    useStore.getState().toast(tone, msg);
+
   const addToGallery = async (kind: WallpaperKind, source: string, name: string) => {
-    const list = await api.galleryAdd({ name, kind, source });
-    const added = list.find((g) => g.source === source && g.kind === kind);
-    if (added) await api.galleryApply(added.id);
+    try {
+      const list = await api.galleryAdd({ name, kind, source });
+      const added = list.find((g) => g.source === source && g.kind === kind);
+      if (added) await api.galleryApply(added.id);
+      toast("ok", `Applied "${added?.name ?? name}" from the vault`);
+    } catch (e) {
+      toast("error", `Import failed: ${truncateError(e)}`);
+    }
   };
 
   const pickAndAdd = async (kind: "video" | "image") => {
@@ -176,6 +176,8 @@ export default function WallpaperTab() {
           file,
           file.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "Untitled",
         );
+    } catch (e) {
+      toast("error", `Import failed: ${truncateError(e)}`);
     } finally {
       setBusy(false);
     }
@@ -186,7 +188,10 @@ export default function WallpaperTab() {
     try {
       const folder = await api.pickMediaFolder();
       if (!folder) return;
-      await api.galleryImportFolder(folder);
+      const list = await api.galleryImportFolder(folder);
+      toast("ok", `Imported ${list.length} item${list.length === 1 ? "" : "s"} from the folder`);
+    } catch (e) {
+      toast("error", `Folder import failed: ${truncateError(e)}`);
     } finally {
       setBusy(false);
     }
@@ -199,9 +204,15 @@ export default function WallpaperTab() {
     });
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-6">
-      <div className="stagger space-y-6">
-        <Card title="Vault">
+    <div className="stagger space-y-6">
+        <Card
+          title="Vault"
+          right={
+            <span className="font-mono text-[10px] tracking-wide text-[var(--text-faint)]">
+              {gallery.length} item{gallery.length === 1 ? "" : "s"}
+            </span>
+          }
+        >
           <div
             className="relative"
             onDragOver={(e) => {
@@ -223,49 +234,98 @@ export default function WallpaperTab() {
                 </span>
               </div>
             )}
-            <div className="grid grid-cols-3 gap-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-              <button
-                onClick={() => pickAndAdd("video")}
-                disabled={busy}
-                className="flex aspect-video flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text-dim)] transition-all hover:border-[rgb(var(--glow)/0.55)] hover:text-[rgb(var(--glow))]"
-              >
-                <IconPlus className="h-5 w-5" />
-                <span className="text-xs font-semibold">Add video</span>
-              </button>
-              <button
-                onClick={() => pickAndAdd("image")}
-                disabled={busy}
-                className="flex aspect-video flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text-dim)] transition-all hover:border-[rgb(var(--glow)/0.55)] hover:text-[rgb(var(--glow))]"
-              >
-                <IconImage className="h-5 w-5" />
-                <span className="text-xs font-semibold">Add image</span>
-              </button>
-              <button
-                onClick={pickSlideshow}
-                disabled={busy}
-                className="flex aspect-video flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text-dim)] transition-all hover:border-[rgb(var(--glow)/0.55)] hover:text-[rgb(var(--glow))]"
-              >
-                <IconLayers className="h-5 w-5" />
-                <span className="text-xs font-semibold">Import folder</span>
-              </button>
+            {/* import toolbar */}
+            <div className="mb-4 flex flex-wrap items-center gap-2.5">
+              <Btn variant="primary" disabled={busy} onClick={() => pickAndAdd("video")}>
+                <IconPlus className="h-4 w-4" />
+                Add video
+              </Btn>
+              <Btn disabled={busy} onClick={() => pickAndAdd("image")}>
+                <IconImage className="h-4 w-4" />
+                Add image
+              </Btn>
+              <Btn disabled={busy} onClick={pickSlideshow}>
+                <IconLayers className="h-4 w-4" />
+                Import folder
+              </Btn>
+              <span className="ml-auto hidden text-[11px] text-[var(--text-faint)] sm:block">
+                …or drop files and folders anywhere in the vault
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
 
               {gallery.map((g) => (
                 <div
                   key={g.id}
-                  className={`group relative aspect-video cursor-pointer overflow-hidden rounded-2xl border transition-all duration-300 ${
+                  className={`group relative aspect-video cursor-pointer overflow-hidden rounded-xl border transition-all duration-300 hover:-translate-y-0.5 ${
                     isActive(g)
                       ? "border-[rgb(var(--glow)/0.7)] shadow-[0_14px_36px_-14px_rgb(var(--glow)/0.55)] ring-2 ring-[rgb(var(--glow)/0.22)]"
                       : "border-[var(--line)] bg-[var(--panel-strong)] hover:border-[var(--line-strong)] hover:shadow-[var(--shadow)]"
                   }`}
-                  onClick={() => api.galleryApply(g.id).catch(console.error)}
+                  onClick={() =>
+                    api
+                      .galleryApply(g.id)
+                      .then(() => toast("ok", `Applied "${g.name}"`))
+                      .catch((e) => toast("error", `Apply failed: ${truncateError(e)}`))
+                  }
                 >
-                  <GalleryThumb entry={g} />
+                  <div className="h-full w-full transition-transform duration-500 group-hover:scale-[1.05]">
+                    <GalleryThumb entry={g} />
+                  </div>
+                  {/* hover scrim + apply affordance */}
+                  {!isActive(g) && (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/35 group-hover:opacity-100">
+                      <span className="rounded-full border border-white/25 bg-black/55 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur">
+                        Apply
+                      </span>
+                    </div>
+                  )}
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2.5 pb-1.5 pt-6">
-                    <div className="truncate text-xs font-semibold text-white">{g.name}</div>
-                    <div className="kicker mt-0.5 !text-white/50">{KIND_META[g.kind].label}</div>
+                    {renaming === g.id ? (
+                      <form
+                        onClick={(e) => e.stopPropagation()}
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const name = renameVal.trim();
+                          if (name) {
+                            save((c) => {
+                              const entry = c.gallery.find((x) => x.id === g.id);
+                              if (entry) entry.name = name;
+                            });
+                          }
+                          setRenaming(null);
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          value={renameVal}
+                          onChange={(e) => setRenameVal(e.target.value)}
+                          onKeyDown={(e) => e.key === "Escape" && setRenaming(null)}
+                          className="w-full rounded-md border border-white/30 bg-black/60 px-1.5 py-0.5 text-xs font-semibold text-white outline-none"
+                        />
+                      </form>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-semibold text-white">{g.name}</div>
+                          <div className="kicker mt-0.5 !text-white/50">{KIND_META[g.kind].label}</div>
+                        </div>
+                        <button
+                          aria-label={`Rename ${g.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRenaming(g.id);
+                            setRenameVal(g.name);
+                          }}
+                          className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md border border-white/15 bg-black/50 text-white/70 backdrop-blur transition-colors hover:text-white group-hover:flex"
+                        >
+                          <IconPencil className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   {isActive(g) && (
-                    <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-semibold text-[#06121f] shadow-[0_0_14px_rgb(var(--glow)/0.7)]">
+                    <div className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-semibold text-[#06121f] shadow-[0_0_14px_rgb(var(--glow)/0.7)]">
                       <span className="h-1 w-1 rounded-full bg-[#06121f]" />
                       LIVE
                     </div>
@@ -274,7 +334,10 @@ export default function WallpaperTab() {
                     aria-label={`Remove ${g.name}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      api.galleryRemove(g.id).catch(console.error);
+                      api
+                        .galleryRemove(g.id)
+                        .then(() => toast("info", `Removed "${g.name}" from the vault`))
+                        .catch((e) => toast("error", `Remove failed: ${truncateError(e)}`));
                     }}
                     className="absolute right-2 top-2 hidden h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-black/60 text-white/70 backdrop-blur transition-colors hover:bg-red-500 hover:text-white group-hover:flex"
                   >
@@ -286,9 +349,16 @@ export default function WallpaperTab() {
           </div>
 
           {gallery.length === 0 && (
-            <p className="mt-5 text-center text-xs text-[var(--text-faint)]">
-              Everything you add stays here — click a card to apply it instantly.
-            </p>
+            <div className="mt-4 flex flex-col items-center gap-2.5 rounded-2xl border border-dashed border-[var(--line-strong)] px-6 py-12 text-center">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--panel-strong)] text-[var(--text-faint)]">
+                <IconImage className="h-5 w-5" />
+              </div>
+              <div className="text-sm font-semibold text-[var(--text)]">Vault is empty</div>
+              <p className="max-w-sm text-xs leading-relaxed text-[var(--text-faint)]">
+                Add a video or image, or drop files and folders here — everything stays in
+                the vault and one click applies it to every display.
+              </p>
+            </div>
           )}
         </Card>
 
@@ -347,6 +417,15 @@ export default function WallpaperTab() {
                   format={(v) => `${Math.round(v * 100)}%`}
                   onChange={(v) => save((c) => (c.wallpaper.volume = v))}
                 />
+                <Slider
+                  label="Playback speed"
+                  min={0.25}
+                  max={3}
+                  step={0.05}
+                  value={wall.videoSpeed ?? 1}
+                  format={(v) => `${v.toFixed(2)}×`}
+                  onChange={(v) => save((c) => (c.wallpaper.videoSpeed = v))}
+                />
                 <div className="mt-2">
                   <div className="mb-2 text-xs font-medium text-[var(--text-dim)]">Fit to display</div>
                   <div className="grid grid-cols-4 gap-2">
@@ -368,6 +447,37 @@ export default function WallpaperTab() {
                     Auto fills the screen and crops only when shapes are similar; Contain
                     letterboxes; Stretch ignores aspect.
                   </p>
+                </div>
+                <div className="mt-3 border-t border-[var(--line)] pt-2">
+                  <Section title="Color grading">
+                  <Slider
+                    label="Brightness"
+                    min={0.2}
+                    max={2}
+                    step={0.05}
+                    value={wall.videoBrightness ?? 1}
+                    format={(v) => `${Math.round(v * 100)}%`}
+                    onChange={(v) => save((c) => (c.wallpaper.videoBrightness = v))}
+                  />
+                  <Slider
+                    label="Saturation"
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    value={wall.videoSaturation ?? 1}
+                    format={(v) => `${Math.round(v * 100)}%`}
+                    onChange={(v) => save((c) => (c.wallpaper.videoSaturation = v))}
+                  />
+                  <Slider
+                    label="Hue shift"
+                    min={-180}
+                    max={180}
+                    step={5}
+                    value={wall.videoHue ?? 0}
+                    format={(v) => `${v}°`}
+                    onChange={(v) => save((c) => (c.wallpaper.videoHue = v))}
+                  />
+                  </Section>
                 </div>
               </>
             )}
@@ -417,48 +527,10 @@ export default function WallpaperTab() {
           </Card>
         </div>
 
-        <Card title="Displays">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {mons.map((m, i) => (
-              <div
-                key={`${m.device}-${i}`}
-                className={`flex items-center gap-3 rounded-2xl border px-4 py-3.5 ${
-                  m.primary
-                    ? "border-[rgb(var(--glow)/0.35)] bg-[rgb(var(--glow)/0.07)]"
-                    : "border-[var(--line)] bg-[var(--panel-strong)]"
-                }`}
-              >
-                <div
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
-                    m.primary ? "bg-[rgb(var(--glow)/0.15)]" : "bg-[var(--panel)]"
-                  }`}
-                >
-                  <IconMonitor className="h-5 w-5 text-[var(--text-dim)]" />
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-[var(--text)]">
-                    {m.device.replace(/\\/g, "") || `Display ${i + 1}`}
-                    {m.primary && (
-                      <span className="ml-2 font-mono text-[9px] uppercase tracking-widest text-[rgb(var(--glow))]">
-                        primary
-                      </span>
-                    )}
-                  </div>
-                  <div className="font-mono text-[11px] text-[var(--text-faint)]">
-                    {m.w} × {m.h} @ ({m.x}, {m.y})
-                  </div>
-                </div>
-              </div>
-            ))}
-            {mons.length === 0 && (
-              <div className="col-span-2 text-sm text-[var(--text-faint)]">Detecting displays…</div>
-            )}
-          </div>
-          <p className="mt-4 text-xs leading-relaxed text-[var(--text-faint)]">
-            Each display gets its own wallpaper window sized to its exact resolution.
-            The same source renders on every display, scaled to fit.
-          </p>
-        </Card>
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-4 text-xs leading-relaxed text-[var(--text-faint)]">
+          Each display gets its own wallpaper window sized to its exact resolution.
+          The same source renders on every display, scaled to fit.
+        </div>
 
         <Card title="Zone → device mapping">
           <p className="mb-5 text-sm leading-relaxed text-[var(--text-dim)]">
@@ -571,6 +643,5 @@ export default function WallpaperTab() {
           </div>
         </Card>
       </div>
-    </div>
   );
 }

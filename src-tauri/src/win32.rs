@@ -32,7 +32,7 @@ pub fn virtual_screen_rect() -> (i32, i32, i32, i32) {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct MonitorRect {
     pub device: String,
     pub x: i32,
@@ -40,33 +40,6 @@ pub struct MonitorRect {
     pub w: i32,
     pub h: i32,
     pub primary: bool,
-}
-
-impl Clone for MonitorRect {
-    fn clone(&self) -> Self {
-        Self {
-            device: self.device.clone(),
-            x: self.x,
-            y: self.y,
-            w: self.w,
-            h: self.h,
-            primary: self.primary,
-        }
-    }
-}
-
-impl serde::Serialize for MonitorRect {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("MonitorRect", 6)?;
-        s.serialize_field("device", &self.device)?;
-        s.serialize_field("x", &self.x)?;
-        s.serialize_field("y", &self.y)?;
-        s.serialize_field("w", &self.w)?;
-        s.serialize_field("h", &self.h)?;
-        s.serialize_field("primary", &self.primary)?;
-        s.end()
-    }
 }
 
 /// 0-based index of the monitor containing the given point, in the same
@@ -147,6 +120,19 @@ pub fn set_click_through(hwnd: HWND, on: bool) {
         cur | WS_EX_LAYERED | WS_EX_TRANSPARENT
     } else {
         cur & !(WS_EX_LAYERED | WS_EX_TRANSPARENT)
+    };
+    set_ex_style(hwnd, next);
+}
+
+/// Toggle only WS_EX_TRANSPARENT (keep layered per-pixel transparency) so a
+/// window can accept input on its interactive elements while transparent
+/// areas still pass clicks through to whatever is underneath.
+pub fn set_input_transparent(hwnd: HWND, on: bool) {
+    let cur = get_ex_style(hwnd);
+    let next = if on {
+        cur | WS_EX_TRANSPARENT
+    } else {
+        cur & !WS_EX_TRANSPARENT
     };
     set_ex_style(hwnd, next);
 }

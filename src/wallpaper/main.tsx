@@ -600,8 +600,113 @@ type MediaIdentity = { kind: WallpaperKind; source: string };
 function sampleSource(): CanvasImageSource | null {
   const host = document.querySelector("[data-sample]");
   if (!host) return null;
-  const el = host.querySelector("video, canvas, img");
+  // Prefer the visible presentation canvas over a hidden source video.
+  const el = host.querySelector("canvas, img") ?? host.querySelector("video");
   return (el as CanvasImageSource | null) ?? null;
+}
+
+/**
+ * Blits a hidden <video> element's frames onto a canvas every animation
+ * frame. Canvas pixels composite in the normal DOM tree, so layers above
+ * (stickers) always render — unlike direct <video> presentation, which
+ * WebView2 can lift onto DirectComposition overlay planes that paint above
+ * all other DOM content.
+ */
+function VideoCanvas({
+  videoRef,
+  fit,
+  fx,
+  onReady,
+}: {
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  fit: CSSProperties["objectFit"];
+  fx?: { speed: number; brightness: number; saturation: number; hue: number };
+  onReady: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fitRef = useRef(fit);
+  fitRef.current = fit;
+  const readyRef = useRef(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    let raf = 0;
+    let running = true;
+
+    const draw = () => {
+      if (!running) return;
+      // Skip blitting while the wallpaper is hidden (win key / occluded):
+      // rAF already stops when the webview is hidden, this guards the
+      // paused-but-visible case where the frame wouldn't change anyway.
+      if (pausedGlobal && !document.hasFocus()) {
+        raf = requestAnimationFrame(draw);
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      // Cap the backing resolution at 1080p-height equivalent when the
+      // display is very dense: a 4K blit at 60fps costs real GPU time and
+      // the visual difference behind desktop icons is imperceptible.
+      const dpr = Math.min(window.devicePixelRatio || 1, Math.max(1, 2160 / Math.max(1, rect.height)));
+      const pw = Math.max(1, Math.round(rect.width * dpr));
+      const ph = Math.max(1, Math.round(rect.height * dpr));
+      if (canvas.width !== pw || canvas.height !== ph) {
+        canvas.width = pw;
+        canvas.height = ph;
+      }
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, pw, ph);
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (vw > 0 && vh > 0 && video.readyState >= 2) {
+        if (!readyRef.current) {
+          readyRef.current = true;
+          onReady();
+        }
+        const isCover = fitRef.current === "cover";
+        const isFill = fitRef.current === "fill";
+        const scale = isFill || isCover
+          ? Math.max(pw / vw, ph / vh)
+          : Math.min(pw / vw, ph / vh); // contain (letterbox)
+        const dw = isFill ? pw : vw * scale;
+        const dh = isFill ? ph : vh * scale;
+        const dx = (pw - dw) / 2;
+        const dy = (ph - dh) / 2;
+        ctx.drawImage(video, dx, dy, dw, dh);
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => {
+      running = false;
+      cancelAnimationFrame(raf);
+    };
+  }, [videoRef, onReady]);
+
+  // Playback-rate control (live config updates included).
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !fx) return;
+    const rate = Math.min(8, Math.max(0.1, fx.speed || 1));
+    const apply = () => (video.playbackRate = rate);
+    apply();
+    video.addEventListener("loadedmetadata", apply);
+    return () => video.removeEventListener("loadedmetadata", apply);
+  }, [videoRef, fx?.speed]);
+
+  const filter = fx
+    ? `brightness(${fx.brightness}) saturate(${fx.saturation}) hue-rotate(${fx.hue}deg)`
+    : undefined;
+  return (
+    <canvas
+      ref={canvasRef}
+      className="h-full w-full"
+      style={{ objectFit: fit, filter }}
+    />
+  );
 }
 
 /**
@@ -615,6 +720,7 @@ function MediaSurface({
   source,
   fit,
   volume,
+  fx,
   slideshow,
   screen,
   onReady,
@@ -624,6 +730,7 @@ function MediaSurface({
   source: string;
   fit: VideoFit;
   volume: number;
+  fx?: { speed: number; brightness: number; saturation: number; hue: number };
   slideshow: Config["wallpaper"]["slideshow"];
   screen: MonitorInfo;
   onReady?: () => void;
@@ -759,6 +866,10 @@ function MediaSurface({
   }
 
   if (kind === "video") {
+    // Canvas presentation: the hidden <video> drives playback, decoding, and
+    // zone sampling; VideoCanvas blits frames into the normal compositor tree
+    // so sticker layers above the wallpaper always render (direct <video>
+    // can be promoted to overlay planes that paint over all DOM content).
     return (
       <div
         className="flex h-full w-full items-center justify-center overflow-hidden bg-black"
@@ -775,10 +886,11 @@ function MediaSurface({
           preload="auto"
           muted={volume === 0}
           playsInline
-          style={{ width: "100%", height: "100%", objectFit: videoFitStyle }}
+          style={{ display: "none" }}
           onLoadedData={() => fireReady()}
           onError={(e) => console.error("wallpaper video error", e)}
         />
+        <VideoCanvas videoRef={videoRef} fit={videoFitStyle} fx={fx} onReady={fireReady} />
       </div>
     );
   }
@@ -891,6 +1003,8 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
       } catch {
         // Media not ready yet; retry on the next tick.
       }
+      // 100ms matches the engine's default reactive push interval; sampling
+      // faster than the engine consumes wastes getImageData calls.
       setTimeout(tick, 100);
     };
     tick();
@@ -904,9 +1018,16 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
   const screen = info.monitor ?? { w: 1920, h: 1080, x: 0, y: 0, device: "", primary: false };
   const fit = (info.config.videoFit ?? "auto") as VideoFit;
   const volume = info.config.volume ?? 0;
+  const videoFx = {
+    speed: info.config.videoSpeed ?? 1,
+    brightness: info.config.videoBrightness ?? 1,
+    saturation: info.config.videoSaturation ?? 1,
+    hue: info.config.videoHue ?? 0,
+  };
   const slideshow = info.config.slideshow;
   const single = layers.length === 1;
-  const loading = layers.length > 1 && !topReady;
+  // Show the pill on first load too, not only during crossfades.
+  const loading = !topReady || (layers.length > 1 && !topReady);
 
   return (
     <div className="relative h-full w-full">
@@ -940,6 +1061,7 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
               source={ident.source}
               fit={fit}
               volume={volume}
+              fx={videoFx}
               slideshow={slideshow}
               screen={screen}
               onReady={isTop ? () => setTopReady(true) : undefined}

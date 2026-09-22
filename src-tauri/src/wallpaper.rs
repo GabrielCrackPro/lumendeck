@@ -4,7 +4,7 @@
 use crate::config::{WallpaperConfig, WallpaperKind};
 use crate::win32;
 use std::sync::Mutex;
-use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
+use tauri::Manager;
 
 static PAUSED: Mutex<bool> = Mutex::new(false);
 
@@ -51,43 +51,21 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
                     .map(crate::workerw::is_attached)
                     .unwrap_or(false);
                 if !pos_ok || !size_ok || !attached {
-                    let _ = existing.set_position(PhysicalPosition::new(m.x, m.y));
-                    let _ = existing.set_size(PhysicalSize::new(
-                        m.w.max(1) as u32,
-                        m.h.max(1) as u32,
-                    ));
+                    crate::window_utils::reposition_window(&existing, m.x, m.y, m.w.max(1), m.h.max(1));
                     attach_existing(&existing, (m.x, m.y, m.w.max(1) as u32, m.h.max(1) as u32))?;
                 }
             }
             None => {
-                let window = WebviewWindowBuilder::new(
+                let window = crate::window_utils::build_wallpaper(
                     app,
-                    label.clone(),
-                    WebviewUrl::App("wallpaper.html".into()),
-                )
-                .title("LumenDeck Wallpaper")
-                // Builder values are logical (DPI-scaled); pass the raw monitor
-                // rect only as an initial guess, then force the exact physical
-                // rect below before attaching.
-                .position(m.x as f64, m.y as f64)
-                .inner_size(m.w.max(1) as f64, m.h.max(1) as f64)
-                .decorations(false)
-                .shadow(false)
-                .skip_taskbar(true)
-                .resizable(false)
-                .maximizable(false)
-                .minimizable(false)
-                .focused(false)
-                .visible(true)
-                .build()
-                .map_err(|e| format!("wallpaper window build failed: {e}"))?;
-                // Lively-style DPI correctness: the window must cover the
-                // monitor's physical rect exactly, regardless of scale factor.
-                let _ = window.set_position(PhysicalPosition::new(m.x, m.y));
-                let _ = window.set_size(PhysicalSize::new(
-                    m.w.max(1) as u32,
-                    m.h.max(1) as u32,
-                ));
+                    &label,
+                    tauri::WebviewUrl::App("wallpaper.html".into()),
+                    "LumenDeck Wallpaper",
+                    m.x,
+                    m.y,
+                    m.w.max(1),
+                    m.h.max(1),
+                )?;
                 attach_existing(&window, (m.x, m.y, m.w.max(1) as u32, m.h.max(1) as u32))?;
             }
         }

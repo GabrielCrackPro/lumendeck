@@ -24,10 +24,17 @@ pub fn broadcast(app: &tauri::AppHandle) {
 /// the startup pass), so this stays cheap enough to call per frame payload.
 pub fn render_list() -> Vec<StickerDef> {
     let cfg = crate::config_store::get();
+    // onTop stickers render in their own OS windows, not the wallpaper layer.
+    let in_wallpaper: Vec<StickerDef> = cfg
+        .stickers
+        .iter()
+        .filter(|s| !s.on_top)
+        .cloned()
+        .collect();
     if !cfg.sticker.remove_background {
-        return cfg.stickers;
+        return in_wallpaper;
     }
-    cfg.stickers
+    in_wallpaper
         .iter()
         .map(|s| {
             if s.url.contains(".nobg") {

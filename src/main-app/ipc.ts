@@ -14,13 +14,6 @@ export const api = {
   setConfig: (cfg: Config) => invoke<Config>("set_config", { cfg }),
   reloadConfig: () => invoke<Config>("reload_config"),
 
-  getWallpaperPayload: () =>
-    invoke<{
-      config: WallpaperConfig;
-      resolvedSource: string;
-      paused: boolean;
-      attached: boolean;
-    }>("get_wallpaper_payload"),
   applyWallpaper: (wallpaper: WallpaperConfig) =>
     invoke<void>("apply_wallpaper", { wallpaper }),
   setWallpaperEnabled: (enabled: boolean) =>
@@ -64,4 +57,5 @@ export const api = {
     >("monitors"),
 
   quit: () => invoke<void>("quit"),
+  factoryReset: () => invoke<void>("factory_reset"),
 };

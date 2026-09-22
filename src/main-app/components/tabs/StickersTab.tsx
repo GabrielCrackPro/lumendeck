@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
-import { Card, Btn, Toggle, Slider, Select, NumberField } from "../ui";
+import { Card, Btn, Toggle, Slider, Select, NumberField, EmptyState, Section } from "../ui";
 import { IconPlus, IconTrash, IconSparkle } from "../icons";
 import { api } from "../../ipc";
+import { truncateError, basename } from "../../utilities";
 import type { StickerDef, StickerFit } from "@shared/types";
 
 /** Live media strip for a sticker card: image/GIF or muted video. */
@@ -66,13 +67,17 @@ export default function StickersTab() {
   if (!cfg) return null;
 
   const importAndPlace = async () => {
+    if (busy) return; // guard: a stuck dialog must not wedge the flow
+    console.info("[stickers] add clicked");
     setBusy(true);
     try {
       const file = await api.pickMediaFile();
+      console.info("[stickers] picker returned", file);
       if (!file) return;
-      const name = file.split(/[\\/]/).pop() ?? "sticker";
+      const name = basename(file);
       await api.beginStickerPlacement(name, convertFileSrc(file, "media"), "image");
-    } catch {
+    } catch (e) {
+      console.error("[stickers] placement failed", e);
       // Right-click / ESC cancel resolves with "cancelled".
     } finally {
       setBusy(false);
@@ -90,8 +95,7 @@ export default function StickersTab() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-6">
-      <div className="stagger space-y-6">
+    <div className="stagger space-y-6">
         <Card title="Deck">
           <div className="flex flex-wrap gap-2.5">
             {placing ? (
@@ -137,8 +141,7 @@ export default function StickersTab() {
           </p>
         </Card>
 
-        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          <Card title="Snapping">
+        <Card title="Snapping & behavior">
             <Toggle
               label="Alignment guides"
               description="Snap sticker edges to other stickers and monitor edges & centers (amber lines)."
@@ -188,9 +191,6 @@ export default function StickersTab() {
               Alignment guides win over the grid: the grid applies only where no
               guide matched.
             </p>
-          </Card>
-
-          <Card title="Behavior">
             <Toggle
               label="Remove background when applying"
               description="A flat background detected from the borders is made transparent. GIFs are reprocessed frame-by-frame as transparent APNGs; originals stay untouched."
@@ -202,24 +202,19 @@ export default function StickersTab() {
               }
             />
           </Card>
-        </div>
 
         {cfg.stickers.length === 0 && (
-          <div className="flex flex-col items-center gap-3.5 rounded-3xl border border-dashed border-[var(--line-strong)] px-8 py-14 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--panel-strong)] text-[var(--text-faint)]">
-              <IconSparkle className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-[var(--text)]">No stickers yet</div>
-              <p className="mt-1 text-xs text-[var(--text-faint)]">
-                Add an image, GIF or short video and click once on the desktop to land it.
-              </p>
-            </div>
-            <Btn variant="primary" disabled={busy} onClick={importAndPlace}>
-              <IconPlus className="h-4 w-4" />
-              Add your first sticker
-            </Btn>
-          </div>
+          <EmptyState
+            icon={<IconSparkle className="h-5 w-5" />}
+            title="No stickers yet"
+            description="Add an image, GIF or short video and click once on the desktop to land it."
+            action={
+              <Btn variant="primary" disabled={busy} onClick={importAndPlace}>
+                <IconPlus className="h-4 w-4" />
+                Add your first sticker
+              </Btn>
+            }
+          />
         )}
 
         {cfg.stickers.length > 0 && (
@@ -228,44 +223,68 @@ export default function StickersTab() {
               <Card key={s.id} title={s.name}>
                 <StickerPreview s={s} />
                 <Toggle label="Visible" checked={s.visible} onChange={(v) => update(s.id, { visible: v })} />
-                <Toggle label="Muted (video)" checked={s.muted} onChange={(v) => update(s.id, { muted: v })} />
-                <Slider
-                  label="Opacity"
-                  min={0.1}
-                  max={1}
-                  step={0.05}
-                  value={s.opacity}
-                  format={(v) => `${Math.round(v * 100)}%`}
-                  onChange={(v) => update(s.id, { opacity: v })}
-                />
-                <Select<StickerFit>
-                  label="Fit"
-                  value={s.fit}
-                  options={[
-                    { id: "contain", label: "Contain" },
-                    { id: "cover", label: "Cover" },
-                    { id: "fill", label: "Fill" },
-                  ]}
-                  onChange={(v) => update(s.id, { fit: v })}
-                />
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  <NumberField label="X (px)" value={s.x} onChange={(v) => update(s.id, { x: Math.round(v) })} />
-                  <NumberField label="Y (px)" value={s.y} onChange={(v) => update(s.id, { y: Math.round(v) })} />
-                  <NumberField
-                    label="Width (px)"
-                    value={s.w}
-                    min={24}
-                    onChange={(v) => update(s.id, { w: Math.max(24, Math.round(v)) })}
+                <Section title="Placement & appearance">
+                  <Toggle
+                    label="Always on top"
+                    description="Float above every application window instead of the wallpaper layer."
+                    checked={s.onTop}
+                    onChange={(v) => update(s.id, { onTop: v })}
                   />
-                  <NumberField
-                    label="Height (px)"
-                    value={s.h}
-                    min={24}
-                    onChange={(v) => update(s.id, { h: Math.max(24, Math.round(v)) })}
+                  <Toggle label="Muted (video)" checked={s.muted} onChange={(v) => update(s.id, { muted: v })} />
+                  <Slider
+                    label="Opacity"
+                    min={0.1}
+                    max={1}
+                    step={0.05}
+                    value={s.opacity}
+                    format={(v) => `${Math.round(v * 100)}%`}
+                    onChange={(v) => update(s.id, { opacity: v })}
                   />
-                </div>
+                  <Select<StickerFit>
+                    label="Fit"
+                    value={s.fit}
+                    options={[
+                      { id: "contain", label: "Contain" },
+                      { id: "cover", label: "Cover" },
+                      { id: "fill", label: "Fill" },
+                    ]}
+                    onChange={(v) => update(s.id, { fit: v })}
+                  />
+                </Section>
+                <Section title="Position & size (px)">
+                  <div className="grid grid-cols-2 gap-3">
+                    <NumberField label="X (px)" value={s.x} onChange={(v) => update(s.id, { x: Math.round(v) })} />
+                    <NumberField label="Y (px)" value={s.y} onChange={(v) => update(s.id, { y: Math.round(v) })} />
+                    <NumberField
+                      label="Width (px)"
+                      value={s.w}
+                      min={24}
+                      onChange={(v) => update(s.id, { w: Math.max(24, Math.round(v)) })}
+                    />
+                    <NumberField
+                      label="Height (px)"
+                      value={s.h}
+                      min={24}
+                      onChange={(v) => update(s.id, { h: Math.max(24, Math.round(v)) })}
+                    />
+                  </div>
+                </Section>
                 <div className="mt-4 flex justify-end">
-                  <Btn variant="danger" onClick={() => api.removeSticker(s.id)}>
+                  <Btn
+                    variant="danger"
+                    onClick={() =>
+                      api
+                        .removeSticker(s.id)
+                        .then(() =>
+                          useStore.getState().toast("info", `Removed "${s.name}"`),
+                        )
+                        .catch((e) =>
+                          useStore
+                            .getState()
+                            .toast("error", `Remove failed: ${truncateError(e)}`),
+                        )
+                    }
+                  >
                     <IconTrash className="h-4 w-4" />
                     Remove
                   </Btn>
@@ -274,7 +293,6 @@ export default function StickersTab() {
             ))}
           </div>
         )}
-      </div>
     </div>
   );
 }

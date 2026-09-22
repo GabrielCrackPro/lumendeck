@@ -32,6 +32,8 @@ export default defineConfig({
       input: {
         "main-app": r("./main-app.html"),
         wallpaper: r("./wallpaper.html"),
+        placement: r("./placement.html"),
+        sticker: r("./sticker.html"),
       },
     },
   },

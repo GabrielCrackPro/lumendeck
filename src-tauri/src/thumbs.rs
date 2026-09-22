@@ -31,19 +31,15 @@ fn thumb_path(source: &str) -> PathBuf {
 
 /// Extract a poster frame for `source` and save it as PNG.
 /// Returns the PNG path on success. Cheap no-op if it already exists.
-pub fn ensure_thumb(source: &str, size: u32) -> Option<PathBuf> {
+pub fn ensure_thumb(source: &str, size: u32) -> Result<PathBuf, String> {
     let out = thumb_path(source);
     if out.exists() {
-        return Some(out);
+        return Ok(out);
     }
-    let _ = std::fs::create_dir_all(out.parent()?);
-    match extract_shell_thumb(source, size, &out) {
-        Ok(()) => Some(out),
-        Err(e) => {
-            log::debug!("thumb extract failed for {source}: {e}");
-            None
-        }
-    }
+    std::fs::create_dir_all(out.parent().ok_or("no parent")?)
+        .map_err(|e| format!("mkdir: {e}"))?;
+    extract_shell_thumb(source, size, &out)?;
+    Ok(out)
 }
 
 /// Does this entry benefit from a generated thumbnail?
@@ -56,12 +52,14 @@ pub fn wants_thumb(entry: &GalleryEntry) -> bool {
 fn extract_shell_thumb(source: &str, size: u32, out: &PathBuf) -> Result<(), String> {
     use windows::core::{Interface, HSTRING};
     use windows::Win32::Graphics::Gdi::{
-        GetDC, GetDIBits, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS,
+        GetDC, GetDIBits, GetObjectW, ReleaseDC, HGDIOBJ, BITMAP, BITMAPINFO, BITMAPINFOHEADER,
+        DIB_RGB_COLORS,
     };
     use windows::Win32::Foundation::SIZE;
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
     use windows::Win32::UI::Shell::{
-        SHCreateItemFromParsingName, IShellItem, IShellItemImageFactory, SIIGBF_THUMBNAILONLY,
+        SHCreateItemFromParsingName, IShellItem, IShellItemImageFactory, SIIGBF_ICONONLY,
+        SIIGBF_RESIZETOFIT, SIIGBF_THUMBNAILONLY,
     };
     use windows::Win32::Graphics::Gdi::HBITMAP;
 
@@ -77,30 +75,61 @@ fn extract_shell_thumb(source: &str, size: u32, out: &PathBuf) -> Result<(), Str
             .cast()
             .map_err(|e| format!("no image factory: {e}"))?;
 
+        // THUMBNAILONLY fails when the shell has no cached thumbnail yet, so
+        // first ask the shell to build one (RESIZETOFIT = default pipeline),
+        // then fall back to thumbnail-only / icon-only.
         let hbitmap: HBITMAP = factory
             .GetImage(
                 SIZE {
                     cx: size as i32,
                     cy: size as i32,
                 },
-                SIIGBF_THUMBNAILONLY,
+                SIIGBF_RESIZETOFIT,
             )
+            .or_else(|_| {
+                factory.GetImage(
+                    SIZE {
+                        cx: size as i32,
+                        cy: size as i32,
+                    },
+                    SIIGBF_THUMBNAILONLY,
+                )
+            })
+            .or_else(|_| {
+                factory.GetImage(
+                    SIZE {
+                        cx: size as i32,
+                        cy: size as i32,
+                    },
+                    SIIGBF_ICONONLY,
+                )
+            })
             .map_err(|e| format!("GetImage: {e}"))?;
 
         // Convert the DDB handle into a top-down 32bpp DIB we can read.
-        let hdc = GetDC(None);
-        let mut bmi = BITMAPINFO::default();
-        bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = DIB_RGB_COLORS.0 as u32; // BI_RGB
-        // Query dimensions with a null buffer first.
-        let _ = GetDIBits(hdc, hbitmap, 0, 0, None, &mut bmi, DIB_RGB_COLORS);
-        let (w, h) = (bmi.bmiHeader.biWidth, bmi.bmiHeader.biHeight.unsigned_abs());
+        // Dimensions come from GetObjectW — the null-buffer GetDIBits query is
+        // unreliable for shell-provided bitmaps.
+        let mut bm = BITMAP::default();
+        if GetObjectW(
+            HGDIOBJ(hbitmap.0),
+            std::mem::size_of::<BITMAP>() as i32,
+            Some(&mut bm as *mut _ as _),
+        ) == 0
+        {
+            return Err("GetObjectW failed".into());
+        }
+        let (w, h) = (bm.bmWidth, bm.bmHeight.unsigned_abs());
         if w <= 0 || h == 0 {
             return Err("invalid bitmap dimensions".into());
         }
-        bmi.bmiHeader.biHeight = -(h as i32); // request top-down rows
+        let hdc = GetDC(None);
+        let mut bmi = BITMAPINFO::default();
+        bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biWidth = w;
+        bmi.bmiHeader.biHeight = -(h as i32); // top-down rows
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = DIB_RGB_COLORS.0 as u32; // BI_RGB
 
         let buf_len = (w as usize) * (h as usize) * 4;
         let mut pixels = vec![0u8; buf_len];
@@ -154,17 +183,28 @@ pub fn spawn_gallery_thumb_worker() {
                 continue;
             }
             for entry in &pending {
-                if let Some(png) = ensure_thumb(&entry.source, 512) {
-                    let url = thumb_media_url(&png);
-                    let _ = crate::config_store::update(|c| {
-                        if let Some(slot) = c.gallery.iter_mut().find(|g| g.id == entry.id) {
-                            slot.thumb = Some(url);
+                match ensure_thumb(&entry.source, 512) {
+                    Ok(png) => {
+                        log::info!("gallery thumb ok: {}", entry.name);
+                        let url = thumb_media_url(&png);
+                        let _ = crate::config_store::update(|c| {
+                            if let Some(slot) = c.gallery.iter_mut().find(|g| g.id == entry.id) {
+                                slot.thumb = Some(url);
+                            }
+                        });
+                        // Broadcast so the UI re-renders the card live.
+                        if let Some(app) = crate::app_handle() {
+                            let cfg = crate::config_store::get();
+                            crate::events::emit_all(&app, crate::events::CONFIG_CHANGED, &cfg);
                         }
-                    });
-                    // Broadcast so the UI re-renders the card live.
-                    if let Some(app) = crate::app_handle() {
-                        let cfg = crate::config_store::get();
-                        crate::events::emit_all(&app, crate::events::CONFIG_CHANGED, &cfg);
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "gallery thumb FAILED: {} ({}): {}",
+                            entry.name,
+                            entry.source,
+                            e
+                        );
                     }
                 }
                 // Be a good citizen: one thumbnail per tick.

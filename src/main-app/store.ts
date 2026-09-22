@@ -3,22 +3,38 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { EVENTS } from "@shared/constants";
-import type { Config, DeviceColor, RgbStatus } from "@shared/types";
+import type { AudioLevel, Config, DeviceColor, RgbStatus } from "@shared/types";
 import { api } from "./ipc";
+import { truncateError } from "./utilities";
+
+export interface Toast {
+  id: number;
+  tone: "error" | "info" | "ok";
+  msg: string;
+}
 
 interface Store {
   cfg: Config | null;
   rgb: RgbStatus;
   /** Latest colors actually pushed to OpenRGB, keyed by device id. */
   deviceColors: Record<number, DeviceColor>;
+  /** Live audio level from the audio-reactive mode. */
+  audioLevel: AudioLevel;
   wallpaperPaused: boolean;
   loaded: boolean;
+  /** True while a config save is in flight (optimistic UI already applied). */
+  saving: boolean;
   loadError: string | null;
   load: () => Promise<void>;
   save: (mutate: (cfg: Config) => void) => Promise<void>;
   setRgb: (rgb: RgbStatus) => void;
   setDeviceColors: (frame: DeviceColor[]) => void;
+  setAudioLevel: (level: AudioLevel) => void;
   setWallpaperPaused: (p: boolean) => void;
+  /** Transient notifications (auto-dismiss in Shell). */
+  toasts: Toast[];
+  toast: (tone: Toast["tone"], msg: string) => void;
+  dismissToast: (id: number) => void;
 }
 
 /** Invoke with a timeout so a hung command becomes a visible error. */
@@ -38,8 +54,10 @@ export const useStore = create<Store>((set, get) => ({
   cfg: null,
   rgb: { connected: false, protocolVersion: null, devices: [], lastError: null },
   deviceColors: {},
+  audioLevel: { volume: 0, beat: false, deviceName: "" },
   wallpaperPaused: false,
   loaded: false,
+  saving: false,
   loadError: null,
 
   load: async () => {
@@ -65,16 +83,35 @@ export const useStore = create<Store>((set, get) => ({
 
     patch.loadError = errors.length ? errors.join(" · ") : null;
     set(patch as Store);
+    // Surface load problems as toasts too (refreshes included).
+    if (patch.loadError) {
+      get().toast("error", `Backend unreachable — ${patch.loadError}`);
+    }
   },
+
+  toasts: [],
+  toast: (tone, msg) =>
+    set((s) => ({
+      toasts: [...s.toasts, { id: Date.now() + Math.random(), tone, msg }],
+    })),
+  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
   save: async (mutate) => {
     const current = get().cfg;
     if (!current) return;
     const next = structuredClone(current);
     mutate(next);
-    set({ cfg: next }); // optimistic
-    const saved = await api.setConfig(next);
-    set({ cfg: saved });
+    set({ cfg: next, saving: true }); // optimistic
+    try {
+      const saved = await api.setConfig(next);
+      set({ cfg: saved });
+    } catch (e) {
+      get().toast("error", `Save failed: ${truncateError(e, 140)}`);
+      // Re-sync with the truth so the optimistic state doesn't linger.
+      get().load().catch(() => {});
+    } finally {
+      set({ saving: false });
+    }
   },
 
   setRgb: (rgb) => set({ rgb }),
@@ -84,6 +121,7 @@ export const useStore = create<Store>((set, get) => ({
       for (const d of frame) next[d.id] = d;
       return { deviceColors: next };
     }),
+  setAudioLevel: (audioLevel) => set({ audioLevel }),
   setWallpaperPaused: (wallpaperPaused) => set({ wallpaperPaused }),
 }));
 
@@ -95,14 +133,45 @@ export async function bindEvents(): Promise<() => void> {
       useStore.setState({ cfg: e.payload });
     }),
   );
+  let lastDeviceIds: number[] | null = null;
   unsubs.push(
     await listen<RgbStatus>(EVENTS.RGB_STATUS, (e) => {
+      const prev = lastDeviceIds;
+      const next = e.payload.devices.map((d) => d.id);
+      if (prev !== null && !e.payload.connected && prev.length > 0) {
+        useStore.getState().toast("info", "OpenRGB disconnected");
+      } else if (prev !== null && e.payload.connected) {
+        const added = next.filter((id) => !prev.includes(id));
+        const removed = prev.filter((id) => !next.includes(id));
+        const nameOf = (id: number) =>
+          e.payload.devices.find((d) => d.id === id)?.name ?? `Device ${id}`;
+        for (const id of added) {
+          useStore.getState().toast("ok", `${nameOf(id)} connected`);
+        }
+        for (const id of removed) {
+          useStore.getState().toast("info", `${nameOf(id)} disconnected`);
+        }
+      }
+      lastDeviceIds = e.payload.connected ? next : [];
       useStore.getState().setRgb(e.payload);
     }),
   );
+  // The engine emits frames at up to 40Hz per device; the dashboard preview
+  // only needs ~12Hz. Coalesce to the latest frame on a fixed interval so the
+  // store (and every subscribing component) re-renders 3-4x less.
+  let latestFrame: DeviceColor[] | null = null;
+  let frameTimer: ReturnType<typeof setInterval> | null = null;
   unsubs.push(
     await listen<DeviceColor[]>(EVENTS.RGB_FRAME, (e) => {
-      useStore.getState().setDeviceColors(e.payload);
+      latestFrame = e.payload;
+      if (frameTimer == null) {
+        frameTimer = setInterval(() => {
+          if (latestFrame != null) {
+            useStore.getState().setDeviceColors(latestFrame);
+            latestFrame = null;
+          }
+        }, 80);
+      }
     }),
   );
   unsubs.push(
@@ -110,5 +179,13 @@ export async function bindEvents(): Promise<() => void> {
       useStore.getState().setWallpaperPaused(e.payload);
     }),
   );
-  return () => unsubs.forEach((u) => u());
+  unsubs.push(
+    await listen<AudioLevel>(EVENTS.AUDIO_LEVEL, (e) => {
+      useStore.getState().setAudioLevel(e.payload);
+    }),
+  );
+  return () => {
+    unsubs.forEach((u) => u());
+    if (frameTimer != null) clearInterval(frameTimer);
+  };
 }

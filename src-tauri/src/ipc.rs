@@ -7,15 +7,6 @@ use serde::Serialize;
 use tauri::{AppHandle, State};
 use std::sync::Mutex;
 
-/// What the wallpaper webview needs to render.
-#[derive(Debug, Clone, Serialize)]
-pub struct WallpaperPayload {
-    pub config: WallpaperConfig,
-    pub resolved_source: String,
-    pub paused: bool,
-    pub attached: bool,
-}
-
 /// Per-window wallpaper info: geometry of the monitor this webview covers.
 #[derive(Debug, Clone, Serialize)]
 pub struct WallpaperInfo {
@@ -81,6 +72,8 @@ pub fn apply_side_effects(app: &AppHandle, cfg: &Config) {
     } else if let Err(e) = crate::wallpaper::remove(app) {
         log::warn!("wallpaper remove failed: {e}");
     }
+    // Topmost sticker windows track their per-sticker onTop flag.
+    crate::sticker_windows::sync(app);
     log::info!(
         "side effects applied (wallpaper={}, stickers={})",
         cfg.general.wallpaper_enabled,
@@ -107,24 +100,6 @@ pub fn reload_config(app: AppHandle) -> Result<Config, String> {
 }
 
 // ---------- Wallpaper ----------
-
-#[tauri::command]
-pub fn get_wallpaper_payload() -> WallpaperPayload {
-    let cfg = crate::config_store::get();
-    let (x, y) = {
-        // Position of the first monitor, so callers can compute relative
-        // geometry if they need it.
-        let m = crate::win32::monitors().into_iter().next();
-        m.map(|m| (m.x, m.y)).unwrap_or((0, 0))
-    };
-    let _ = (x, y);
-    WallpaperPayload {
-        resolved_source: crate::wallpaper::resolve_source(&cfg.wallpaper),
-        paused: crate::wallpaper::is_paused(),
-        attached: crate::workerw::attach_state() == crate::workerw::AttachState::Attached,
-        config: cfg.wallpaper,
-    }
-}
 
 /// Everything one wallpaper webview needs: its monitor's geometry and the
 /// resolved source. Called by each wallpaper window at boot and on changes.
@@ -290,16 +265,9 @@ pub fn gallery_add(
                 existing.thumb = thumb;
             }
         } else {
-            let id = format!("g{:x}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0));
+            let id = gen_gallery_id(0);
             let name = if name.trim().is_empty() {
-                std::path::Path::new(&source)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("Untitled")
-                    .to_string()
+                display_name_from_path(std::path::Path::new(&source))
             } else {
                 name
             };
@@ -308,10 +276,7 @@ pub fn gallery_add(
                 name,
                 kind,
                 source,
-                added_ms: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0),
+                added_ms: now_ms(),
                 thumb,
             });
         }
@@ -354,28 +319,14 @@ pub fn gallery_import_folder(folder: String) -> Result<Vec<crate::config::Galler
             if c.gallery.iter().any(|g| g.source == source && g.kind == kind) {
                 continue;
             }
-            let id = format!(
-                "g{:x}",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or(0)
-                    + imported as u128,
-            );
-            let name = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Untitled")
-                .to_string();
+            let id = gen_gallery_id(imported as u128);
+            let name = display_name_from_path(path);
             c.gallery.push(GalleryEntry {
                 id,
                 name,
                 kind,
                 source,
-                added_ms: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0),
+                added_ms: now_ms(),
                 thumb: None,
             });
             imported += 1;
@@ -433,28 +384,14 @@ pub fn gallery_import_paths(
             if c.gallery.iter().any(|g| g.source == source && g.kind == kind) {
                 continue;
             }
-            let id = format!(
-                "g{:x}",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u128)
-                    .unwrap_or(0)
-                    + imported as u128,
-            );
-            let name = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Untitled")
-                .to_string();
+            let id = gen_gallery_id(imported as u128);
+            let name = display_name_from_path(path);
             c.gallery.push(GalleryEntry {
                 id,
                 name,
                 kind,
                 source,
-                added_ms: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0),
+                added_ms: now_ms(),
                 thumb: None,
             });
             imported += 1;
@@ -536,7 +473,7 @@ pub fn list_images(folder: String) -> Vec<String> {
     let mut out: Vec<String> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
-        .filter_map(|e| e.ok())
+        .flatten()
         .map(|e| e.path())
         .filter(|p| p.is_file())
         .filter(|p| {
@@ -584,6 +521,7 @@ pub fn update_rgb_config(cfg: crate::config::RgbConfig) -> Result<(), String> {
 
 // ---------- Stickers ----------
 
+#[derive(Clone)]
 struct PendingSticker {
     name: String,
     url: String,
@@ -593,7 +531,8 @@ static PENDING_PLACEMENT: Mutex<Option<PendingSticker>> = Mutex::new(None);
 
 /// Begin placement: arms the global mouse hook and awaits the click. Resolves
 /// with the created sticker on left click, or an error on right click / cancel.
-/// No overlay window is involved — the user clicks the desktop directly.
+/// A transparent topmost overlay per monitor gives explicit on-screen
+/// feedback (veil + cursor-following preview); clicks pass through it.
 #[tauri::command]
 pub async fn begin_sticker_placement(
     app: AppHandle,
@@ -603,12 +542,19 @@ pub async fn begin_sticker_placement(
 ) -> Result<StickerDef, String> {
     let _ = kind; // retained for API compat; kind is derived from the extension
     log::info!("sticker placement: armed (name={name}) — waiting for desktop click");
-    // Normalize up front so the wallpaper preview can render the media.
+    // Normalize up front so the overlay can render the media.
     let preview_url = crate::media::media_url_for_file(&url);
-    *PENDING_PLACEMENT.lock().expect("pending poisoned") = Some(PendingSticker { name, url });
+    *PENDING_PLACEMENT.lock().expect("pending poisoned") = Some(PendingSticker {
+        name: name.clone(),
+        url: url.clone(),
+    });
+    if let Err(e) = crate::placement_overlay::show(&app, &preview_url, &name) {
+        log::warn!("placement overlay failed: {e}");
+    }
     crate::events::emit_all(&app, crate::events::PLACING, &Some(preview_url));
 
-    // Live cursor stream for the on-wallpaper placement preview.
+    // Live cursor + wheel streams for the placement overlay preview: moves
+    // position the preview, wheel resizes it live (persisted on placement).
     let mut cursor_rx = crate::mouse_hook::take_cursor_stream();
     let app_cursor = app.clone();
     let forwarder = tauri::async_runtime::spawn(async move {
@@ -618,12 +564,27 @@ pub async fn begin_sticker_placement(
             }
         }
     });
+    let (wheel_tx, mut wheel_rx) = tokio::sync::mpsc::unbounded_channel::<i32>();
+    *crate::mouse_hook::WHEEL_TX.lock().expect("wheel tx poisoned") = Some(wheel_tx);
+    let app_wheel = app.clone();
+    let wheel_forwarder = tauri::async_runtime::spawn(async move {
+        let mut size = 220i32;
+        while let Some(delta) = wheel_rx.recv().await {
+            size = (size + delta * 6).clamp(48, 2000);
+            crate::events::set_placement_size(size);
+            crate::events::emit_all(&app_wheel, crate::events::PLACING_SIZE, &size);
+        }
+    });
 
     let result = crate::mouse_hook::wait().await;
     crate::mouse_hook::release_cursor_stream();
+    *crate::mouse_hook::WHEEL_TX.lock().expect("wheel tx poisoned") = None;
+    let _ = wheel_forwarder.await;
     let _ = forwarder.await;
+    crate::placement_overlay::hide(&app);
     crate::events::emit_all(&app, crate::events::PLACING, &Option::<String>::None);
     let pending = PENDING_PLACEMENT.lock().expect("pending poisoned").take();
+    let placed_size = crate::events::take_placement_size();
 
     match result {
         crate::mouse_hook::ClickResult::Place(x, y) => {
@@ -656,17 +617,23 @@ pub async fn begin_sticker_placement(
                 }
             }
             // Clamp so the default-size sticker stays fully on the virtual
-            // screen (a click on a monitor edge would otherwise hang it
-            // half off-screen). Re-clamped against real monitor bounds after
-            // creation so multi-monitor layouts without a virtual origin at
-            // (0,0) behave too.
+            // screen, centered on the click. Negative coordinates are valid
+            // (monitors above/left of the primary), so we clamp against the
+            // real virtual-screen bounds rather than assuming (0,0) origin.
             let (x, y) = clamp_placement(x, y);
+            let size = placed_size.unwrap_or(crate::constants_sticker::DEFAULT_W as i32) as u32;
+            let (x, y) = (
+                x - size as i32 / 2,
+                y - size as i32 / 2,
+            );
             let sticker = StickerDef {
                 id: format!("stk-{}", nanoid_like()),
                 name: p.name,
                 url,
                 x,
                 y,
+                w: size,
+                h: size,
                 ..StickerDef::default()
             };
             let mut stickers = cfg.stickers.clone();
@@ -691,10 +658,79 @@ pub async fn begin_sticker_placement(
 
 /// Cancel an in-progress placement from the UI.
 #[tauri::command]
-pub fn cancel_sticker_placement() -> Result<(), String> {
+pub fn cancel_sticker_placement(app: AppHandle) -> Result<(), String> {
     log::info!("sticker placement: cancelled (UI)");
     *PENDING_PLACEMENT.lock().expect("pending poisoned") = None;
     crate::mouse_hook::disarm();
+    crate::placement_overlay::hide(&app);
+    crate::events::emit_all(&app, crate::events::PLACING, &Option::<String>::None);
+    Ok(())
+}
+
+/// Payload for the placement overlay page: its monitor geometry, DPI, and
+/// the sticker media to preview.
+#[derive(serde::Serialize)]
+pub struct PlacementInfo {
+    pub monitor: crate::win32::MonitorRect,
+    pub scale: f64,
+    pub url: String,
+    pub name: String,
+}
+
+#[tauri::command]
+pub fn get_placement_info(webview_window: tauri::WebviewWindow) -> Option<PlacementInfo> {
+    let pending = PENDING_PLACEMENT.lock().expect("pending poisoned").clone();
+    let Some(p) = pending else {
+        return None;
+    };
+    let label = webview_window.label().to_string();
+    let index = label
+        .strip_prefix("placement-")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(0);
+    let mons = crate::win32::monitors();
+    let monitor = mons.get(index).cloned()?;
+    let scale = webview_window.scale_factor().unwrap_or(1.0);
+    Some(PlacementInfo {
+        monitor,
+        scale,
+        url: crate::media::media_url_for_file(&p.url),
+        name: p.name,
+    })
+}
+
+/// Feed a synthetic wheel delta into the placement resize stream (from the
+/// overlay's +/− buttons). Shares the exact path as real wheel events.
+#[tauri::command]
+pub fn placement_resize(app: AppHandle, delta: i32) -> Result<(), String> {
+    let _ = app;
+    let tx = crate::mouse_hook::WHEEL_TX.lock().expect("wheel tx poisoned").clone();
+    if let Some(tx) = tx {
+        let _ = tx.send(delta);
+    }
+    Ok(())
+}
+
+/// Make the calling overlay window accept input (buttons) while staying
+/// transparent: clears WS_EX_TRANSPARENT on its own HWND.
+#[tauri::command]
+pub fn placement_set_interactive(
+    webview_window: tauri::WebviewWindow,
+    interactive: bool,
+) -> Result<(), String> {
+    let hwnd = crate::wallpaper::hwnd_of(&webview_window)?;
+    crate::win32::set_input_transparent(hwnd, !interactive);
+    Ok(())
+}
+
+/// Resolve an armed placement at an arbitrary screen point (corner
+/// quick-place buttons). Fires the same path as a physical click.
+#[tauri::command]
+pub fn placement_place_at(_app: AppHandle, x: i32, y: i32) -> Result<(), String> {
+    if PENDING_PLACEMENT.lock().expect("pending poisoned").is_none() {
+        return Err("no placement armed".into());
+    }
+    crate::mouse_hook::resolve_place_at(x, y);
     Ok(())
 }
 
@@ -744,7 +780,65 @@ pub fn quit(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Wipe ALL app data (config, gallery references, sticker placements, cached
+/// thumbnails, logs) and exit. Does NOT touch the user's media files that
+/// vault/sticker entries point at — only LumenDeck's own directory.
+#[tauri::command]
+pub fn factory_reset(app: AppHandle) -> Result<(), String> {
+    use std::path::PathBuf;
+    log::info!("factory reset requested — wiping app data and exiting");
+
+    // Tear down windows that hold files/handles first.
+    let _ = crate::wallpaper::remove(&app);
+    crate::sticker_windows::close_all(&app);
+    crate::placement_overlay::hide(&app);
+
+    let base = dirs::data_dir()
+        .ok_or_else(|| "cannot resolve app data dir".to_string())?
+        .join("LumenDeck");
+    // Keep the log (we're about to write the outcome), delete everything else.
+    for entry in [
+        "config.json",
+        "thumbs",
+        "bg-cache",
+    ] {
+        let path: PathBuf = base.join(entry);
+        if path.is_dir() {
+            let _ = std::fs::remove_dir_all(&path);
+        } else if path.is_file() {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    log::info!("app data wiped; exiting");
+    app.exit(0);
+    Ok(())
+}
+
 // ---------- helpers ----------
+
+fn gen_gallery_id(offset: u128) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    format!("g{:x}", ms + offset)
+}
+
+fn display_name_from_path(path: &std::path::Path) -> String {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled")
+        .to_string()
+}
+
+fn now_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 #[allow(dead_code)]
 /// Keep a placed sticker's default rect inside the virtual screen: the mouse
