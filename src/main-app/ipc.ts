@@ -5,8 +5,10 @@ import type {
   GalleryEntry,
   RgbStatus,
   StickerDef,
+  WallpaperCollection,
   WallpaperConfig,
   WallpaperKind,
+  WallpaperPlaylist,
 } from "@shared/types";
 
 export const api = {
@@ -37,6 +39,22 @@ export const api = {
     invoke<GalleryEntry[]>("gallery_import_folder", { folder }),
   galleryImportPaths: (paths: string[]) =>
     invoke<GalleryEntry[]>("gallery_import_paths", { paths }),
+
+  collectionCreate: (name: string) =>
+    invoke<WallpaperCollection>("collection_create", { name }),
+  collectionRename: (id: string, name: string) =>
+    invoke<void>("collection_rename", { id, name }),
+  collectionDelete: (id: string) => invoke<void>("collection_delete", { id }),
+  collectionToggleEntry: (id: string, entryId: string) =>
+    invoke<boolean>("collection_toggle_entry", { id, entryId }),
+
+  playlistCreate: (name: string) =>
+    invoke<WallpaperPlaylist>("playlist_create", { name }),
+  playlistSave: (playlist: WallpaperPlaylist) =>
+    invoke<void>("playlist_save", { playlist }),
+  playlistDelete: (id: string) => invoke<void>("playlist_delete", { id }),
+  playlistSetActive: (id: string | null) =>
+    invoke<void>("playlist_set_active", { id }),
 
   rgbStatus: () => invoke<RgbStatus>("rgb_status"),
   rgbRefresh: () => invoke<void>("rgb_refresh"),

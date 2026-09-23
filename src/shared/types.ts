@@ -144,6 +144,36 @@ export interface GalleryEntry {
   thumb?: string | null;
 }
 
+/** A named group of vault entries (membership only, no copies). */
+export interface WallpaperCollection {
+  id: string;
+  name: string;
+  /** Gallery entry ids, in display order. */
+  entryIds: string[];
+}
+
+/** Rotation source over a collection or the whole vault. */
+export interface WallpaperPlaylist {
+  id: string;
+  name: string;
+  /** `collection:<id>` or `all`. */
+  source: string;
+  /** Time-of-day rules; the last rule with start <= now wins. */
+  rules: PlaylistRule[];
+  /** Shuffle to a different entry every N minutes (0 = off → hourly). */
+  shuffleMin: number;
+  /** Crossfade seconds between playlist transitions (0 = instant cut). */
+  crossfadeSec: number;
+  enabled: boolean;
+}
+
+export interface PlaylistRule {
+  /** Start time "hh:mm" local. */
+  start: string;
+  /** `collection:<id>` or `all`. */
+  source: string;
+}
+
 /** Snap behavior for the on-wallpaper sticker editor. */
 export interface StickerSnap {
   /** Quantize positions to a grid. */
@@ -167,6 +197,8 @@ export interface LumenConfig {
   rgb: RgbConfig;
   stickers: StickerDef[];
   gallery: GalleryEntry[];
+  collections: WallpaperCollection[];
+  playlists: WallpaperPlaylist[];
   stickerSnap: StickerSnap;
   sticker: StickerSettings;
 }

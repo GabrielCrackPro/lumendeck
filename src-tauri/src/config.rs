@@ -365,6 +365,95 @@ pub struct GalleryEntry {
     pub thumb: Option<String>,
 }
 
+/// A named group of vault entries. Entries keep their global vault ids;
+/// collections are just membership lists, so an entry can live in several.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WallpaperCollection {
+    pub id: String,
+    pub name: String,
+    /// Gallery entry ids, in display order.
+    pub entry_ids: Vec<String>,
+}
+
+impl Default for WallpaperCollection {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            entry_ids: Vec::new(),
+        }
+    }
+}
+
+/// A playlist: rotation source over a collection (or the whole vault) that
+/// switches the active wallpaper on a schedule.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WallpaperPlaylist {
+    pub id: String,
+    pub name: String,
+    /// `collection:<id>` or `all` for the whole vault.
+    pub source: String,
+    /// Ordered time-of-day rules; first rule whose start <= now wins.
+    /// Empty = interval/shuffle mode only.
+    pub rules: Vec<PlaylistRule>,
+    /// Shuffle to a different entry every N minutes (0 = off).
+    pub shuffle_min: u32,
+    /// Crossfade seconds between playlist transitions (0 = instant cut).
+    pub crossfade_sec: f64,
+    /// True when the playlist is the active rotation.
+    pub enabled: bool,
+}
+
+impl Default for WallpaperPlaylist {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            source: "all".into(),
+            rules: Vec::new(),
+            shuffle_min: 0,
+            crossfade_sec: 1.5,
+            enabled: false,
+        }
+    }
+}
+
+/// One time-of-day rule: from `hh:mm` the playlist applies its own shuffle
+/// within the given filter (a collection id, or `all`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PlaylistRule {
+    /// Start time "hh:mm" (local, 24h). The last rule before midnight wins
+    /// until the next day's first rule.
+    pub start: String,
+    /// `collection:<id>` or `all`.
+    pub source: String,
+}
+
+impl Default for PlaylistRule {
+    fn default() -> Self {
+        Self {
+            start: "00:00".into(),
+            source: "all".into(),
+        }
+    }
+}
+
+impl PlaylistRule {
+    /// Parse "hh:mm" into minutes-of-day; None when malformed.
+    pub fn start_minutes(&self) -> Option<u32> {
+        let (h, m) = self.start.split_once(':')?;
+        let h: u32 = h.trim().parse().ok()?;
+        let m: u32 = m.trim().parse().ok()?;
+        if h > 23 || m > 59 {
+            return None;
+        }
+        Some(h * 60 + m)
+    }
+}
+
 // ---------- Root ----------
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -376,6 +465,8 @@ pub struct Config {
     pub rgb: RgbConfig,
     pub stickers: Vec<StickerDef>,
     pub gallery: Vec<GalleryEntry>,
+    pub collections: Vec<WallpaperCollection>,
+    pub playlists: Vec<WallpaperPlaylist>,
     pub sticker_snap: StickerSnap,
     pub sticker: StickerConfig,
 }
@@ -389,8 +480,61 @@ impl Default for Config {
             rgb: RgbConfig::default(),
             stickers: Vec::new(),
             gallery: Vec::new(),
+            collections: Vec::new(),
+            playlists: Vec::new(),
             sticker_snap: StickerSnap::default(),
             sticker: StickerConfig::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod playlist_tests {
+    use super::*;
+
+    fn rule(start: &str) -> PlaylistRule {
+        PlaylistRule {
+            start: start.into(),
+            source: "all".into(),
+        }
+    }
+
+    #[test]
+    fn rule_parses_valid_times() {
+        assert_eq!(rule("08:30").start_minutes(), Some(510));
+        assert_eq!(rule("00:00").start_minutes(), Some(0));
+        assert_eq!(rule("23:59").start_minutes(), Some(1439));
+    }
+
+    #[test]
+    fn rule_rejects_malformed_times() {
+        assert_eq!(rule("24:00").start_minutes(), None);
+        assert_eq!(rule("12:60").start_minutes(), None);
+        assert_eq!(rule("abc").start_minutes(), None);
+        assert_eq!(rule("8:").start_minutes(), None);
+    }
+
+    #[test]
+    fn collections_and_playlists_default_empty() {
+        let cfg = Config::default();
+        assert!(cfg.collections.is_empty());
+        assert!(cfg.playlists.is_empty());
+    }
+
+    #[test]
+    fn playlist_serde_roundtrip() {
+        let pl = WallpaperPlaylist {
+            id: "pl-1".into(),
+            name: "Day cycle".into(),
+            source: "collection:abc".into(),
+            rules: vec![rule("08:00")],
+            shuffle_min: 30,
+            crossfade_sec: 1.5,
+            enabled: true,
+        };
+        let json = serde_json::to_string(&pl).unwrap();
+        let back: WallpaperPlaylist = serde_json::from_str(&json).unwrap();
+        assert_eq!(pl, back);
+        assert!(json.contains("\"shuffleMin\":30"));
     }
 }

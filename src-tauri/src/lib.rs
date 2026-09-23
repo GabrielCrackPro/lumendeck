@@ -15,6 +15,7 @@ pub mod media;
 pub mod mouse_hook;
 pub mod pause;
 pub mod placement_overlay;
+pub mod playlist;
 pub mod rgb;
 pub mod stickers;
 pub mod sticker_windows;
@@ -247,7 +248,15 @@ pub fn run() {
             ipc::is_paused,
             ipc::monitors,
             ipc::quit,
-            ipc::factory_reset
+            ipc::factory_reset,
+            ipc::collection_create,
+            ipc::collection_rename,
+            ipc::collection_delete,
+            ipc::collection_toggle_entry,
+            ipc::playlist_create,
+            ipc::playlist_save,
+            ipc::playlist_delete,
+            ipc::playlist_set_active
         ])
         .setup(|app| {
             let setup_at = std::time::Instant::now();
@@ -307,6 +316,7 @@ pub fn run() {
             }
             thumbs::spawn_gallery_thumb_worker();
             crate::config_watch::spawn();
+            crate::playlist::spawn();
             display_watch::snapshot();
             display_watch::spawn();
             pause::spawn();

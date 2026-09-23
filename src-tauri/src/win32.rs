@@ -61,6 +61,26 @@ pub fn monitor_index_for_point(x: i32, y: i32) -> usize {
 }
 
 /// Enumerate display monitors with device names.
+/// Local wall-clock time as minutes-of-day (for the playlist scheduler).
+/// Uses GetLocalTime to stay independent of any timezone crate.
+pub fn local_time_minutes() -> Option<u32> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::SystemInformation::GetLocalTime;
+        let st = unsafe { GetLocalTime() };
+        let h = st.wHour as u32;
+        let m = st.wMinute as u32;
+        if h > 23 || m > 59 {
+            return None;
+        }
+        Some(h * 60 + m)
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 pub fn monitors() -> Vec<MonitorRect> {
     extern "system" fn callback(
         hmon: HMONITOR,

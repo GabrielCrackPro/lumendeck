@@ -19,6 +19,9 @@ pub struct WallpaperInfo {
     /// copy for images). Shown under the video so a failed/dead source
     /// degrades to a still image instead of a black screen. Empty when none.
     pub fallback_source: String,
+    /// Crossfade seconds for playlist/config-driven source changes (the
+    /// active playlist's setting; 0 = instant cut).
+    pub crossfade_sec: f64,
     pub config: WallpaperConfig,
     pub paused: bool,
     /// All stickers (virtual-screen coords); each window clips to its monitor.
@@ -160,6 +163,12 @@ pub fn get_wallpaper_info(webview_window: tauri::WebviewWindow) -> WallpaperInfo
         stickers: crate::stickers::render_list(),
         monitors: mons,
         fallback_source: crate::wallpaper_bg::bg_media_url(),
+        crossfade_sec: cfg
+            .playlists
+            .iter()
+            .find(|p| p.enabled)
+            .map(|p| p.crossfade_sec)
+            .unwrap_or(0.0),
         snap: cfg.sticker_snap,
         source: pm_source,
         config: effective,
@@ -879,6 +888,119 @@ pub fn factory_reset(app: AppHandle) -> Result<(), String> {
     }
     log::info!("app data wiped; exiting");
     app.exit(0);
+    Ok(())
+}
+
+// ---------- Collections & playlists ----------
+
+#[tauri::command]
+pub fn collection_create(name: String) -> Result<crate::config::WallpaperCollection, String> {
+    let col = crate::config::WallpaperCollection {
+        id: format!("col-{}", nanoid_like()),
+        name,
+        entry_ids: Vec::new(),
+    };
+    crate::config_store::update(|c| c.collections.push(col.clone()))?;
+    Ok(col)
+}
+
+#[tauri::command]
+pub fn collection_rename(id: String, name: String) -> Result<(), String> {
+    let mut found = false;
+    crate::config_store::update(|c| {
+        if let Some(col) = c.collections.iter_mut().find(|x| x.id == id) {
+            col.name = name;
+            found = true;
+        }
+    })?;
+    if !found {
+        return Err("collection not found".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn collection_delete(id: String) -> Result<(), String> {
+    crate::config_store::update(|c| {
+        c.collections.retain(|x| x.id != id);
+        // Playlists referencing the deleted collection fall back to `all`.
+        for p in &mut c.playlists {
+            if p.source == format!("collection:{id}") {
+                p.source = "all".into();
+            }
+            for r in &mut p.rules {
+                if r.source == format!("collection:{id}") {
+                    r.source = "all".into();
+                }
+            }
+        }
+    })?;
+    Ok(())
+}
+
+/// Add/remove a vault entry to/from a collection (single membership toggle).
+#[tauri::command]
+pub fn collection_toggle_entry(id: String, entry_id: String) -> Result<bool, String> {
+    let mut added: bool = false;
+    let mut found = false;
+    crate::config_store::update(|c| {
+        if let Some(col) = c.collections.iter_mut().find(|x| x.id == id) {
+            found = true;
+            if let Some(pos) = col.entry_ids.iter().position(|e| e == &entry_id) {
+                col.entry_ids.remove(pos);
+                added = false;
+            } else {
+                col.entry_ids.push(entry_id);
+                added = true;
+            }
+        }
+    })?;
+    if !found {
+        return Err("collection not found".into());
+    }
+    Ok(added)
+}
+
+#[tauri::command]
+pub fn playlist_create(name: String) -> Result<crate::config::WallpaperPlaylist, String> {
+    let pl = crate::config::WallpaperPlaylist {
+        id: format!("pl-{}", nanoid_like()),
+        name,
+        ..Default::default()
+    };
+    crate::config_store::update(|c| c.playlists.push(pl.clone()))?;
+    Ok(pl)
+}
+
+/// Upsert a full playlist definition (edited from the dashboard).
+#[tauri::command]
+pub fn playlist_save(playlist: crate::config::WallpaperPlaylist) -> Result<(), String> {
+    crate::config_store::update(|c| {
+        match c.playlists.iter_mut().find(|p| p.id == playlist.id) {
+            Some(p) => *p = playlist.clone(),
+            None => c.playlists.push(playlist.clone()),
+        }
+    })?;
+    crate::playlist::nudge();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn playlist_delete(id: String) -> Result<(), String> {
+    crate::config_store::update(|c| c.playlists.retain(|p| p.id != id))?;
+    crate::playlist::nudge();
+    Ok(())
+}
+
+/// Enable one playlist and disable the rest (single-active model).
+#[tauri::command]
+pub fn playlist_set_active(id: Option<String>) -> Result<(), String> {
+    crate::config_store::update(|c| {
+        for p in &mut c.playlists {
+            p.enabled = id.as_deref() == Some(p.id.as_str());
+        }
+    })?;
+    crate::playlist::nudge();
     Ok(())
 }
 

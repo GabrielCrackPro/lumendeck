@@ -3,7 +3,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section } from "../ui";
-import { IconImage, IconLayers, IconGlobe, IconPlus, IconTrash, IconPencil, IconPlay } from "../icons";
+import { IconImage, IconLayers, IconGlobe, IconPlus, IconTrash, IconPencil, IconPlay, IconFolder } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
 import type { GalleryEntry, WallpaperKind, ZoneDef } from "@shared/types";
 import { api } from "../../ipc";
@@ -102,6 +102,13 @@ export default function WallpaperTab() {
   const [dropCount, setDropCount] = useState(0);
   const [mons, setMons] = useState<MonEntry[]>([]);
   const [assignFor, setAssignFor] = useState<string | null>(null); // gallery entry id
+  const [activeCollection, setActiveCollection] = useState<string>("all"); // filter
+  const [addToCol, setAddToCol] = useState<string | null>(null); // entry-picker target
+  const [playlistFor, setPlaylistFor] = useState<string | null>(null); // open editor
+  const [colNaming, setColNaming] = useState(false);
+  const [colNameVal, setColNameVal] = useState("");
+  const [plNaming, setPlNaming] = useState(false);
+  const [plNameVal, setPlNameVal] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -164,8 +171,21 @@ export default function WallpaperTab() {
 
   if (!cfg) return null;
   const wall = cfg.wallpaper;
-  const gallery = [...cfg.gallery].sort((a, b) => b.addedMs - a.addedMs);
+  const galleryAll = [...cfg.gallery].sort((a, b) => b.addedMs - a.addedMs);
+  const collections = cfg.collections ?? [];
+  const playlists = cfg.playlists ?? [];
+  // Collection filter: "all" = whole vault, otherwise membership list.
+  const gallery =
+    activeCollection === "all"
+      ? galleryAll
+      : galleryAll.filter((g) =>
+          collections
+            .find((c) => c.id === activeCollection)
+            ?.entryIds.includes(g.id),
+        );
   const isActive = (g: GalleryEntry) => g.kind === wall.kind && g.source === wall.source;
+  const inCollection = (g: GalleryEntry, colId: string) =>
+    collections.find((c) => c.id === colId)?.entryIds.includes(g.id) ?? false;
 
   const overrides = wall.perMonitor ?? {};
   /** Displays an entry is running on: overrides matching it, or all displays when it's the global source. */
@@ -254,6 +274,89 @@ export default function WallpaperTab() {
             </span>
           }
         >
+          {/* collection tabs */}
+          <div className="mb-4 flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => setActiveCollection("all")}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+                activeCollection === "all"
+                  ? "glow-tint border border-[rgb(var(--glow)/0.4)] text-[rgb(var(--glow))]"
+                  : "border border-[var(--line)] text-[var(--text-dim)] hover:text-[var(--text)]"
+              }`}
+            >
+              All · {cfg.gallery.length}
+            </button>
+            {collections.map((c) => (
+              <div key={c.id} className="group/col relative">
+                <button
+                  onClick={() => setActiveCollection(c.id)}
+                  onDoubleClick={() => {
+                    const name = window.prompt("Rename collection", c.name);
+                    if (name?.trim())
+                      api
+                        .collectionRename(c.id, name.trim())
+                        .catch((e) => toast("error", `Rename failed: ${truncateError(e)}`));
+                  }}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+                    activeCollection === c.id
+                      ? "glow-tint border border-[rgb(var(--glow)/0.4)] text-[rgb(var(--glow))]"
+                      : "border border-[var(--line)] text-[var(--text-dim)] hover:text-[var(--text)]"
+                  }`}
+                >
+                  {c.name} · {c.entryIds.length}
+                </button>
+                <button
+                  aria-label={`Delete collection ${c.name}`}
+                  onClick={() => {
+                    api
+                      .collectionDelete(c.id)
+                      .then(() => {
+                        if (activeCollection === c.id) setActiveCollection("all");
+                        toast("info", `Deleted collection "${c.name}" (vault items kept)`);
+                      })
+                      .catch((e) => toast("error", `Delete failed: ${truncateError(e)}`));
+                  }}
+                  className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full bg-red-500/90 text-[9px] font-bold text-white group-hover/col:flex"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {colNaming ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const name = colNameVal.trim();
+                  if (name)
+                    api
+                      .collectionCreate(name)
+                      .then((col) => setActiveCollection(col.id))
+                      .catch((e) => toast("error", `Create failed: ${truncateError(e)}`));
+                  setColNaming(false);
+                }}
+              >
+                <input
+                  autoFocus
+                  value={colNameVal}
+                  onChange={(e) => setColNameVal(e.target.value)}
+                  onKeyDown={(e) => e.key === "Escape" && setColNaming(false)}
+                  placeholder="Collection name"
+                  className="w-32 rounded-full border border-[rgb(var(--glow)/0.4)] bg-[var(--panel-strong)] px-3 py-1 text-xs font-semibold text-[var(--text)] outline-none"
+                />
+              </form>
+            ) : (
+              <button
+                onClick={() => {
+                  setColNaming(true);
+                  setColNameVal("");
+                }}
+                className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-[var(--line-strong)] text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+                title="New collection"
+              >
+                <IconPlus className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
           <div
             className="relative"
             onDragOver={(e) => {
@@ -394,6 +497,58 @@ export default function WallpaperTab() {
                       })}
                     </div>
                   )}
+                  {/* add-to-collection popover */}
+                  {addToCol === g.id && (
+                    <div
+                      className="absolute inset-0 z-10 flex flex-col gap-1.5 overflow-auto bg-black/80 p-3 backdrop-blur-sm"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="kicker !text-white/60">Collections</span>
+                        <button
+                          onClick={() => setAddToCol(null)}
+                          className="text-white/60 transition-colors hover:text-white"
+                          aria-label="Close"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      {collections.length === 0 && (
+                        <div className="px-1 py-2 text-xs text-white/50">
+                          No collections yet — create one with the + in the tab bar.
+                        </div>
+                      )}
+                      {collections.map((c) => {
+                        const member = inCollection(g, c.id);
+                        return (
+                          <button
+                            key={c.id}
+                            onClick={() =>
+                              api
+                                .collectionToggleEntry(c.id, g.id)
+                                .then((added) =>
+                                  toast(
+                                    "ok",
+                                    added
+                                      ? `Added to "${c.name}"`
+                                      : `Removed from "${c.name}"`,
+                                  ),
+                                )
+                                .catch((e) => toast("error", `Failed: ${truncateError(e)}`))
+                            }
+                            className={`flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-left text-xs font-semibold transition-colors ${
+                              member
+                                ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.15)] text-white"
+                                : "border-white/15 bg-white/5 text-white/80 hover:bg-white/15"
+                            }`}
+                          >
+                            {c.name}
+                            {member && <span className="text-[10px]">member</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2.5 pb-1.5 pt-6">
                     {renaming === g.id ? (
                       <form
@@ -445,6 +600,16 @@ export default function WallpaperTab() {
                     </div>
                   )}
                   <button
+                    aria-label={`Add ${g.name} to collection`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAddToCol(addToCol === g.id ? null : g.id);
+                    }}
+                    className="absolute right-11 top-2 hidden h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-black/60 text-white/70 backdrop-blur transition-colors hover:text-white group-hover:flex"
+                  >
+                    <IconFolder className="h-3.5 w-3.5" />
+                  </button>
+                  <button
                     aria-label={`Remove ${g.name}`}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -472,6 +637,315 @@ export default function WallpaperTab() {
                 Add a video or image, or drop files and folders here — everything stays in
                 the vault and one click applies it to every display.
               </p>
+            </div>
+          )}
+        </Card>
+
+        <Card
+          title="Playlists"
+          right={
+            <span className="font-mono text-[10px] tracking-wide text-[var(--text-faint)]">
+              {playlists.find((p) => p.enabled)?.name ?? "off"}
+            </span>
+          }
+        >
+          <p className="mb-4 text-sm leading-relaxed text-[var(--text-dim)]">
+            Rotate wallpapers automatically: shuffle a collection on an interval,
+            with optional time-of-day rules that swap the pool (e.g. dark shader
+            at night, videos by day). One playlist runs at a time.
+          </p>
+
+          {plNaming ? (
+            <form
+              className="mb-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const name = plNameVal.trim();
+                if (name)
+                  api
+                    .playlistCreate(name)
+                    .then((pl) => setPlaylistFor(pl.id))
+                    .catch((e) => toast("error", `Create failed: ${truncateError(e)}`));
+                setPlNaming(false);
+              }}
+            >
+              <input
+                autoFocus
+                value={plNameVal}
+                onChange={(e) => setPlNameVal(e.target.value)}
+                onKeyDown={(e) => e.key === "Escape" && setPlNaming(false)}
+                placeholder="Playlist name"
+                className="w-56 rounded-xl border border-[rgb(var(--glow)/0.4)] bg-[var(--panel-strong)] px-3 py-2 text-sm font-semibold text-[var(--text)] outline-none"
+              />
+            </form>
+          ) : (
+            <div className="mb-4">
+              <Btn
+                onClick={() => {
+                  setPlNaming(true);
+                  setPlNameVal("");
+                }}
+              >
+                <IconPlus className="h-4 w-4" />
+                New playlist
+              </Btn>
+            </div>
+          )}
+
+          {playlists.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-[var(--line-strong)] px-4 py-6 text-center text-xs text-[var(--text-faint)]">
+              No playlists yet — create one and pick a collection to shuffle.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {playlists.map((pl) => {
+                const open = playlistFor === pl.id;
+                const activeEntry = cfg.gallery.find(
+                  (g) => g.kind === wall.kind && g.source === wall.source,
+                );
+                const pool =
+                  pl.source === "all"
+                    ? cfg.gallery
+                    : cfg.gallery.filter((g) =>
+                        collections
+                          .find((c) => `collection:${c.id}` === pl.source)
+                          ?.entryIds.includes(g.id),
+                      );
+                return (
+                  <div
+                    key={pl.id}
+                    className={`rounded-2xl border p-4 transition-all ${
+                      pl.enabled
+                        ? "border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.06)]"
+                        : "border-[var(--line)] bg-[var(--panel-strong)]"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-semibold text-[var(--text)]">
+                            {pl.name}
+                          </span>
+                          {pl.enabled && (
+                            <span className="rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-bold text-[#06121f]">
+                              RUNNING
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-[var(--text-faint)]">
+                          {pool.length} item{pool.length === 1 ? "" : "s"} ·{" "}
+                          {pl.shuffleMin > 0 ? `every ${pl.shuffleMin} min` : "manual"}
+                          {pl.rules.length > 0 && ` · ${pl.rules.length} time rule${pl.rules.length === 1 ? "" : "s"}`}
+                          {pl.enabled && activeEntry && ` · now: ${activeEntry.name}`}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() =>
+                          api
+                            .playlistSetActive(pl.enabled ? null : pl.id)
+                            .then(() =>
+                              toast(
+                                "ok",
+                                pl.enabled
+                                  ? "Playlist stopped"
+                                  : `Playing "${pl.name}"`,
+                              ),
+                            )
+                            .catch((e) => toast("error", `Failed: ${truncateError(e)}`))
+                        }
+                        className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
+                          pl.enabled
+                            ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.15)] text-[rgb(var(--glow))]"
+                            : "border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)] hover:text-[var(--text)]"
+                        }`}
+                      >
+                        {pl.enabled ? "Stop" : "Start"}
+                      </button>
+                      <button
+                        onClick={() => setPlaylistFor(open ? null : pl.id)}
+                        className="rounded-lg border border-[var(--line)] bg-[var(--panel)] px-3 py-1.5 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:text-[var(--text)]"
+                      >
+                        {open ? "Close" : "Edit"}
+                      </button>
+                      <button
+                        aria-label={`Delete playlist ${pl.name}`}
+                        onClick={() =>
+                          api
+                            .playlistDelete(pl.id)
+                            .then(() => toast("info", `Deleted "${pl.name}"`))
+                            .catch((e) => toast("error", `Delete failed: ${truncateError(e)}`))
+                        }
+                        className="text-[var(--text-faint)] transition-colors hover:text-red-400"
+                      >
+                        <IconTrash className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    {open && (
+                      <div className="mt-4 space-y-4 border-t border-[var(--line)] pt-4">
+                        {/* source picker */}
+                        <div>
+                          <div className="kicker mb-2">Source</div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() =>
+                                api
+                                  .playlistSave({ ...pl, source: "all" })
+                                  .catch(() => {})
+                              }
+                              className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
+                                pl.source === "all"
+                                  ? "border-[rgb(var(--glow)/0.4)] text-[rgb(var(--glow))]"
+                                  : "border-[var(--line)] text-[var(--text-dim)] hover:text-[var(--text)]"
+                              }`}
+                            >
+                              Whole vault
+                            </button>
+                            {collections.map((c) => (
+                              <button
+                                key={c.id}
+                                onClick={() =>
+                                  api
+                                    .playlistSave({
+                                      ...pl,
+                                      source: `collection:${c.id}`,
+                                    })
+                                    .catch(() => {})
+                                }
+                                className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
+                                  pl.source === `collection:${c.id}`
+                                    ? "border-[rgb(var(--glow)/0.4)] text-[rgb(var(--glow))]"
+                                    : "border-[var(--line)] text-[var(--text-dim)] hover:text-[var(--text)]"
+                                }`}
+                              >
+                                {c.name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* shuffle interval */}
+                        <Slider
+                          label="Shuffle every"
+                          min={1}
+                          max={180}
+                          step={1}
+                          value={pl.shuffleMin || 15}
+                          format={(v) => `${Math.round(v)} min`}
+                          onChange={(v) =>
+                            api
+                              .playlistSave({ ...pl, shuffleMin: Math.round(v) })
+                              .catch(() => {})
+                          }
+                        />
+
+                        {/* transition crossfade */}
+                        <Slider
+                          label="Transition crossfade"
+                          min={0}
+                          max={8}
+                          step={0.5}
+                          value={pl.crossfadeSec ?? 1.5}
+                          format={(v) => (v === 0 ? "Instant cut" : `${v.toFixed(1)}s`)}
+                          onChange={(v) =>
+                            api
+                              .playlistSave({ ...pl, crossfadeSec: v })
+                              .catch(() => {})
+                          }
+                        />
+
+                        {/* time-of-day rules */}
+                        <div>
+                          <div className="kicker mb-2">
+                            Time-of-day rules (optional)
+                          </div>
+                          {pl.rules.length === 0 && (
+                            <div className="mb-2 text-[11px] text-[var(--text-faint)]">
+                              Without rules the playlist shuffles one pool all day.
+                            </div>
+                          )}
+                          <div className="space-y-2">
+                            {pl.rules.map((r, ri) => (
+                              <div
+                                key={ri}
+                                className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-2"
+                              >
+                                <input
+                                  type="time"
+                                  value={r.start}
+                                  onChange={(e) => {
+                                    const rules = [...pl.rules];
+                                    rules[ri] = { ...r, start: e.target.value };
+                                    api
+                                      .playlistSave({ ...pl, rules })
+                                      .catch(() => {});
+                                  }}
+                                  className="rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-2 py-1 text-xs text-[var(--text)] outline-none"
+                                />
+                                <select
+                                  value={r.source}
+                                  onChange={(e) => {
+                                    const rules = [...pl.rules];
+                                    rules[ri] = { ...r, source: e.target.value };
+                                    api
+                                      .playlistSave({ ...pl, rules })
+                                      .catch(() => {});
+                                  }}
+                                  className="flex-1 rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-2 py-1 text-xs text-[var(--text)] outline-none"
+                                >
+                                  <option value="all">Whole vault</option>
+                                  {collections.map((c) => (
+                                    <option key={c.id} value={`collection:${c.id}`}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  aria-label="Delete rule"
+                                  onClick={() =>
+                                    api
+                                      .playlistSave({
+                                        ...pl,
+                                        rules: pl.rules.filter((_, x) => x !== ri),
+                                      })
+                                      .catch(() => {})
+                                  }
+                                  className="text-[var(--text-faint)] transition-colors hover:text-red-400"
+                                >
+                                  <IconTrash className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() =>
+                              api
+                                .playlistSave({
+                                  ...pl,
+                                  rules: [
+                                    ...pl.rules,
+                                    {
+                                      start:
+                                        pl.rules.length === 0
+                                          ? "08:00"
+                                          : pl.rules[pl.rules.length - 1]!.start,
+                                      source: "all",
+                                    },
+                                  ],
+                                })
+                                .catch(() => {})
+                            }
+                            className="mt-2 flex items-center gap-1.5 rounded-lg border border-dashed border-[var(--line-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+                          >
+                            <IconPlus className="h-3.5 w-3.5" />
+                            Add rule
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </Card>

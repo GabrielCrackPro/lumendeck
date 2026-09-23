@@ -27,6 +27,8 @@ interface WallpaperInfo {
   source: string;
   /** Static snapshot (poster frame) shown under video sources on failure. */
   fallbackSource: string;
+  /** Crossfade seconds for playlist-driven source changes (0 = instant). */
+  crossfadeSec: number;
   config: Config["wallpaper"];
   paused: boolean;
   stickers: StickerDef[];
@@ -1017,14 +1019,19 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
     setTopReady(false);
   }, [target?.kind, target?.source, target, shown]);
 
-  // Once the top layer is ready, crossfade (300ms) then prune to it.
+  // Once the top layer is ready, crossfade then prune to it. The duration
+  // comes from the active playlist (playlist transitions get a slow, visible
+  // fade; manual/dashboard changes keep the quick 300ms default).
+  const fadeMs = Math.max(0, info?.crossfadeSec ?? 0) > 0
+    ? Math.min(Math.max((info?.crossfadeSec ?? 0) * 1000, 300), 10_000)
+    : 300;
   useEffect(() => {
     if (shown.length < 2 || !topReady) return;
     const t = window.setTimeout(() => {
       setShown((s) => [s[s.length - 1]!]);
-    }, 320);
+    }, fadeMs + 20);
     return () => window.clearTimeout(t);
-  }, [shown, topReady]);
+  }, [shown, topReady, fadeMs]);
 
   // Safety net: if the top layer never reports ready (dead source, decode
   // error, 404), force the crossfade after 8s so the stage never strands on a
@@ -1130,7 +1137,7 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
               onReady={isTop ? () => setTopReady(true) : undefined}
               style={{
                 opacity,
-                transition: single ? undefined : "opacity 300ms ease",
+                transition: single ? undefined : `opacity ${fadeMs}ms ease`,
               }}
             />
           </div>
