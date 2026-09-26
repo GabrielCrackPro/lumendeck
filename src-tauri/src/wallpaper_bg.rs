@@ -13,6 +13,37 @@ use std::sync::Mutex;
 /// re-set it on every unrelated config save.
 static LAST_SOURCE: Mutex<String> = Mutex::new(String::new());
 
+/// Hash of the last live frame pushed — dedupes identical frames so the OS
+/// background isn't repainted (flicker) when nothing changed.
+static LAST_FRAME_HASH: Mutex<Option<u64>> = Mutex::new(None);
+
+/// Coalescing job slot for the background worker: holds the latest requested
+/// config while a previous capture is still running. Rapid config saves
+/// (dragging sliders) collapse into at most one pending capture.
+static PENDING: Mutex<Option<WallpaperConfig>> = Mutex::new(None);
+
+/// Queue a static-background capture on the dedicated worker thread. Captures
+/// (especially Shell video thumbnails on 4K files) block for 100ms+ — doing
+/// that inline stalled the config-save and IPC paths.
+pub fn request_bg(cfg: WallpaperConfig) {
+    // Coalesce: drop any queued-but-not-started request, keep only the latest.
+    if let Ok(mut slot) = PENDING.lock() {
+        *slot = Some(cfg);
+    }
+    std::thread::Builder::new()
+        .name("wallpaper-bg".into())
+        .spawn(| | {
+            loop {
+                let job = PENDING.lock().ok().and_then(|mut s| s.take());
+                let Some(cfg) = job else { break };
+                apply_bg(&cfg);
+            }
+        })
+        .ok();
+    // Note: multiple worker threads can briefly coexist (each spawn drains
+    // until the slot is empty); LAST_SOURCE keeps the work idempotent.
+}
+
 /// Resolved background image path under %APPDATA%/LumenDeck/.
 fn bg_path() -> PathBuf {
     dirs::data_dir()
@@ -30,6 +61,65 @@ pub fn bg_media_url() -> String {
     } else {
         String::new()
     }
+}
+
+/// Install a live frame captured by the wallpaper webview itself. Called via
+/// the `set_live_frame` IPC command after the webview blits a real decoded
+/// frame. This is the highest-fidelity fallback: an actual mid-playback frame
+/// (Shell thumbnails can be stale, generic, or fail entirely).
+/// Also pushes it as the Windows desktop + lock-screen background.
+/// Returns false when the payload is not usable, so the caller can fall back.
+pub fn install_live_frame(jpeg: &[u8], source: &str) -> bool {
+    // Sanity: must be a plausible JPEG (SOI marker) and non-trivial size.
+    if jpeg.len() < 4_096 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 {
+        return false;
+    }
+    let out = bg_path();
+    if let Err(e) = std::fs::create_dir_all(out.parent().unwrap()) {
+        log::warn!("wallpaper-bg: live frame create dir failed: {e}");
+        return false;
+    }
+    if let Err(e) = std::fs::write(&out, jpeg) {
+        log::warn!("wallpaper-bg: live frame write failed: {e}");
+        return false;
+    }
+    // This frame corresponds to `source`; remember it so the async worker
+    // doesn't immediately overwrite it with a Shell thumbnail of the same file.
+    if let Ok(mut last) = LAST_SOURCE.lock() {
+        *last = source.to_string();
+    }
+    // Only re-apply the OS background when the frame actually differs from
+    // the last one pushed (same-size JPEGs of near-identical frames still
+    // differ, so compare content): SystemParametersInfoW triggers a desktop
+    // repaint, and two monitors pushing every 5 min each = visible flicker.
+    {
+        let mut last = LAST_FRAME_HASH.lock().expect("frame hash poisoned");
+        let hash = fnv_hash(jpeg);
+        if *last == Some(hash) {
+            return true; // frame identical; skip the OS repaint
+        }
+        *last = Some(hash);
+    }
+    set_desktop_wallpaper(&out);
+    if lock_screen_follows() {
+        set_lock_screen_wallpaper(&out);
+    }
+    log::info!(
+        "wallpaper-bg: live frame installed ({} KB) for {source}",
+        jpeg.len() / 1024
+    );
+    true
+}
+
+/// FNV-1a hash of frame bytes — enough to detect "identical frame" without
+/// hashing collisions mattering in practice.
+fn fnv_hash(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
 }
 
 /// Resolve the wallpaper source to a local file path (images and videos only).
@@ -74,8 +164,16 @@ pub fn apply_bg(cfg: &WallpaperConfig) {
 
     if ok {
         set_desktop_wallpaper(&out);
-        set_lock_screen_wallpaper(&out);
+        if lock_screen_follows() {
+            set_lock_screen_wallpaper(&out);
+        }
     }
+}
+
+/// Should the Windows lock screen follow wallpaper changes? (General tab
+/// toggle; default off — some users keep a personal lock image.)
+fn lock_screen_follows() -> bool {
+    crate::config_store::get().general.lock_screen_follows_wallpaper
 }
 
 // ---------------------------------------------------------------------------
@@ -261,8 +359,8 @@ fn set_desktop_wallpaper(path: &PathBuf) {
 
 fn set_lock_screen_wallpaper(path: &PathBuf) {
     use windows::Win32::System::Registry::{
-        RegOpenKeyExW, RegSetValueExW, RegCloseKey, HKEY_CURRENT_USER, KEY_SET_VALUE,
-        REG_VALUE_TYPE,
+        RegCreateKeyExW, RegOpenKeyExW, RegSetValueExW, RegCloseKey, HKEY_CURRENT_USER,
+        KEY_QUERY_VALUE, KEY_SET_VALUE, REG_OPEN_CREATE_OPTIONS, REG_VALUE_TYPE, REG_SAM_FLAGS,
     };
 
     unsafe {
@@ -270,10 +368,27 @@ fn set_lock_screen_wallpaper(path: &PathBuf) {
             r"SOFTWARE\Microsoft\Windows\CurrentVersion\Personalization",
         );
         let mut hkey = windows::Win32::System::Registry::HKEY::default();
-        let open_result = RegOpenKeyExW(HKEY_CURRENT_USER, &reg_path, Some(0), KEY_SET_VALUE, &mut hkey);
+        // The key may not exist on systems where the user never customized the
+        // lock screen — open read-write first, fall back to creating it.
+        // (WIN32_ERROR(2) = ERROR_FILE_NOT_FOUND from KEY_SET_VALUE-only open.)
+        let sam = KEY_SET_VALUE | KEY_QUERY_VALUE;
+        let open_result = RegOpenKeyExW(HKEY_CURRENT_USER, &reg_path, Some(0), sam, &mut hkey);
         if open_result.is_err() {
-            log::warn!("wallpaper-bg: lock screen reg open failed: {open_result:?}");
-            return;
+            let created = RegCreateKeyExW(
+                HKEY_CURRENT_USER,
+                &reg_path,
+                None,
+                None,
+                REG_OPEN_CREATE_OPTIONS(0),
+                sam,
+                None,
+                &mut hkey,
+                None,
+            );
+            if created.is_err() {
+                log::warn!("wallpaper-bg: lock screen reg open failed: {created:?}");
+                return;
+            }
         }
 
         let value_name = windows::core::HSTRING::from("LockScreenImage");

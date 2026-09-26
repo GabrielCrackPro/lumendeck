@@ -2,7 +2,7 @@
 // sized to its display and streams zone color samples to the RGB engine.
 import { createRoot } from "react-dom/client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { EVENTS } from "@shared/constants";
 import type { Config, StickerDef, WallpaperKind, ZoneDef } from "@shared/types";
@@ -40,9 +40,10 @@ interface WallpaperInfo {
 
 type VideoFit = "cover" | "contain" | "fill" | "auto";
 
-/** Prefix + timestamp for frontend diagnostics forwarded to the Rust log. */
-function formatLog(msg: string): string {
-  return `[wallpaper-webview] ${new Date().toISOString()} ${msg}`;
+/** Send a diagnostics line to the Rust log. Level maps to the file's
+ * severity (info/warn/error) so grepping for ERROR finds real problems. */
+function logLine(msg: string, level: "info" | "warn" | "error" = "info") {
+  invoke("log_frontend", { level, msg }).catch(() => {});
 }
 
 let pausedGlobal = false;
@@ -80,15 +81,22 @@ function WallpaperRoot() {
       listen<Config>(EVENTS.CONFIG_CHANGED, (e) => {
         setZones(e.payload.rgb.zones);
         setInfo((prev) =>
-          prev              ? {
-                  ...prev,
-                  config: e.payload.wallpaper,
-                  stickers: e.payload.stickers,
-                  snap: e.payload.stickerSnap,
-                  source: resolveSource(e.payload.wallpaper),
-                }
-              : prev,
+          prev
+            ? {
+                ...prev,
+                config: e.payload.wallpaper,
+                stickers: e.payload.stickers,
+                snap: e.payload.stickerSnap,
+              }
+            : prev,
         );
+        // The effective source/fallback/crossfade are resolved server-side
+        // (per-monitor overrides, media URLs, playlist fade). Never guess the
+        // source client-side: a per-monitor window would flash the GLOBAL
+        // wallpaper until the self-heal poll corrected it up to 2s later.
+        invoke<WallpaperInfo>("get_wallpaper_info")
+          .then((fresh) => setInfo((prev) => (prev ? { ...prev, ...fresh } : fresh)))
+          .catch(() => {});
       }),
       listen<boolean>(EVENTS.WALLPAUSE, (e) => {
         pausedGlobal = e.payload;
@@ -156,6 +164,7 @@ function WallpaperRoot() {
         <StickerLayer stickers={info.stickers} monitor={info.monitor} scale={info.scale} />
       )}
       {info && <StickerEditor info={info} />}
+      <PausedBadge />
       <ReloadToast />
       <PlacingPreview monitor={info?.monitor} scale={info?.scale ?? 1} />
     </>
@@ -581,6 +590,33 @@ function PlacingPreview({ monitor, scale }: { monitor?: MonitorInfo; scale: numb
   );
 }
 
+/**
+ * Subtle pill shown in the corner whenever playback is paused (battery,
+ * fullscreen app, or manual pause). Desktops sit under icons, so it uses a
+ * solid dark chip with a slow-breathing dot — visible but not distracting.
+ */
+function PausedBadge() {
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    invoke<boolean>("is_paused")
+      .then(setPaused)
+      .catch(() => {});
+    const sub = listen<boolean>(EVENTS.WALLPAUSE, (e) => setPaused(e.payload));
+    return () => {
+      sub.then((f) => f()).catch(() => {});
+    };
+  }, []);
+
+  if (!paused) return null;
+  return (
+    <div className="pointer-events-none fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-black/55 px-3 py-1.5 font-sans text-[11px] font-medium tracking-wide text-neutral-300 ring-1 ring-white/10 backdrop-blur-sm">
+      <span className="lumen-paused-dot inline-block h-2 w-2 rounded-full bg-neutral-400" />
+      Paused
+    </div>
+  );
+}
+
 /** Brief pill shown when the config was reloaded from an external edit. */
 function ReloadToast() {
   const [visible, setVisible] = useState(false);
@@ -652,16 +688,48 @@ function VideoCanvas({
     if (!ctx) return;
     let raf = 0;
     let running = true;
+    const drewRef = { current: false };
+    // Last media time blitted: when it hasn't advanced (same frame decoded,
+    // or a duplicate rAF tick), skip the fill+draw — repeating an identical
+    // 4K blit costs real GPU time and can drop frames on integrated GPUs.
+    let lastT = -1;
+    let lastW = 0;
+    let lastH = 0;
+    let lastFramePush = 0;
+    // The push is keyed to the source: a frame is captured shortly after a
+    // wallpaper change, then never again while the same source plays (the
+    // backend dedupes identical frames anyway — this just saves the encoding).
+    let pushedForSource = "";
 
     const draw = () => {
       if (!running) return;
-      // Skip blitting while the wallpaper is hidden (win key / occluded):
-      // rAF already stops when the webview is hidden, this guards the
-      // paused-but-visible case where the frame wouldn't change anyway.
-      if (pausedGlobal && !document.hasFocus()) {
+      // While paused, freeze on the last drawn frame instead of skipping
+      // entirely: a canvas that was never blitted (pause active at startup,
+      // e.g. on-battery auto-pause) shows as transparent black — an all-black
+      // desktop. Keep blitting until the first successful draw, then stop
+      // redrawing (canvas content persists) to save GPU while paused.
+      if (pausedGlobal && !document.hasFocus() && drewRef.current) {
         raf = requestAnimationFrame(draw);
         return;
       }
+      const t = video.currentTime;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (
+        drewRef.current &&
+        t === lastT &&
+        vw === lastW &&
+        vh === lastH &&
+        video.readyState >= 2 &&
+        !video.seeking
+      ) {
+        // Frame unchanged: skip repaint, canvas keeps showing the last blit.
+        raf = requestAnimationFrame(draw);
+        return;
+      }
+      lastT = t;
+      lastW = vw;
+      lastH = vh;
       const rect = canvas.getBoundingClientRect();
       // Cap the backing resolution at 1080p-height equivalent when the
       // display is very dense: a 4K blit at 60fps costs real GPU time and
@@ -675,13 +743,12 @@ function VideoCanvas({
       }
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, pw, ph);
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
       if (vw > 0 && vh > 0 && video.readyState >= 2) {
         if (!readyRef.current) {
           readyRef.current = true;
           onReady();
         }
+        drewRef.current = true;
         const isCover = fitRef.current === "cover";
         const isFill = fitRef.current === "fill";
         const scale = isFill || isCover
@@ -692,6 +759,35 @@ function VideoCanvas({
         const dx = (pw - dw) / 2;
         const dy = (ph - dh) / 2;
         ctx.drawImage(video, dx, dy, dw, dh);
+        // Push a real captured frame to the backend as the Windows desktop /
+        // lock-screen background and decode-failure fallback — once per
+        // source change (after a short settle delay so it's a mid-loop frame,
+        // not the first), plus at most every 30 minutes for the same source.
+        const now = Date.now();
+        const src = videoRef.current?.src ?? "";
+        const sourceChanged = pushedForSource !== src;
+        const dueForRefresh = now - lastFramePush > 30 * 60_000;
+        const settleWait = lastFramePush !== 0 && now < lastFramePush + 4_000;
+        if ((sourceChanged && !settleWait) || dueForRefresh) {
+          pushedForSource = src;
+          lastFramePush = now;
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) return;
+              blob
+                .arrayBuffer()
+                .then((buf) =>
+                  invoke("set_live_frame", {
+                    frame: Array.from(new Uint8Array(buf)),
+                    source: src,
+                  }),
+                )
+                .catch(() => {});
+            },
+            "image/jpeg",
+            0.85,
+          );
+        }
       }
       raf = requestAnimationFrame(draw);
     };
@@ -760,6 +856,11 @@ function MediaSurface({
   const [shaderOk, setShaderOk] = useState(true);
   const [videoFitStyle, setVideoFitStyle] = useState<CSSProperties["objectFit"]>("cover");
   const [videoFailed, setVideoFailed] = useState(false);
+  // Bumped to force React to recreate the <video> element after a decode
+  // pipeline error (PIPELINE_ERROR_DISCONNECTED fires mid-playback when the
+  // software decoder stalls; a remount rebuilds the pipeline).
+  const [videoEpoch, setVideoEpoch] = useState(0);
+  const videoRetries = useRef(0);
   const [slideFiles, setSlideFiles] = useState<string[]>([]);
   const [slideIdx, setSlideIdx] = useState(0);
   const [fade, setFade] = useState(1);
@@ -774,6 +875,7 @@ function MediaSurface({
   // A new source gets a clean failure slate (the error state is per-source).
   useEffect(() => {
     setVideoFailed(false);
+    videoRetries.current = 0;
   }, [source]);
 
   // Resolution-aware video fit once the video metadata is known. Inline style
@@ -913,6 +1015,7 @@ function MediaSurface({
           />
         )}
         <video
+          key={videoEpoch}
           ref={videoRef}
           src={source}
           autoPlay
@@ -924,18 +1027,32 @@ function MediaSurface({
           muted={volume === 0}
           playsInline
           style={{ display: "none" }}
+          onWaiting={() => {
+            // Buffer underrun mid-loop: nudge playback as soon as data
+            // returns so the loop resumes without a long freeze.
+            videoRef.current?.play().catch(() => {});
+          }}
+          onStalled={() => videoRef.current?.play().catch(() => {})}
           onLoadedData={() => {
-            invoke("log_frontend", {
-              msg: formatLog(`video loaded-data ok src=${source} ${videoRef.current?.videoWidth}x${videoRef.current?.videoHeight}`),
-            }).catch(() => {});
+            videoRetries.current = 0;
+            logLine(`video loaded-data ok src=${source} ${videoRef.current?.videoWidth}x${videoRef.current?.videoHeight}`);
+            // Occluded/background webviews may refuse autoplay: retry once.
+            videoRef.current?.play().catch(() => {});
             fireReady();
           }}
-          onError={(e) => {
+          onError={() => {
             const err = videoRef.current?.error;
-            invoke("log_frontend", {
-              msg: formatLog(`video ERROR src=${source} code=${err?.code} msg=${err?.message}`),
-            }).catch(() => {});
-            console.error("wallpaper video error for", source, e);
+            logLine(`video ERROR src=${source} code=${err?.code} msg=${err?.message}`, "error");
+            // A decode-pipeline collapse (DISCONNECTED/DECODE) is often
+            // transient: rebuild the element with backoff instead of
+            // permanently dropping to the poster frame.
+            if (videoRetries.current < 3) {
+              const delay = 1000 * 2 ** videoRetries.current;
+              videoRetries.current += 1;
+              logLine(`video retry ${videoRetries.current}/3 in ${delay}ms src=${source}`, "warn");
+              window.setTimeout(() => setVideoEpoch((n) => n + 1), delay);
+              return;
+            }
             setVideoFailed(true);
             // A failed source must not wedge the crossfade: release the
             // stage so the layer timeout / prune logic can take over.
@@ -985,6 +1102,10 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
   const kind = info?.config.kind;
   const source = info?.source ?? "";
   const target: MediaIdentity | null = kind && info ? { kind, source } : null;
+  // Latest info for the sampling loop (monitor device/primary tags) without
+  // re-subscribing the interval on every geometry update.
+  const infoRef = useRef(info);
+  infoRef.current = info;
 
   // Stack of layered identities, bottom = oldest, top = newest. Older layers
   // stay fully visible until the newest one reports ready, then the top fades
@@ -1022,6 +1143,8 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
   // Once the top layer is ready, crossfade then prune to it. The duration
   // comes from the active playlist (playlist transitions get a slow, visible
   // fade; manual/dashboard changes keep the quick 300ms default).
+  // Also treat an unmounting stage as fade completion: clearing `shown` (e.g.
+  // wallpaper disable) must not leave a stale layer stack behind.
   const fadeMs = Math.max(0, info?.crossfadeSec ?? 0) > 0
     ? Math.min(Math.max((info?.crossfadeSec ?? 0) * 1000, 300), 10_000)
     : 300;
@@ -1066,7 +1189,8 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
           const data = ctx.getImageData(0, 0, w, h).data;
           const buf: PixelBuf = { data, w, h };
           const zoneRects: ZoneRect[] = zones.map((z) => ({ id: z.id, x: z.x, y: z.y, w: z.w, h: z.h }));
-          const samples = computeSamples(buf, zoneRects);
+          const mon = infoRef.current?.monitor;
+          const samples = computeSamples(buf, zoneRects, mon?.device ?? "", !!mon?.primary);
           await invoke("send_zone_samples", { samples });
         }
       } catch {
@@ -1147,22 +1271,15 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
   );
 }
 
-/** Mirror of Rust wallpaper::resolve_source for live config updates. */
-function resolveSource(w: Config["wallpaper"]): string {
-  switch (w.kind) {
-    case "video":
-    case "image":
-      return convertFileSrc(w.source, "media");
-    case "slideshow":
-      return "";
-    case "web":
-      return w.source;
-    case "shader":
-      return w.source;
-    default:
-      return "";
-  }
-}
-
 const root = createRoot(document.getElementById("root")!);
 root.render(<WallpaperRoot />);
+
+// Last-resort diagnostics: uncaught errors and rejected promises in the
+// wallpaper webview otherwise vanish (no devtools in normal runs). Rate
+// limiting lives on the backend side of log_frontend.
+window.addEventListener("error", (e) => {
+  logLine(`uncaught: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`, "error");
+});
+window.addEventListener("unhandledrejection", (e) => {
+  logLine(`unhandled rejection: ${e.reason}`, "error");
+});

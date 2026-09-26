@@ -91,6 +91,11 @@ fn pick_entry(pool: &[String], slot: u64) -> Option<String> {
 
 async fn tick() {
     let cfg = crate::config_store::get();
+    // Wallpapers disabled: never rotate. Otherwise re-enabling the wallpaper
+    // surfaces a random playlist entry instead of what the user last chose.
+    if !cfg.general.wallpaper_enabled {
+        return;
+    }
     let Some(pl) = cfg.playlists.iter().find(|p| p.enabled) else {
         return;
     };

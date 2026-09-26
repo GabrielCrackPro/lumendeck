@@ -223,6 +223,11 @@ function NavItem({
           {item.label}
         </span>
       )}
+      {!collapsed && (
+        <kbd className="rounded border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--text-faint)] opacity-0 transition-opacity group-hover:opacity-100">
+          {(TABS.findIndex((t) => t.id === item.id) + 1) || 5}
+        </kbd>
+      )}
       {!collapsed && !dim && (
         <span
           className={`h-1 w-1 shrink-0 rounded-full transition-opacity ${
@@ -257,6 +262,21 @@ export default function Shell() {
   useEffect(() => {
     document.documentElement.style.setProperty("--glow", glow.join(" "));
   }, [glow]);
+
+  // Keyboard navigation: Ctrl+1..5 jump between tabs. The dashboard is used
+  // alongside games/media where the mouse is busy — instant tab switching
+  // makes the tray-open flow feel native.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
+      const n = Number(e.key);
+      if (!Number.isInteger(n) || n < 1 || n > TABS.length + 1) return;
+      e.preventDefault();
+      setTab(n <= TABS.length ? TABS[n - 1]!.id : SETTINGS_TAB.id);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const current = TABS.find((t) => t.id === tab) ?? (tab === SETTINGS_TAB.id ? SETTINGS_TAB : TABS[0])!;
 

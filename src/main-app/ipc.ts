@@ -4,6 +4,7 @@ import type {
   Config,
   GalleryEntry,
   RgbStatus,
+  SceneProfile,
   StickerDef,
   WallpaperCollection,
   WallpaperConfig,
@@ -55,6 +56,12 @@ export const api = {
   playlistDelete: (id: string) => invoke<void>("playlist_delete", { id }),
   playlistSetActive: (id: string | null) =>
     invoke<void>("playlist_set_active", { id }),
+
+  sceneSave: (name: string) => invoke<SceneProfile>("scene_save", { name }),
+  sceneApply: (id: string) => invoke<void>("scene_apply", { id }),
+  sceneDelete: (id: string) => invoke<void>("scene_delete", { id }),
+  sceneRename: (id: string, name: string) =>
+    invoke<void>("scene_rename", { id, name }),
 
   rgbStatus: () => invoke<RgbStatus>("rgb_status"),
   rgbRefresh: () => invoke<void>("rgb_refresh"),

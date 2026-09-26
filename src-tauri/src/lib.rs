@@ -18,6 +18,7 @@ pub mod placement_overlay;
 pub mod playlist;
 pub mod rgb;
 pub mod stickers;
+pub mod sys_theme;
 pub mod sticker_windows;
 pub mod thumbs;
 pub mod tray;
@@ -44,8 +45,21 @@ static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 /// a video wallpaper silently vanish (DOM reports them rendered; pixels show
 /// only the video). Disabling video overlays keeps the video in the normal
 /// compositing tree so the sticker layer can stack over it.
+///
+/// Note: hardware video DECODE stays enabled. Software-decoding 4K wallpaper
+/// loops stalls the pipeline and Chromium tears it down with recurring
+/// PIPELINE_ERROR_DISCONNECTED / PIPELINE_ERROR_DECODE errors.
 fn disable_video_overlays() {
-    let extra = "--disable-direct-composition-video-overlays --disable-hardware-video-decode";
+    let mut extra = "--disable-direct-composition-video-overlays".to_string();
+    // Optional low-end fallback: software decode is light on GPU but burns
+    // CPU and destabilizes 4K pipelines — off by default (General tab).
+    if let Ok(cfg) = std::fs::read_to_string(config_store::config_path()) {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&cfg) {
+            if parsed["general"]["softwareVideoDecode"].as_bool() == Some(true) {
+                extra.push_str(" --disable-hardware-video-decode");
+            }
+        }
+    }
     match std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
         Some(existing) => {
             let merged = format!(
@@ -66,8 +80,47 @@ fn init_logging() {
     use std::fs::OpenOptions;
     use std::io::Write as _;
     use std::sync::Mutex;
+    use std::sync::atomic::AtomicU64;
 
-    struct DualLog(Mutex<Option<std::fs::File>>);
+    /// Max log size before rotating (5 MB), shared by startup and runtime checks.
+    pub const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
+
+    struct DualLog {
+        file: Mutex<Option<std::fs::File>>,
+        /// Bytes written since the last size check (cheaper than stat per line).
+        written: AtomicU64,
+    }
+
+    impl DualLog {
+        /// Rotate when the file has grown past the cap. Called at most every
+        /// ~256 KB of written output, not per line.
+        fn maybe_rotate(&self) {
+            let written = self.written.load(std::sync::atomic::Ordering::Relaxed);
+            if written < 256 * 1024 {
+                return;
+            }
+            self.written.store(0, std::sync::atomic::Ordering::Relaxed);
+            let Some(dir) = config_store::config_path().parent().map(|p| p.to_path_buf()) else {
+                return;
+            };
+            let path = dir.join("lumendeck.log");
+            let Ok(meta) = std::fs::metadata(&path) else {
+                return;
+            };
+            if meta.len() <= MAX_LOG_BYTES {
+                return;
+            }
+            // Reopen: rotate_log_if_large renames the file; keep writing to a
+            // fresh handle so the old file stays self-contained for inspection.
+            if rotate_log_if_large(&dir) {
+                if let Ok(new) = OpenOptions::new().create(true).append(true).open(&path) {
+                    if let Ok(mut slot) = self.file.lock() {
+                        *slot = Some(new);
+                    }
+                }
+            }
+        }
+    }
 
     impl log::Log for DualLog {
         fn enabled(&self, metadata: &log::Metadata) -> bool {
@@ -77,6 +130,7 @@ fn init_logging() {
             if !self.enabled(record.metadata()) {
                 return;
             }
+            self.maybe_rotate();
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default();
@@ -111,9 +165,10 @@ fn init_logging() {
             };
             eprint!("{colored}");
 
-            if let Ok(mut guard) = self.0.lock() {
+            if let Ok(mut guard) = self.file.lock() {
                 if let Some(f) = guard.as_mut() {
                     let _ = f.write_all(line.as_bytes());
+                    self.written.fetch_add(line.len() as u64, std::sync::atomic::Ordering::Relaxed);
                 }
             }
         }
@@ -124,6 +179,7 @@ fn init_logging() {
         .parent()
         .map(|dir| {
             let _ = std::fs::create_dir_all(dir);
+            rotate_log_if_large(dir);
             OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -137,7 +193,32 @@ fn init_logging() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(log::LevelFilter::Info);
     log::set_max_level(level);
-    let _ = log::set_boxed_logger(Box::new(DualLog(Mutex::new(file))));
+    let _ = log::set_boxed_logger(Box::new(DualLog {
+        file: Mutex::new(file),
+        written: std::sync::atomic::AtomicU64::new(0),
+    }));
+}
+
+/// Keep the log bounded: past the cap, the current file becomes `.old` (one
+/// generation kept) and a fresh log starts. Returns true when a rotation
+/// happened (the logger then reopens its handle).
+fn rotate_log_if_large(dir: &std::path::Path) -> bool {
+    let path = dir.join("lumendeck.log");
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return false;
+    };
+    if meta.len() <= 5 * 1024 * 1024 {
+        return false;
+    }
+    let old = dir.join("lumendeck.log.old");
+    let _ = std::fs::remove_file(&old);
+    match std::fs::rename(&path, &old) {
+        Ok(()) => {
+            eprintln!("[lumendeck] log rotated ({} MB) -> lumendeck.log.old", meta.len() / 1024 / 1024);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 /// Convert unix epoch seconds to `HH:MM:SS` (UTC) without pulling in chrono.
@@ -171,10 +252,11 @@ pub fn app_handle() -> Option<tauri::AppHandle> {
 
 pub fn run() {
     let boot = std::time::Instant::now();
-    // Must run before any WebView2 environment is created.
-    disable_video_overlays();
     init_logging();
     let _ = config_store::init();
+    // Must run before any WebView2 environment is created (and after config
+    // init so the software-decode preference can be read from disk).
+    disable_video_overlays();
     // Gallery entries and sticker sources must stay servable across restarts.
     crate::media::allow_thumbs_dir();
     for g in &config_store::get().gallery {
@@ -246,6 +328,7 @@ pub fn run() {
             ipc::update_sticker,
             ipc::remove_sticker,
             ipc::is_paused,
+            ipc::set_live_frame,
             ipc::monitors,
             ipc::quit,
             ipc::factory_reset,
@@ -256,7 +339,11 @@ pub fn run() {
             ipc::playlist_create,
             ipc::playlist_save,
             ipc::playlist_delete,
-            ipc::playlist_set_active
+            ipc::playlist_set_active,
+            ipc::scene_save,
+            ipc::scene_apply,
+            ipc::scene_delete,
+            ipc::scene_rename
         ])
         .setup(|app| {
             let setup_at = std::time::Instant::now();
@@ -290,6 +377,7 @@ pub fn run() {
                 .on_menu_event(|app, ev| match ev.id.as_ref() {
                     "quit" => {
                         crate::mouse_hook::disarm();
+                        app.cleanup_before_exit();
                         app.exit(0);
                     }
                     "edit" => {
@@ -298,11 +386,30 @@ pub fn run() {
                     }
                     "dashboard" => {
                         if let Some(w) = app.get_webview_window("main") {
+                            // unminimize + show: the window may be hidden
+                            // (closed-to-tray) or minimized when reopened.
+                            let _ = w.unminimize();
                             let _ = w.show();
                             let _ = w.set_focus();
                         }
                     }
                     other => crate::tray::on_menu_event(app, other),
+                })
+                // Left-click on the tray icon toggles the dashboard (the
+                // standard expectation; the context menu stays on right-click).
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, button_state: tauri::tray::MouseButtonState::Up, .. } = event {
+                        let app = tray.app_handle();
+                        if let Some(w) = app.get_webview_window("main") {
+                            if w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) {
+                                let _ = w.hide();
+                            } else {
+                                let _ = w.unminimize();
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                        }
+                    }
                 })
                 .build(app)?;
             crate::tray::refresh(app.handle());
@@ -340,6 +447,21 @@ pub fn run() {
             .resizable(true)
             .decorations(false)
             .build()?;
+
+            // Close-to-tray: the dashboard X hides the window (wallpapers and
+            // RGB keep running); the tray's "Quit LumenDeck" is the real exit.
+            // This matches wallpaper/lighting apps, where quitting via X would
+            // otherwise leave the tray-only app undiscoverable or kill the
+            // wallpaper the user expects to keep.
+            if let Some(win) = app.get_webview_window("main") {
+                let win_handle = win.clone();
+                win.on_window_event(move |ev| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
+                        api.prevent_close();
+                        let _ = win_handle.hide();
+                    }
+                });
+            }
 
             log::info!("startup: tauri setup done in {:?}", setup_at.elapsed());
             Ok(())

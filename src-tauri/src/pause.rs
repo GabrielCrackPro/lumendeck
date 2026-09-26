@@ -30,7 +30,11 @@ pub fn spawn() {
                 if let Some(app) = crate::app_handle() {
                     events::emit_all(&app, events::WALLPAUSE, &paused);
                 }
-                log::debug!("wallpaper paused: {paused}");
+                log::info!(
+                    "auto-pause -> {paused} (battery_saver={} fullscreen={})",
+                    cfg.general.pause_on_battery_saver,
+                    cfg.general.pause_on_fullscreen
+                );
             }
 
             tokio::time::sleep(Duration::from_secs(2)).await;

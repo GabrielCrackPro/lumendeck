@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "wallpaper-windows",
+  "description": "Wallpaper runtime windows: app commands (info/samples/sticker edits) plus event listening. No window controls, no dialogs.",
+  "windows": ["wallpaper-*", "wallpaper"],
+  "permissions": ["core:default"]
+}

@@ -11,6 +11,10 @@ export interface Sample {
   id: string;
   rgb: [number, number, number];
   luma: number;
+  /** Monitor device string this sample was taken on ("" = unknown). */
+  monitor?: string;
+  /** True when taken on the primary display (ambient/pulse follow it). */
+  primary?: boolean;
 }
 
 export interface ZoneRect {
@@ -47,14 +51,20 @@ export function lumaOf(rgb: [number, number, number]): number {
   return (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
 }
 
-/** Full-frame dominant sample plus one sample per zone. */
-export function computeSamples(buf: PixelBuf, zones: ZoneRect[]): Sample[] {
+/** Full-frame dominant sample plus one sample per zone, tagged with the
+ * monitor identity so the RGB engine can prefer the primary display. */
+export function computeSamples(
+  buf: PixelBuf,
+  zones: ZoneRect[],
+  monitor = "",
+  primary = false,
+): Sample[] {
   const out: Sample[] = [];
   const all = avgRect(buf, 0, 0, 1, 1);
-  out.push({ id: "all", rgb: all, luma: lumaOf(all) });
+  out.push({ id: "all", rgb: all, luma: lumaOf(all), monitor, primary });
   for (const z of zones) {
     const rgb = avgRect(buf, z.x, z.y, z.w, z.h);
-    out.push({ id: z.id, rgb, luma: lumaOf(rgb) });
+    out.push({ id: z.id, rgb, luma: lumaOf(rgb), monitor, primary });
   }
   return out;
 }

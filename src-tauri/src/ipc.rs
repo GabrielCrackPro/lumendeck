@@ -59,6 +59,15 @@ pub fn set_config(app: AppHandle, cfg: Config) -> Result<Config, String> {
     if cfg.gallery != current.gallery {
         cfg.gallery = current.gallery;
     }
+    // Accent sync lifecycle: back up the original OS accent on first enable,
+    // restore it when sync is turned off.
+    if cfg.general.accent_sync_enabled && !cfg.general.accent_sync_armed {
+        crate::sys_theme::remember_original_accent();
+        cfg.general.accent_sync_armed = true;
+    } else if !cfg.general.accent_sync_enabled && cfg.general.accent_sync_armed {
+        crate::sys_theme::restore_original_accent();
+        cfg.general.accent_sync_armed = false;
+    }
     crate::config_store::set(cfg)?;
     let fresh = crate::config_store::get();
     crate::ipc::apply_side_effects(&app, &fresh);
@@ -68,20 +77,43 @@ pub fn set_config(app: AppHandle, cfg: Config) -> Result<Config, String> {
 /// Apply config-dependent windows/RGB state. Shared by UI saves and external
 /// config reloads.
 pub fn apply_side_effects(app: &AppHandle, cfg: &Config) {
+    // Coalesce rapid-fire saves (slider gestures used to fire dozens): only
+    // the last call within 150ms actually runs the window-sync pass.
+    static PENDING: std::sync::Mutex<Option<Config>> = std::sync::Mutex::new(None);
+    if let Ok(mut slot) = PENDING.lock() {
+        if slot.is_some() {
+            *slot = Some(cfg.clone()); // a sync is already scheduled
+            return;
+        }
+        *slot = Some(cfg.clone());
+    }
+    let app2 = app.clone();
+    let _ = std::thread::Builder::new()
+        .name("side-effects".into())
+        .spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            let latest = PENDING.lock().ok().and_then(|mut s| s.take());
+            if let Some(cfg) = latest {
+                apply_side_effects_now(&app2, &cfg);
+            }
+        });
+}
+
+/// The actual side-effect pass (window ensure/remove, BG capture, sticker
+/// sync). Always runs on the dedicated worker thread.
+fn apply_side_effects_now(app: &AppHandle, cfg: &Config) {
     if cfg.general.wallpaper_enabled {
         if let Err(e) = crate::wallpaper::ensure(app) {
             log::warn!("wallpaper ensure failed: {e}");
         }
-        // Save a static snapshot of the wallpaper as the Windows desktop +
-        // lock screen background, so the user has a matching BG if LumenDeck
-        // is closed.
-        crate::wallpaper_bg::apply_bg(&cfg.wallpaper);
+        // Static snapshot for desktop/lock-screen BG: async, coalesced.
+        crate::wallpaper_bg::request_bg(cfg.wallpaper.clone());
     } else if let Err(e) = crate::wallpaper::remove(app) {
         log::warn!("wallpaper remove failed: {e}");
     }
     // Topmost sticker windows track their per-sticker onTop flag.
     crate::sticker_windows::sync(app);
-    log::info!(
+    log::debug!(
         "side effects applied (wallpaper={}, stickers={})",
         cfg.general.wallpaper_enabled,
         cfg.stickers.len()
@@ -134,7 +166,7 @@ pub fn get_wallpaper_info(webview_window: tauri::WebviewWindow) -> WallpaperInfo
     // covers. Falls back to 1 when the window is gone (shouldn't happen).
     let scale = webview_window.scale_factor().unwrap_or(1.0);
     for s in &cfg.stickers {
-        log::info!(
+        log::debug!(
             "sticker visible-check: id={} at ({},{}) {}x{} | monitor {}=({},{}) {}x{} scale={scale}",
             s.id,
             s.x,
@@ -210,12 +242,48 @@ fn spawn_editor_forwarder(app: AppHandle) {
     });
 }
 
-/// Diagnostics: the wallpaper webview reports how each sticker rendered.
 /// Frontend diagnostics channel: webview console messages don't reach the
 /// log file, so wallpaper/sticker pages forward important events here.
+///
+/// Accepts a level so webview errors surface as ERROR in the file (grep-able)
+/// instead of everything being INFO. Repetition storms (e.g. a decode error
+/// retry loop) are rate-limited: identical messages within the window log
+/// once plus a suppressed-count line.
 #[tauri::command]
-pub fn log_frontend(msg: String) {
-    log::info!("{}", msg);
+pub fn log_frontend(level: Option<String>, msg: String) {
+    const WINDOW_MS: u128 = 2_000;
+    static LAST: std::sync::Mutex<Option<(u128, String, u32)>> = std::sync::Mutex::new(None);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+
+    // Rate-limit identical messages.
+    let mut guard = LAST.lock().expect("log_frontend mutex poisoned");
+    match guard.as_mut() {
+        Some((ts, last_msg, suppressed)) if *last_msg == msg && now - *ts < WINDOW_MS => {
+            *suppressed += 1;
+            return;
+        }
+        Some((ts, last_msg, suppressed)) if *suppressed > 0 && (*last_msg != msg || now - *ts >= WINDOW_MS) => {
+            let n = *suppressed;
+            let prev = last_msg.clone();
+            *guard = Some((now, msg.clone(), 0));
+            drop(guard);
+            log::warn!("[frontend] {prev} (suppressed {n} repeats)");
+        }
+        _ => {
+            *guard = Some((now, msg.clone(), 0));
+            drop(guard);
+        }
+    }
+
+    match level.as_deref() {
+        Some("error") => log::error!("[frontend] {msg}"),
+        Some("warn") => log::warn!("[frontend] {msg}"),
+        _ => log::info!("[frontend] {msg}"),
+    }
 }
 
 /// (see log_frontend)
@@ -584,7 +652,12 @@ pub fn send_zone_samples(
     state: State<'_, crate::rgb::EngineState>,
     samples: Vec<ZoneSample>,
 ) -> Result<(), String> {
-    for s in samples {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    for mut s in samples {
+        s.received_ms = now_ms;
         let _ = state.tx.try_send(s);
     }
     Ok(())
@@ -846,6 +919,23 @@ pub fn is_paused() -> bool {
 
 // ---------- Misc ----------
 
+/// The active wallpaper webview pushes a real decoded frame here (JPEG,
+/// captured from its presentation canvas). Installed as the static fallback
+/// AND the Windows desktop/lock-screen background — always a genuine frame
+/// of exactly what the user was watching, unlike Shell thumbnails.
+#[tauri::command]
+pub fn set_live_frame(
+    webview_window: tauri::WebviewWindow,
+    frame: Vec<u8>,
+    source: String,
+) -> bool {
+    // Only wallpaper windows may push frames.
+    if !webview_window.label().starts_with("wallpaper-") {
+        return false;
+    }
+    crate::wallpaper_bg::install_live_frame(&frame, &source)
+}
+
 #[tauri::command]
 pub fn monitors() -> Vec<crate::win32::MonitorRect> {
     crate::win32::monitors()
@@ -853,6 +943,10 @@ pub fn monitors() -> Vec<crate::win32::MonitorRect> {
 
 #[tauri::command]
 pub fn quit(app: AppHandle) -> Result<(), String> {
+    // Destroy webview windows before the process dies, so WebView2's DLL
+    // unregisters its window classes cleanly instead of racing live windows
+    // (Chrome_WidgetWin_0 unregister error 1412 in the console).
+    app.cleanup_before_exit();
     app.exit(0);
     Ok(())
 }
@@ -887,6 +981,10 @@ pub fn factory_reset(app: AppHandle) -> Result<(), String> {
         }
     }
     log::info!("app data wiped; exiting");
+    // Let Tauri destroy the remaining webview windows first: exiting cold
+    // while WebView2 child windows are alive makes its DLL fail to unregister
+    // Chrome_WidgetWin_* at teardown (benign but noisy error 1412).
+    app.cleanup_before_exit();
     app.exit(0);
     Ok(())
 }
@@ -1001,6 +1099,64 @@ pub fn playlist_set_active(id: Option<String>) -> Result<(), String> {
         }
     })?;
     crate::playlist::nudge();
+    Ok(())
+}
+
+// ---------- Scenes (full-look snapshots) ----------
+
+/// Snapshot the CURRENT look into a scene: wallpaper config (incl. per-monitor
+/// overrides) + RGB config. `name` labels it; an id is generated.
+#[tauri::command]
+pub fn scene_save(name: String) -> Result<crate::config::SceneProfile, String> {
+    let cfg = crate::config_store::get();
+    let scene = crate::config::SceneProfile {
+        id: format!("scene-{}", nanoid_like()),
+        name,
+        wallpaper: cfg.wallpaper.clone(),
+        rgb: cfg.rgb.clone(),
+        created_ms: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
+    };
+    crate::config_store::update(|c| c.scenes.push(scene.clone()))?;
+    Ok(scene)
+}
+
+/// Recall a scene: swap in the wallpaper + RGB configs and re-apply side
+/// effects. Sticker placements are intentionally NOT touched (they're
+/// positional, not mood); playlist state is paused during recall so the
+/// scheduler doesn't immediately override the restored wallpaper.
+#[tauri::command]
+pub fn scene_apply(app: AppHandle, id: String) -> Result<(), String> {
+    let scene = crate::config_store::get()
+        .scenes
+        .into_iter()
+        .find(|s| s.id == id)
+        .ok_or_else(|| "scene not found".to_string())?;
+    crate::config_store::update(|c| {
+        c.wallpaper = scene.wallpaper.clone();
+        c.rgb = scene.rgb.clone();
+    })?;
+    let fresh = crate::config_store::get();
+    apply_side_effects(&app, &fresh);
+    log::info!("scene applied: {}", scene.name);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn scene_delete(id: String) -> Result<(), String> {
+    crate::config_store::update(|c| c.scenes.retain(|s| s.id != id))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn scene_rename(id: String, name: String) -> Result<(), String> {
+    crate::config_store::update(|c| {
+        if let Some(s) = c.scenes.iter_mut().find(|s| s.id == id) {
+            s.name = name;
+        }
+    })?;
     Ok(())
 }
 

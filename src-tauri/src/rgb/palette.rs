@@ -14,11 +14,11 @@ pub fn dominant(pixels: &[[u8; 3]]) -> Option<[u8; 3]> {
 }
 
 /// Dominant color over a set of samples (average of their colors).
-pub fn dominant_over_samples(samples: &[(String, super::ZoneSample)]) -> Option<[u8; 3]> {
+pub fn dominant_over_samples(samples: &[super::ZoneSample]) -> Option<[u8; 3]> {
     if samples.is_empty() {
         return None;
     }
-    let colors: Vec<[u8; 3]> = samples.iter().map(|(_, s)| s.rgb).collect();
+    let colors: Vec<[u8; 3]> = samples.iter().map(|s| s.rgb).collect();
     dominant(&colors)
 }
 

@@ -162,13 +162,19 @@ export function Slider({
   format?: (v: number) => string;
   onChange: (v: number) => void;
 }) {
-  const pct = ((value - min) / (max - min)) * 100;
+  // Live local value so the thumb tracks the pointer 1:1, but the change is
+  // only committed on release (or key-up): dragging a slider used to fire a
+  // full config save per pixel-step — dozens of writes, broadcasts, and
+  // side-effect passes per gesture.
+  const [live, setLive] = useState<number | null>(null);
+  const shown = live ?? value;
+  const pct = ((shown - min) / (max - min)) * 100;
   return (
     <label className="block py-3">
       <div className="mb-1 flex items-center justify-between text-sm">
         <span className="font-medium text-[var(--text)]">{label}</span>
         <span className="font-mono text-xs tabular-nums text-[var(--text-dim)]">
-          {format ? format(value) : value}
+          {format ? format(shown) : shown}
         </span>
       </div>
       <input
@@ -176,9 +182,21 @@ export function Slider({
         min={min}
         max={max}
         step={step}
-        value={value}
+        value={shown}
         style={{ "--fill": `${pct}%` } as CSSProperties}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onChange={(e) => setLive(Number(e.target.value))}
+        onPointerUp={() => {
+          if (live != null) onChange(live);
+          setLive(null);
+        }}
+        onKeyUp={() => {
+          if (live != null) onChange(live);
+          setLive(null);
+        }}
+        onBlur={() => {
+          if (live != null) onChange(live);
+          setLive(null);
+        }}
       />
     </label>
   );
@@ -770,13 +788,29 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
     { device: string; x: number; y: number; w: number; h: number; primary: boolean }[]
   >([]);
   useEffect(() => {
-    import("@tauri-apps/api/core")
-      .then(({ invoke }) =>
-        invoke<{ device: string; x: number; y: number; w: number; h: number; primary: boolean }[]>("monitors")
-          .then(setMons)
-          .catch(() => setMons([])),
+    let disposed = false;
+    const load = () => {
+      import("@tauri-apps/api/core")
+        .then(({ invoke }) =>
+          invoke<{ device: string; x: number; y: number; w: number; h: number; primary: boolean }[]>("monitors")
+            .then((m) => !disposed && setMons(m))
+            .catch(() => {}),
+        )
+        .catch(() => {});
+    };
+    load();
+    // Hotplug: keep the card in sync when displays connect/disconnect while
+    // the dashboard is open (the wallpaper windows already re-sync backend-side).
+    import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen("display-changed", () => load()).then((un) => {
+          if (disposed) un();
+        }),
       )
       .catch(() => {});
+    return () => {
+      disposed = true;
+    };
   }, []);
   return (
     <Card title="Displays">

@@ -18,3 +18,17 @@ img,
 iframe {
   display: block;
 }
+
+/* Paused badge: slow-breathing status dot (runs in the wallpaper webview). */
+@keyframes lumen-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.lumen-paused-dot {
+  animation: lumen-breathe 2.4s ease-in-out infinite;
+}

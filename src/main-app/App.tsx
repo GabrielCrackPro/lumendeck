@@ -18,6 +18,14 @@ export default function App() {
   useEffect(() => {
     const root = document.documentElement;
     const theme = cfg?.general.theme ?? "dark";
+    // "system" follows the OS preference live; dark/light are explicit.
+    if (theme === "system") {
+      const mq = window.matchMedia("(prefers-color-scheme: light)");
+      const apply = () => root.classList.toggle("dark", !mq.matches);
+      apply();
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
+    }
     root.classList.toggle("dark", theme !== "light");
   }, [cfg?.general.theme]);
 

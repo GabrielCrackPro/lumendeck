@@ -24,6 +24,18 @@ pub struct GeneralConfig {
     pub wallpaper_enabled: bool,
     /// UI accent follows live device colors (true) or frozen to the static color (false).
     pub accent_live: bool,
+    /// Decode wallpaper video in software (for machines whose hardware
+    /// decoder misbehaves). Costs CPU and destabilizes 4K pipelines — the
+    /// hardware path is the default. Read once at startup.
+    pub software_video_decode: bool,
+    /// Sync the Windows accent color to the wallpaper's dominant color.
+    pub accent_sync_enabled: bool,
+    /// Remember the user's pre-sync accent on first enable so it can be
+    /// restored when the toggle goes off again.
+    pub accent_sync_armed: bool,
+    /// Apply wallpaper changes to the Windows lock screen too (off by
+    /// default: some users prefer keeping a personal lock image).
+    pub lock_screen_follows_wallpaper: bool,
 }
 
 impl Default for GeneralConfig {
@@ -31,10 +43,17 @@ impl Default for GeneralConfig {
         Self {
             autostart: false,
             theme: ThemeMode::Dark,
-            pause_on_battery_saver: true,
+            // Off by default: a laptop user's first run should show a live
+            // wallpaper, not a frozen frame just because the charger is
+            // unplugged. Opt in from the General tab.
+            pause_on_battery_saver: false,
             pause_on_fullscreen: true,
             wallpaper_enabled: true,
             accent_live: false,
+            software_video_decode: false,
+            accent_sync_enabled: false,
+            accent_sync_armed: false,
+            lock_screen_follows_wallpaper: false,
         }
     }
 }
@@ -454,6 +473,35 @@ impl PlaylistRule {
     }
 }
 
+// ---------- Scenes ----------
+
+/// Full-look snapshot: everything that defines the machine's vibe right now.
+/// Recall restores the entire snapshot in one command.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SceneProfile {
+    pub id: String,
+    pub name: String,
+    /// Whole-wallpaper config (kind/source/videoFit/fx/per-monitor overrides).
+    pub wallpaper: WallpaperConfig,
+    /// Whole-RGB config (mode/mixer/zones/profiles list stays shared).
+    pub rgb: RgbConfig,
+    /// Snapshot timestamp (ms) for the UI.
+    pub created_ms: u64,
+}
+
+impl Default for SceneProfile {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            wallpaper: WallpaperConfig::default(),
+            rgb: RgbConfig::default(),
+            created_ms: 0,
+        }
+    }
+}
+
 // ---------- Root ----------
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -467,6 +515,9 @@ pub struct Config {
     pub gallery: Vec<GalleryEntry>,
     pub collections: Vec<WallpaperCollection>,
     pub playlists: Vec<WallpaperPlaylist>,
+    /// Scene profiles: full-look snapshots (wallpaper + RGB + per-monitor
+    /// overrides) with instant recall — one click switches the entire vibe.
+    pub scenes: Vec<SceneProfile>,
     pub sticker_snap: StickerSnap,
     pub sticker: StickerConfig,
 }
@@ -482,6 +533,7 @@ impl Default for Config {
             gallery: Vec::new(),
             collections: Vec::new(),
             playlists: Vec::new(),
+            scenes: Vec::new(),
             sticker_snap: StickerSnap::default(),
             sticker: StickerConfig::default(),
         }

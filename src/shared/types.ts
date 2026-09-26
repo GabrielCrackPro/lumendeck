@@ -131,6 +131,14 @@ export interface GeneralConfig {
   wallpaperEnabled: boolean;
   /** UI accent follows live device colors (true) or frozen to the static color (false). */
   accentLive: boolean;
+  /** Decode wallpaper video in software (low-end fallback). Read at startup. */
+  softwareVideoDecode: boolean;
+  /** Sync the Windows accent color to the wallpaper's dominant color. */
+  accentSyncEnabled: boolean;
+  /** Internal: original accent backed up on first sync (for restore). */
+  accentSyncArmed: boolean;
+  /** Apply wallpaper changes to the Windows lock screen too. */
+  lockScreenFollowsWallpaper: boolean;
 }
 
 export interface GalleryEntry {
@@ -167,6 +175,14 @@ export interface WallpaperPlaylist {
   enabled: boolean;
 }
 
+export interface SceneProfile {
+  id: string;
+  name: string;
+  wallpaper: WallpaperConfig;
+  rgb: RgbConfig;
+  createdMs: number;
+}
+
 export interface PlaylistRule {
   /** Start time "hh:mm" local. */
   start: string;
@@ -199,6 +215,7 @@ export interface LumenConfig {
   gallery: GalleryEntry[];
   collections: WallpaperCollection[];
   playlists: WallpaperPlaylist[];
+  scenes: SceneProfile[];
   stickerSnap: StickerSnap;
   sticker: StickerSettings;
 }

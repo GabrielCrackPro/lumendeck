@@ -16,13 +16,12 @@ function Controls() {
       win.isMaximized().then((m) => !disposed && setMaximized(m)).catch(() => {});
     };
     sync();
-    const t = setInterval(sync, 1000);
-    const onResize = () => sync();
-    window.addEventListener("resize", onResize);
+    // Size changes (maximize/restore/snap/drag-resize) all emit resize; no
+    // need to poll every second for a state that only changes on resize.
+    const unlisten = win.onResized(sync);
     return () => {
       disposed = true;
-      clearInterval(t);
-      window.removeEventListener("resize", onResize);
+      unlisten.then((f) => f()).catch(() => {});
     };
   }, []);
 

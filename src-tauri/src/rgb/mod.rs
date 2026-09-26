@@ -19,6 +19,19 @@ pub struct ZoneSample {
     pub rgb: [u8; 3],
     /// Relative brightness 0..1, used by pulse mode.
     pub luma: f64,
+    /// Monitor device string the sample came from (multi-monitor: each
+    /// wallpaper webview samples its own display). Empty = unknown.
+    #[serde(default)]
+    pub monitor: String,
+    /// True when sampled on the primary display — ambient/pulse follow this
+    /// one so the lighting reflects the "main" wallpaper, not whichever
+    /// webview pushed last.
+    #[serde(default)]
+    pub primary: bool,
+    /// Arrival timestamp (ms) stamped by the IPC boundary; used to expire
+    /// samples from displays that stopped pushing.
+    #[serde(default, skip_deserializing, skip_serializing)]
+    pub received_ms: u64,
 }
 
 /// Shared inbox for zone samples coming from the wallpaper webview.
@@ -108,11 +121,7 @@ impl EngineState {
 
 /// Compute the target color for one device from config + latest samples.
 /// Reactive modes only — animation modes own the frame generator instead.
-pub fn target_color_for_device(
-    device_id: u32,
-    cfg: &RgbConfig,
-    samples: &[(String, ZoneSample)],
-) -> Option<[u8; 3]> {
+pub fn target_color_for_device(device_id: u32, cfg: &RgbConfig, samples: &[ZoneSample]) -> Option<[u8; 3]> {
     if !cfg.enabled || cfg.excluded_devices.contains(&device_id) {
         return None;
     }
@@ -122,10 +131,16 @@ pub fn target_color_for_device(
     let mixed = |c: [u8; 3]| {
         palette::apply_mixer(c, cfg.mixer.brightness, cfg.mixer.saturation, cfg.mixer.gamma)
     };
-    // The full-frame sample the wallpaper sends first. Zone samples overlap
-    // the same pixels, so averaging them into ambient/pulse would double-count
-    // regions. Fall back to the sample average only if it's missing.
-    let full = || samples.iter().find(|(id, _)| id == "all").map(|(_, s)| s);
+    // The full-frame sample of the PRIMARY monitor. Multi-monitor setups have
+    // one "all" sample per display; ambient/pulse follow the primary's
+    // wallpaper color and only fall back to another display (or the zone
+    // average) when no primary sample exists. Zone samples overlap the same
+    // pixels, so averaging them into ambient/pulse would double-count regions.
+    let full = ||
+        samples
+            .iter()
+            .find(|s| s.id == "all" && s.primary)
+            .or_else(|| samples.iter().find(|s| s.id == "all"));
     match cfg.mode {
         RgbMode::Static => Some(mixed(cfg.static_color)),
         RgbMode::Ambient => full()
@@ -142,7 +157,7 @@ pub fn target_color_for_device(
             let luma = full()
                 .map(|s| s.luma)
                 .unwrap_or_else(|| {
-                    samples.iter().map(|(_, s)| s.luma).sum::<f64>() / samples.len().max(1) as f64
+                    samples.iter().map(|s| s.luma).sum::<f64>() / samples.len().max(1) as f64
                 });
             // Perceptual curve: floor at 35% so the device never fully dies,
             // lift midtones (pow < 1) so scene changes read as bold swells.
@@ -154,10 +169,12 @@ pub fn target_color_for_device(
                 .zones
                 .iter()
                 .find(|z| z.device_ids.contains(&device_id))?;
+            // Every monitor with this zone contributes its own sample; the
+            // average across displays is stable, while latest-wins would
+            // flicker between monitors at their different push rates.
             let matching: Vec<&ZoneSample> = samples
                 .iter()
-                .filter(|(id, _)| *id == zone.id)
-                .map(|(_, s)| s)
+                .filter(|s| s.id == zone.id)
                 .collect();
             if matching.is_empty() {
                 return None;
@@ -326,7 +343,13 @@ async fn engine_loop(
     last_sent_ms: Arc<AtomicU64>,
 ) {
     let mut smoothed = SmoothedColors::default();
-    let mut latest: Vec<(String, ZoneSample)> = Vec::new();
+    // Latest sample per (id, monitor): one wallpaper webview pushes per
+    // display, and each keeps its own "all" + zone slots alive.
+    let mut latest: Vec<ZoneSample> = Vec::new();
+    // Wallpapers only push while playing: when a display stops sending (media
+    // removed, webview crashed), expire its samples instead of freezing the
+    // lights on the last frame forever.
+    const SAMPLE_TTL_MS: u64 = 3_000;
     let mut cfg_rx = crate::config_store::watch();
     let mut ticker = tokio::time::interval(std::time::Duration::from_millis(25));
     let phase_start = std::time::Instant::now();
@@ -340,9 +363,8 @@ async fn engine_loop(
             item = rx.recv() => {
                 match item {
                     Some(s) => {
-                        let id = s.id.clone();
-                        latest.retain(|(eid, _)| *eid != id);
-                        latest.push((id, s));
+                        latest.retain(|e| !(e.id == s.id && e.monitor == s.monitor));
+                        latest.push(s);
                     }
                     None => break, // channel closed: shutting down
                 }
@@ -351,6 +373,16 @@ async fn engine_loop(
         }
 
         let cfg: RgbConfig = cfg_rx.borrow_and_update().rgb.clone();
+
+        // Expire samples from displays that stopped pushing (3s of silence).
+        if !latest.is_empty() {
+            let cutoff = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0)
+                .saturating_sub(SAMPLE_TTL_MS);
+            latest.retain(|s| s.received_ms >= cutoff);
+        }
 
         // Sync audio source from config.
         audio::set_source(&cfg.audio_source);
@@ -388,7 +420,7 @@ async fn engine_loop(
             let base: [u8; 3] = match cfg.mode {
                 RgbMode::Static | RgbMode::Breathe | RgbMode::AudioReactive => cfg.static_color,
                 RgbMode::Cycle | RgbMode::Wave => hsl_to_rgb(0.55),
-                _ => latest.last().map(|(_, s)| s.rgb).unwrap_or([56, 189, 248]),
+                _ => latest.last().map(|s| s.rgb).unwrap_or([56, 189, 248]),
             };
             for dev in &client.status().devices {
                 let n = dev.leds as usize;
@@ -423,7 +455,7 @@ async fn engine_loop(
                 RgbMode::Cycle | RgbMode::Wave => hsl_to_rgb(0.55),
                 _ => latest
                     .last()
-                    .map(|(_, s)| s.rgb)
+                    .map(|s| s.rgb)
                     .unwrap_or([56, 189, 248]),
             };
             for (dev_id, excluded) in transitions {
@@ -538,6 +570,13 @@ async fn engine_loop(
             if let Some(app) = crate::app_handle() {
                 crate::events::emit_all(&app, crate::events::RGB_FRAME, &frame);
             }
+            // Windows theming hub: drive the OS accent from the wallpaper's
+            // dominant color when accent sync is enabled. Rate-limited inside.
+            if let Some(c) = frame.first() {
+                if c.rgb != [0, 0, 0] {
+                    crate::sys_theme::feed_wallpaper_color(c.rgb);
+                }
+            }
         }
         // Emit audio level for UI visualization when in audio reactive mode.
         if cfg.mode == RgbMode::AudioReactive {
@@ -564,15 +603,23 @@ mod tests {
     use super::*;
     use crate::config::{RgbConfig, RgbMode};
 
-    fn sample(id: &str, rgb: [u8; 3], luma: f64) -> (String, ZoneSample) {
-        (
-            id.to_string(),
-            ZoneSample {
-                id: id.to_string(),
-                rgb,
-                luma,
-            },
-        )
+    fn sample(id: &str, rgb: [u8; 3], luma: f64) -> ZoneSample {
+        ZoneSample {
+            id: id.to_string(),
+            rgb,
+            luma,
+            monitor: String::new(),
+            primary: false,
+            received_ms: 0,
+        }
+    }
+
+    fn sample_on(id: &str, rgb: [u8; 3], luma: f64, monitor: &str, primary: bool) -> ZoneSample {
+        ZoneSample {
+            monitor: monitor.to_string(),
+            primary,
+            ..sample(id, rgb, luma)
+        }
     }
 
     #[test]
@@ -624,6 +671,55 @@ mod tests {
         let out = target_color_for_device(0, &cfg, &samples).unwrap();
         // Ambient now applies a 1.25x saturation boost to the sample average.
         assert_eq!(out, [130, 130, 0]);
+    }
+
+    #[test]
+    fn ambient_prefers_primary_monitor() {
+        let cfg = RgbConfig {
+            mode: RgbMode::Ambient,
+            ..Default::default()
+        };
+        // Secondary monitor pushes last, but ambient must follow the primary.
+        let samples = vec![
+            sample_on("all", [200, 40, 40], 0.5, "\\\\.\\DISPLAY1", true),
+            sample_on("all", [40, 40, 200], 0.5, "\\\\.\\DISPLAY6", false),
+        ];
+        let out = target_color_for_device(0, &cfg, &samples).unwrap();
+        assert_eq!(out, [231, 31, 31], "primary wins + 1.25x saturation");
+    }
+
+    #[test]
+    fn ambient_falls_back_to_any_monitor_when_no_primary() {
+        let cfg = RgbConfig {
+            mode: RgbMode::Ambient,
+            ..Default::default()
+        };
+        let samples = vec![sample_on("all", [40, 200, 40], 0.5, "\\\\.\\DISPLAY6", false)];
+        let out = target_color_for_device(0, &cfg, &samples).unwrap();
+        assert_eq!(out, [11, 211, 11], "fallback sample + saturation boost");
+    }
+
+    #[test]
+    fn zone_mode_averages_across_monitors() {
+        let cfg = RgbConfig {
+            mode: RgbMode::Zone,
+            zones: vec![crate::config::ZoneDef {
+                id: "z".into(),
+                name: "Left".into(),
+                x: 0.0,
+                y: 0.0,
+                w: 0.5,
+                h: 1.0,
+                device_ids: vec![7],
+            }],
+            ..Default::default()
+        };
+        let samples = vec![
+            sample_on("z", [100, 0, 0], 0.5, "\\\\.\\DISPLAY1", true),
+            sample_on("z", [0, 100, 0], 0.5, "\\\\.\\DISPLAY6", false),
+        ];
+        let out = target_color_for_device(7, &cfg, &samples).unwrap();
+        assert_eq!(out, [50, 50, 0], "zone must be the cross-monitor average");
     }
 
     #[test]

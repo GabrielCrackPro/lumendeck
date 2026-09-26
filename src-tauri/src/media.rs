@@ -128,8 +128,10 @@ fn mime_for(path: &std::path::Path) -> &'static str {
 
 /// Cache policy per path. Thumbnails live in a hash-keyed dir and are never
 /// rewritten, so they can be cached aggressively (and stay cached forever when
-/// the browser honours `immutable`). Everything else must revalidate via ETag
-/// so in-place edits are picked up.
+/// the browser honours `immutable`). Media must revalidate via ETag so
+/// in-place edits are picked up, but revalidation is cheap (304 without body)
+/// and lets WebView2 reuse its buffered ranges — smoother playback than
+/// `no-cache`, which forces full re-reads.
 fn cache_policy(path: &std::path::Path) -> &'static str {
     if path.starts_with(crate::thumbs::thumbs_dir()) {
         "public, max-age=31536000, immutable"
@@ -159,8 +161,9 @@ fn not_found() -> Response<Vec<u8>> {
 /// How many bytes an open-ended media request (`bytes=N-` or a plain video GET)
 /// serves in one response. Videos are then streamed chunk-by-chunk via follow-up
 /// range requests, so the first frame arrives fast and a multi-GB file never sits
-/// in RAM (one copy per wallpaper window).
-const OPEN_ENDED_CHUNK: u64 = 8 * 1024 * 1024;
+/// in RAM (one copy per wallpaper window). Sized so a 4K loop (30-60 Mbps)
+/// buffers several seconds ahead — small windows cause mid-loop stalls.
+const OPEN_ENDED_CHUNK: u64 = 32 * 1024 * 1024;
 /// Sequential read buffer used to assemble a byte range without one giant read.
 const CHUNK_READ: usize = 64 * 1024;
 
