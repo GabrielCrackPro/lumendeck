@@ -27,7 +27,10 @@ jobs:
       - name: Get pnpm store directory
         id: pnpm-cache
         shell: bash
-        run: echo "dir=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+        run: |
+          STORE_DIR="$(pnpm store path 2>/dev/null | tail -n 1)"
+          echo "dir=$STORE_DIR" >> "$GITHUB_OUTPUT"
+          echo "store dir: $STORE_DIR"
 
       - uses: actions/cache@v4
         with:
