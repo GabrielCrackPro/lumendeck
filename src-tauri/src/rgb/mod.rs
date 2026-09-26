@@ -56,6 +56,10 @@ const MAX_LED_PREVIEW: usize = 96;
 /// output. Toggled by the idle timer on inactivity.
 static SLEEPING: AtomicBool = AtomicBool::new(false);
 
+/// (ms, color) of the last wallpaper-color broadcast: at most 1/sec and only
+/// on meaningful shifts, so UI glow + OS accent don't chase every frame.
+static LAST_UI_COLOR: std::sync::Mutex<Option<(u64, [u8; 3])>> = std::sync::Mutex::new(None);
+
 /// Device ids whose exclusion state changed since the last engine tick, so a
 /// farewell sweep can play on the hardware as it's switched off/on.
 
@@ -570,11 +574,52 @@ async fn engine_loop(
             if let Some(app) = crate::app_handle() {
                 crate::events::emit_all(&app, crate::events::RGB_FRAME, &frame);
             }
-            // Windows theming hub: drive the OS accent from the wallpaper's
-            // dominant color when accent sync is enabled. Rate-limited inside.
+            // Wallpaper's current dominant color, broadcast for the dashboard
+            // glow and the Windows theming hub. Rate-limited: the UI glow and
+            // OS accent shouldn't chase every video frame.
             if let Some(c) = frame.first() {
                 if c.rgb != [0, 0, 0] {
-                    crate::sys_theme::feed_wallpaper_color(c.rgb);
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    let mut push = false;
+                    {
+                        let mut last = LAST_UI_COLOR
+                            .lock()
+                            .expect("ui color mutex poisoned");
+                        match *last {
+                            Some((ts, prev)) => {
+                                let delta = c
+                                    .rgb
+                                    .iter()
+                                    .zip(prev.iter())
+                                    .map(|(a, b)| a.abs_diff(*b))
+                                    .max()
+                                    .unwrap_or(0);
+                                if now_ms - ts >= 1000 && delta >= 12 {
+                                    *last = Some((now_ms, c.rgb));
+                                    push = true;
+                                }
+                            }
+                            None => {
+                                *last = Some((now_ms, c.rgb));
+                                push = true;
+                            }
+                        }
+                    }
+                    if push {
+                        if let Some(app) = crate::app_handle() {
+                            crate::events::emit_all(
+                                &app,
+                                crate::events::WALLPAPER_COLOR,
+                                &c.rgb,
+                            );
+                        }
+                        // Windows theming hub: drive the OS accent from the
+                        // wallpaper's dominant color when enabled.
+                        crate::sys_theme::feed_wallpaper_color(c.rgb);
+                    }
                 }
             }
         }

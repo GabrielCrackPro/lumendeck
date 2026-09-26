@@ -20,6 +20,8 @@ interface Store {
   deviceColors: Record<number, DeviceColor>;
   /** Live audio level from the audio-reactive mode. */
   audioLevel: AudioLevel;
+  /** Wallpaper's current dominant color — drives the UI glow. */
+  wallpaperColor: [number, number, number] | null;
   wallpaperPaused: boolean;
   loaded: boolean;
   /** True while a config save is in flight (optimistic UI already applied). */
@@ -30,6 +32,7 @@ interface Store {
   setRgb: (rgb: RgbStatus) => void;
   setDeviceColors: (frame: DeviceColor[]) => void;
   setAudioLevel: (level: AudioLevel) => void;
+  setWallpaperColor: (c: [number, number, number]) => void;
   setWallpaperPaused: (p: boolean) => void;
   /** Transient notifications (auto-dismiss in Shell). */
   toasts: Toast[];
@@ -55,6 +58,7 @@ export const useStore = create<Store>((set, get) => ({
   rgb: { connected: false, protocolVersion: null, devices: [], lastError: null },
   deviceColors: {},
   audioLevel: { volume: 0, beat: false, deviceName: "" },
+  wallpaperColor: null,
   wallpaperPaused: false,
   loaded: false,
   saving: false,
@@ -122,6 +126,7 @@ export const useStore = create<Store>((set, get) => ({
       return { deviceColors: next };
     }),
   setAudioLevel: (audioLevel) => set({ audioLevel }),
+  setWallpaperColor: (wallpaperColor) => set({ wallpaperColor }),
   setWallpaperPaused: (wallpaperPaused) => set({ wallpaperPaused }),
 }));
 
@@ -182,6 +187,11 @@ export async function bindEvents(): Promise<() => void> {
   unsubs.push(
     await listen<AudioLevel>(EVENTS.AUDIO_LEVEL, (e) => {
       useStore.getState().setAudioLevel(e.payload);
+    }),
+  );
+  unsubs.push(
+    await listen<[number, number, number]>(EVENTS.WALLPAPER_COLOR, (e) => {
+      useStore.getState().setWallpaperColor(e.payload);
     }),
   );
   return () => {

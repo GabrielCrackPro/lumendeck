@@ -34,7 +34,11 @@ const SETTINGS_TAB: {
   icon: React.FC<React.SVGProps<SVGSVGElement>>;
 } = { id: "general", label: "Settings", blurb: "App & system", icon: IconGear };
 
-/** Resolve the accent glow from whatever is live on the devices. */
+/**
+ * Resolve the UI accent glow. Priority: the wallpaper's own dominant color
+ * (the UI breathes with the wallpaper — the whole point of the app), then the
+ * user's explicit device pick, then static color, then the default.
+ */
 function useGlow() {
   const deviceColors = useStore((s) => s.deviceColors);
   const mode = useStore((s) => s.cfg?.rgb.mode);
@@ -43,9 +47,20 @@ function useGlow() {
   const devices = useStore((s) => s.rgb.devices);
   const accentDevice = useStore((s) => s.cfg?.rgb.accentDevice);
   const accentLive = useStore((s) => s.cfg?.general.accentLive);
+  const wallpaperColor = useStore((s) => s.wallpaperColor);
+  // Prefer a wallpaper color that is visibly non-black: a dark scene must not
+  // tint the whole UI unreadably dark. Smooth toward it; the broadcast is
+  // already rate-limited (1/s, meaningful deltas only) backend-side.
+  const wpColor =
+    wallpaperColor && wallpaperColor.some((v) => v > 24)
+      ? wallpaperColor
+      : null;
   return useMemo<[number, number, number]>(() => {
     const fallback =
       mode === "static" || mode === "breathe" ? staticColor : undefined;
+    // Wallpaper color leads when present: the interface IS the wallpaper's
+    // mood. (wallpaperPaused frames freeze too — fine, color stays coherent.)
+    if (accentLive && wpColor) return wpColor;
     // Default: UI accent is calm — frozen to the static color (animation and
     // audio-reactive modes get a stable accent instead of flickering).
     if (!accentLive) {
@@ -74,8 +89,8 @@ function useGlow() {
     const live =
       activeIds.map((id) => deviceColors[id]?.rgb).find((c) => c != null) ??
       Object.values(deviceColors).find((c) => c.rgb.some((v) => v > 0))?.rgb;
-    return live ?? fallback ?? DEFAULT_GLOW;
-  }, [deviceColors, mode, staticColor, excluded, devices, accentDevice, accentLive]);
+    return live ?? wpColor ?? fallback ?? DEFAULT_GLOW;
+  }, [deviceColors, mode, staticColor, excluded, devices, accentDevice, accentLive, wpColor]);
 }
 
 /** Full-window boot splash shown until the backend hands us the config. */
@@ -241,6 +256,20 @@ function NavItem({
   );
 }
 
+/** Rail footer pulse: a heartbeat that proves the engine loop is streaming. */
+function EnginePulse() {
+  const rgb = useStore((s) => s.rgb);
+  const live = Object.values(useStore((s) => s.deviceColors)).some(
+    (c) => c.rgb.some((v) => v > 0),
+  );
+  const tone = !rgb.connected
+    ? "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.8)]"
+    : live
+      ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-[lpulse_2s_ease-in-out_infinite]"
+      : "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.7)]";
+  return <span className={`h-2 w-2 shrink-0 rounded-full ${tone}`} />;
+}
+
 export default function Shell() {
   const [tab, setTab] = useState<TabId>("overview");
   const [collapsed, setCollapsed] = useState(() => {
@@ -331,9 +360,18 @@ export default function Shell() {
             </button>
           </div>
 
-          {/* nav */}
-          <div className="space-y-0.5 px-2">
-            {TABS.map((t) => (
+          {/* nav: grouped sections (spaces the eye; finds things faster) */}
+          <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2">
+            {!collapsed && <div className="kicker px-1 pb-1.5 pt-2">overview</div>}
+            <NavItem
+              item={TABS[0]!}
+              active={tab === TABS[0]!.id}
+              collapsed={collapsed}
+              dim={false}
+              onClick={() => setTab(TABS[0]!.id)}
+            />
+            {!collapsed && <div className="kicker px-1 pb-1.5 pt-3">customize</div>}
+            {TABS.filter((t) => t.id !== "overview").map((t) => (
               <NavItem
                 key={t.id}
                 item={t}
@@ -343,9 +381,7 @@ export default function Shell() {
                 onClick={() => setTab(t.id)}
               />
             ))}
-
-            {/* divider + settings, pinned to the bottom of the nav group */}
-            {!collapsed && <div className="my-2 border-t border-[var(--line)]" />}
+            {!collapsed && <div className="kicker px-1 pb-1.5 pt-3">system</div>}
             <NavItem
               item={SETTINGS_TAB}
               active={tab === SETTINGS_TAB.id}
@@ -353,6 +389,19 @@ export default function Shell() {
               dim
               onClick={() => setTab(SETTINGS_TAB.id)}
             />
+          </div>
+          {/* rail footer: live engine pulse — glanceable without the header */}
+          <div
+            className={`mx-2 mb-2 flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-2.5 py-2 ${
+              collapsed ? "justify-center" : ""
+            }`}
+          >
+            <EnginePulse />
+            {!collapsed && (
+              <span className="min-w-0 truncate font-mono text-[10px] tracking-wide text-[var(--text-faint)]">
+                engine live
+              </span>
+            )}
           </div>
         </nav>
 
@@ -362,10 +411,11 @@ export default function Shell() {
             <BootSplash />
           ) : (
           <>
-          <header className="flex min-h-[58px] shrink-0 items-center justify-between gap-4 border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_60%,transparent)] px-6 py-3 backdrop-blur-xl">
-            <div key={tab} className="page-enter-header min-w-0">
-              <h1 className="truncate text-[15px] font-semibold leading-tight tracking-tight text-[var(--text)]">{current.label}</h1>
-              <div className="kicker mt-0.5">{current.blurb}</div>
+          <header className="flex min-h-[62px] shrink-0 items-center justify-between gap-4 border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_60%,transparent)] px-6 py-3 backdrop-blur-xl">
+            <div key={tab} className="page-enter-header flex min-w-0 items-baseline gap-3">
+              <h1 className="lednum shrink-0 truncate text-[17px] leading-tight text-[var(--text)]">{current.label}</h1>
+              <span className="hidden h-4 w-px bg-[var(--line-strong)] sm:block" />
+              <div className="kicker mt-0.5 hidden truncate sm:block">{current.blurb}</div>
             </div>
             <HeaderStatus />
           </header>

@@ -17,6 +17,7 @@ pub const EDITOR_MOUSE: &str = "sticker-editor-mouse";
 /// Sticker-editor on/off; payload: bool.
 pub const EDITOR_STATE: &str = "sticker-editor";
 pub const RGB_STATUS: &str = "rgb-status";
+pub const WALLPAPER_COLOR: &str = "wallpaper-color";
 pub const WALLPAUSE: &str = "wallpaper-pause";
 /// Emitted after a display-topology resync; payload is the new monitor list.
 pub const DISPLAY_CHANGED: &str = "display-changed";

@@ -142,6 +142,41 @@ export default function GeneralTab() {
           )}
         </Card>
 
+        <Card
+          title="About & updates"
+          right={
+            <span className="font-mono text-[10px] text-[var(--text-faint)]">
+              v{__APP_VERSION__}
+            </span>
+          }
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-xs leading-relaxed text-[var(--text-dim)]">
+              LumenDeck — live wallpapers, ambient lighting, and system theming
+              in one place.
+            </div>
+            <Btn
+              size="sm"
+              onClick={async () => {
+                try {
+                  const newer = await api.checkForUpdate();
+                  if (newer) {
+                    useStore
+                      .getState()
+                      .toast("info", `Update available: v${newer} — grab it from GitHub.`);
+                  } else {
+                    useStore.getState().toast("ok", "You're up to date.");
+                  }
+                } catch {
+                  useStore.getState().toast("error", "Couldn't check for updates.");
+                }
+              }}
+            >
+              Check for updates
+            </Btn>
+          </div>
+        </Card>
+
         <Card title="Danger zone">
           {confirmWipe ? (
             <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">

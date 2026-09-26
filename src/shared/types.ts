@@ -139,6 +139,8 @@ export interface GeneralConfig {
   accentSyncArmed: boolean;
   /** Apply wallpaper changes to the Windows lock screen too. */
   lockScreenFollowsWallpaper: boolean;
+  /** First-run onboarding wizard has been completed. */
+  onboarded: boolean;
 }
 
 export interface GalleryEntry {

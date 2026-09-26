@@ -83,6 +83,7 @@ export const api = {
       { device: string; x: number; y: number; w: number; h: number; primary: boolean }[]
     >("monitors"),
 
+  checkForUpdate: () => invoke<string | null>("check_for_update"),
   quit: () => invoke<void>("quit"),
   factoryReset: () => invoke<void>("factory_reset"),
 };

@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -6,9 +7,16 @@ import tailwindcss from "@tailwindcss/vite";
 const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 const host = process.env.TAURI_DEV_HOST;
+// App version from the Tauri config, injected as a compile-time global.
+const appVersion = JSON.parse(
+  readFileSync(r("./src-tauri/tauri.conf.json"), "utf8"),
+).version;
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   resolve: {
     alias: {
       "@": r("./src"),

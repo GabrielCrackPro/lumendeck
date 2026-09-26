@@ -1,11 +1,35 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useStore, bindEvents } from "./store";
 import Shell from "./components/Shell";
+import Onboarding from "./components/Onboarding";
 import { IconRefresh } from "./components/icons";
 import { GLOW_TEXT_DARK } from "@shared/constants";
 
+/**
+ * Boot readiness gates. The splash stays up until ALL of these pass so the
+ * user never sees a half-built interface (empty cards, stale counters):
+ *   1. config + RGB status loaded from the backend
+ *   2. the first RGB frame arrived (engine is actually streaming)
+ *   3. a short beat for lazy tab chunks to warm + the window to settle
+ * If the engine never streams a frame (no OpenRGB, all devices excluded),
+ * gate 2 falls away after a grace period instead of blocking forever.
+ */
+const FIRST_FRAME_GRACE_MS = 4000;
+const MIN_SPLASH_MS = 900; // avoids a jarring flash of the splash
+
+type Stage = 0 | 1 | 2 | 3;
+const STAGE_LABEL: Record<Stage, string> = {
+  0: "connecting to the engine",
+  1: "reading your setup",
+  2: "waking the lights",
+  3: "polishing the glass",
+};
+
 export default function App() {
   const { cfg, loaded, loadError, load } = useStore();
+  // Splash holds until `ready`; `stage` drives the splash's progress copy.
+  const [stage, setStage] = useState<Stage>(0);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     load();
@@ -14,6 +38,28 @@ export default function App() {
       unbind.then((f) => f());
     };
   }, [load]);
+
+  // Stage machine: advance as real readiness signals arrive.
+  useEffect(() => {
+    if (stage === 0 && loaded) setStage(1);
+    // Gate 2's grace: don't wait forever for a first frame.
+    const t = window.setTimeout(() => setStage((s) => Math.max(s, 2) as Stage), FIRST_FRAME_GRACE_MS);
+    return () => window.clearTimeout(t);
+  }, [loaded, stage]);
+
+  useEffect(() => {
+    if (stage < 2) return;
+    const t = window.setTimeout(() => setStage(3), 350);
+    return () => window.clearTimeout(t);
+  }, [stage]);
+
+  useEffect(() => {
+    if (stage < 3) return;
+    const elapsed = performance.now();
+    const wait = Math.max(0, MIN_SPLASH_MS - elapsed);
+    const t = window.setTimeout(() => setReady(true), wait);
+    return () => window.clearTimeout(t);
+  }, [stage]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -29,24 +75,30 @@ export default function App() {
     root.classList.toggle("dark", theme !== "light");
   }, [cfg?.general.theme]);
 
-  if (!loaded) {
-    return <Splash />;
-  }
-
   if (loadError) {
     return <LoadError error={loadError} onRetry={() => load()} />;
+  }
+
+  if (!ready) {
+    return <Splash stage={stage} />;
+  }
+
+  if (cfg && !cfg.general.onboarded) {
+    return <Onboarding onDone={() => window.location.reload()} />;
   }
 
   return <Shell />;
 }
 
-/** Boot splash: the LumenDeck LED mark, softly breathing. */
-function Splash() {
+/** Boot splash: the LumenDeck LED mark with live staging readout. */
+function Splash({ stage }: { stage: Stage }) {
+  const steps = [0, 1, 2, 3];
+  const pct = ((stage + 1) / 4) * 100;
   return (
     <div className="grain relative flex h-screen items-center justify-center overflow-hidden">
       <div className="aura" />
-      <div className="relative z-10 flex flex-col items-center gap-6">
-        <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-3xl border border-[rgb(var(--glow)/0.45)] shadow-[0_0_40px_-4px_rgb(var(--glow)/0.8)]">
+      <div className="relative z-10 flex flex-col items-center gap-7">
+        <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-[1.4rem] border border-[rgb(var(--glow)/0.45)] shadow-[0_0_50px_-4px_rgb(var(--glow)/0.8)]">
           <div
             className="absolute inset-0"
             style={{
@@ -57,14 +109,28 @@ function Splash() {
           <div className="relative h-3 w-3 animate-[lbreath_2.4s_ease-in-out_infinite] rounded-full bg-white shadow-[0_0_16px_4px_rgb(var(--glow))]" />
         </div>
         <div className="flex flex-col items-center">
-          <div className="lednum text-lg tracking-[0.14em] text-[var(--text)]">LUMEN DECK</div>
-          <div className="kicker mt-1">igniting light engine</div>
+          <div className="lednum text-xl tracking-[0.16em] text-[var(--text)]">LUMEN&nbsp;DECK</div>
+          <div className="kicker mt-1.5 h-4 transition-all" key={stage}>
+            {STAGE_LABEL[stage]}
+          </div>
         </div>
-        <div className="h-[3px] w-36 overflow-hidden rounded-full bg-[var(--line-strong)]">
-          <div className="h-full w-1/2 animate-[loadingbar_1.1s_ease-in-out_infinite] rounded-full bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow))]" />
+        {/* segmented progress: one block per readiness stage */}
+        <div className="flex gap-1.5">
+          {steps.map((s) => (
+            <span
+              key={s}
+              className={`h-1 w-10 rounded-full transition-all duration-500 ${
+                s <= stage
+                  ? "bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow))]"
+                  : "bg-[var(--line-strong)]"
+              }`}
+            />
+          ))}
+        </div>
+        <div className="font-mono text-[10px] tabular-nums text-[var(--text-faint)]">
+          {pct.toFixed(0)}%
         </div>
       </div>
-      <style>{`@keyframes loadingbar{0%{transform:translateX(-110%)}100%{transform:translateX(320%)}}`}</style>
     </div>
   );
 }

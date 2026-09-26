@@ -919,6 +919,57 @@ pub fn is_paused() -> bool {
 
 // ---------- Misc ----------
 
+/// Probe the public GitHub releases for a version newer than ours. Best-effort:
+/// any network/parse failure returns Ok(None) ("can't check"), never an error —
+/// the UI treats that as "up to date" and stays quiet.
+#[tauri::command]
+pub async fn check_for_update() -> Result<Option<String>, String> {
+    const RELEASES_URL: &str = "https://api.github.com/repos/lumendeck/lumendeck/releases/latest";
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get(RELEASES_URL)
+        .header("User-Agent", "LumenDeck")
+        .send()
+        .await;
+    let Ok(resp) = resp else {
+        return Ok(None);
+    };
+    if !resp.status().is_success() {
+        return Ok(None);
+    }
+    #[derive(serde::Deserialize)]
+    struct Release {
+        tag_name: String,
+    }
+    let Ok(rel) = resp.json::<Release>().await else {
+        return Ok(None);
+    };
+    let latest = rel.tag_name.trim_start_matches('v').to_string();
+    let current = env!("CARGO_PKG_VERSION");
+    let newer = version_newer(&latest, current);
+    Ok(newer.then_some(latest))
+}
+
+/// Semantic-ish comparison: split on dots, numeric segments.
+fn version_newer(candidate: &str, current: &str) -> bool {
+    let parse = |s: &str| -> Vec<u64> {
+        s.split('.')
+            .map(|p| p.trim().parse().unwrap_or(0))
+            .collect()
+    };
+    let (a, b) = (parse(candidate), parse(current));
+    for i in 0..a.len().max(b.len()) {
+        let (x, y) = (a.get(i).copied().unwrap_or(0), b.get(i).copied().unwrap_or(0));
+        if x != y {
+            return x > y;
+        }
+    }
+    false
+}
+
 /// The active wallpaper webview pushes a real decoded frame here (JPEG,
 /// captured from its presentation canvas). Installed as the static fallback
 /// AND the Windows desktop/lock-screen background — always a genuine frame

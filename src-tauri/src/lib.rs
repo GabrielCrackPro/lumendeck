@@ -328,6 +328,7 @@ pub fn run() {
             ipc::update_sticker,
             ipc::remove_sticker,
             ipc::is_paused,
+            ipc::check_for_update,
             ipc::set_live_frame,
             ipc::monitors,
             ipc::quit,

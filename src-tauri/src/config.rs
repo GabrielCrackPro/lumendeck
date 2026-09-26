@@ -36,6 +36,9 @@ pub struct GeneralConfig {
     /// Apply wallpaper changes to the Windows lock screen too (off by
     /// default: some users prefer keeping a personal lock image).
     pub lock_screen_follows_wallpaper: bool,
+    /// First-run onboarding wizard has been completed. False on fresh
+    /// installs; the dashboard shows a guided setup until it's done.
+    pub onboarded: bool,
 }
 
 impl Default for GeneralConfig {
@@ -54,6 +57,7 @@ impl Default for GeneralConfig {
             accent_sync_enabled: false,
             accent_sync_armed: false,
             lock_screen_follows_wallpaper: false,
+            onboarded: false,
         }
     }
 }

@@ -14,6 +14,7 @@ export const EVENTS = {
   EDITOR_MOUSE: "sticker-editor-mouse",
   EDITOR_STATE: "sticker-editor",
   RGB_STATUS: "rgb-status",
+  WALLPAPER_COLOR: "wallpaper-color",
   RGB_FRAME: "rgb-frame",
   AUDIO_LEVEL: "audio-level",
   WALLPAUSE: "wallpaper-pause",

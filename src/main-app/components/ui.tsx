@@ -57,9 +57,13 @@ export function Card({
       <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
       <div className="relative p-5">
         <header className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="truncate text-[13px] font-semibold tracking-tight text-[var(--text)]">
-            {title}
-          </h2>
+          <div className="flex min-w-0 items-center gap-2.5">
+            {/* quiet color key: ties the card to the live accent */}
+            <span className="h-3.5 w-[3px] shrink-0 rounded-full bg-[rgb(var(--glow))] opacity-70 shadow-[0_0_6px_rgb(var(--glow)/0.8)]" />
+            <h2 className="truncate text-[13px] font-semibold tracking-tight text-[var(--text)]">
+              {title}
+            </h2>
+          </div>
           {right}
         </header>
         {children}
@@ -321,11 +325,13 @@ export function Btn({
   children,
   onClick,
   variant = "default",
+  size = "md",
   disabled,
 }: {
   children: ReactNode;
   onClick?: () => void;
   variant?: "default" | "primary" | "danger" | "ghost";
+  size?: "md" | "sm";
   disabled?: boolean;
 }) {
   const styles = {
@@ -336,11 +342,15 @@ export function Btn({
       "border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:shadow-[0_8px_24px_-10px_rgba(239,68,68,0.5)]",
     ghost: "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]",
   }[variant];
+  const sizing =
+    size === "sm"
+      ? "rounded-lg px-2.5 py-1.5 text-xs"
+      : "rounded-xl px-4 py-2.5 text-sm";
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex select-none items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${styles}`}
+      className={`inline-flex select-none items-center gap-2 font-semibold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${sizing} ${styles}`}
     >
       {children}
     </button>
