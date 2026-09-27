@@ -104,6 +104,5 @@
   "tag_prefix": "v",
   "template": "#{{CHANGELOG}}\n\n**Full changelog:** https://github.com/GabrielCrackPro/lumendeck/compare/#{{FROM_TAG}}...#{{TO_TAG}}",
   "pr_template": "- #{{TITLE}} (#{{MERGED_AT}})",
-  "empty_template": "- No notable changes.",
-  "mode": "COMMIT"
+  "empty_template": "- No notable changes."
 }
