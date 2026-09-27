@@ -86,17 +86,27 @@ jobs:
             Where-Object { -not $_.isDraft -and -not $_.isPrerelease } |
             Sort-Object { [version]($_.tagName.TrimStart('v')) } -Descending |
             Select-Object -First 1
+          $releaseVersion = $appVersion
           if ($latest) {
             $latestVersion = [version]($latest.tagName.TrimStart('v'))
-            if ($appVersion -le $latestVersion) {
-              Write-Host "Version $appVersion is not newer than the latest release $($latest.tagName); skipping release."
+            $latestCommit = gh api "repos/$env:GITHUB_REPOSITORY/commits/$($latest.tagName)" --jq .sha
+            if ($LASTEXITCODE -eq 0 -and $latestCommit -eq $env:CI_HEAD_SHA) {
+              Write-Host "Commit $env:CI_HEAD_SHA is already released as $($latest.tagName); skipping duplicate release."
               "should_release=false" >> $env:GITHUB_OUTPUT
               exit 0
             }
+            if ($releaseVersion -le $latestVersion) {
+              $releaseVersion = [version]::new($latestVersion.Major, $latestVersion.Minor, $latestVersion.Build + 1)
+            }
           }
-          "version=$appVersion" >> $env:GITHUB_OUTPUT
+          $releaseVersion = $releaseVersion.ToString(3)
+          node scripts/set-release-version.mjs $releaseVersion
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not prepare release version $releaseVersion."
+          }
+          "version=$releaseVersion" >> $env:GITHUB_OUTPUT
           "should_release=true" >> $env:GITHUB_OUTPUT
-          Write-Host "Preparing release v$appVersion."
+          Write-Host "Preparing release v$releaseVersion from $env:CI_HEAD_SHA."
 
       # Cache the pnpm store via its own dir; setup-node's cache: pnpm fails
       # on a fresh checkout because `pnpm store path` errors before install.

@@ -103,12 +103,14 @@ Prerequisites: Node 20+, pnpm 10, Rust (MSVC toolchain), WebView2 (preinstalled 
 Windows 11), and [OpenRGB](https://openrgb.org) with its SDK server enabled for RGB sync.
 
 CI runs `tsc`, `vitest`, Rust tests, and a version consistency check on every push/PR.
-After CI succeeds on `main`, GitHub Actions publishes a signed NSIS release whenever
-the app version is newer than the latest published release. Bump the version in
-`package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` together; the
-pre-commit hook and CI reject mismatched values. `pnpm install` configures the local
-`.githooks` automatically. To retry or start a release manually, use **Actions → Release
-→ Run workflow** on `main`; the selected commit must already have a successful CI run.
+After each successful push to `main`, GitHub Actions publishes a signed NSIS release.
+It uses an explicit version bump when present; otherwise it increments the patch from
+the latest release. The generated release version is applied only in the CI workspace,
+so publishing does not create a bot commit on `main`. Keep `package.json`,
+`src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`
+synchronized; the pre-commit hook and CI reject mismatches. `pnpm install` configures
+the local `.githooks` automatically. To retry or start a release manually, use
+**Actions → Release → Run workflow** on `main`; that commit must already have successful CI.
 
 ### Signed in-app updates
 
@@ -124,8 +126,8 @@ pnpm tauri signer generate -w "$env:USERPROFILE\.tauri\lumendeck.key"
 Set the generated public key as `plugins.updater.pubkey` in
 `src-tauri/tauri.conf.json`. Add the private key file contents to the GitHub Actions
 secret `TAURI_SIGNING_PRIVATE_KEY`; if the key has a password, add it as
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Successful version bumps on `main` publish the
-signed NSIS installer, its signature, and `latest.json`. Never commit or share the private key.
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Successful pushes to `main` publish the signed NSIS
+installer, its signature, and `latest.json`. Never commit or share the private key.
 
 The updater signature verifies update packages; it is separate from Windows
 Authenticode signing and does not by itself remove SmartScreen publisher warnings.
