@@ -102,8 +102,12 @@ pnpm app:build    # NSIS installer in src-tauri/target/release/bundle/
 Prerequisites: Node 20+, pnpm 10, Rust (MSVC toolchain), WebView2 (preinstalled on
 Windows 11), and [OpenRGB](https://openrgb.org) with its SDK server enabled for RGB sync.
 
-CI runs `tsc`, `vitest`, and `cargo test` on every push/PR; tagging `vX.Y.Z` builds the
-NSIS installer and attaches it to a GitHub release.
+CI runs `tsc`, `vitest`, Rust tests, and a version consistency check on every push/PR.
+After CI succeeds on `main`, GitHub Actions publishes a signed NSIS release whenever
+the app version is newer than the latest published release. Bump the version in
+`package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` together; the
+pre-commit hook and CI reject mismatched values. `pnpm install` configures the local
+`.githooks` automatically.
 
 ### Signed in-app updates
 
@@ -119,8 +123,8 @@ pnpm tauri signer generate -w "$env:USERPROFILE\.tauri\lumendeck.key"
 Set the generated public key as `plugins.updater.pubkey` in
 `src-tauri/tauri.conf.json`. Add the private key file contents to the GitHub Actions
 secret `TAURI_SIGNING_PRIVATE_KEY`; if the key has a password, add it as
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Releases tagged `vX.Y.Z` then publish the signed
-NSIS installer, its signature, and `latest.json`. Never commit or share the private key.
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Successful version bumps on `main` publish the
+signed NSIS installer, its signature, and `latest.json`. Never commit or share the private key.
 
 The updater signature verifies update packages; it is separate from Windows
 Authenticode signing and does not by itself remove SmartScreen publisher warnings.

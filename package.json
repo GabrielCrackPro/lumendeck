@@ -1,7 +1,7 @@
 {
   "name": "lumendeck",
   "private": true,
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Wallpaper-driven RGB lighting, live wallpapers and screen stickers for Windows.",
   "type": "module",
   "scripts": {
@@ -9,11 +9,13 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "check:versions": "node scripts/check-versions.mjs",
     "test": "vitest run",
     "icons": "node scripts/gen-icons.mjs",
     "tauri": "tauri",
     "app:dev": "tauri dev",
-    "app:build": "tauri build"
+    "app:build": "tauri build",
+    "prepare": "node scripts/install-git-hooks.mjs"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.3.0",

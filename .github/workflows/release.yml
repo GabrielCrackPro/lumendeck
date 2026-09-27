@@ -1,18 +1,31 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: write
+  actions: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
 
 jobs:
   build-windows:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
@@ -22,10 +35,54 @@ jobs:
         with:
           node-version: 22
 
+      - name: Check whether this version needs a release
+        id: version
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          node scripts/check-versions.mjs
+          if ($LASTEXITCODE -ne 0) {
+            throw "App version manifests are not synchronized."
+          }
+          $mainHead = gh api "repos/$env:GITHUB_REPOSITORY/commits/main" --jq .sha
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not determine the current main commit."
+          }
+          if ($mainHead -ne $env:CI_HEAD_SHA) {
+            Write-Host "CI passed for a stale main commit; the latest main commit will handle the release."
+            "should_release=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $appVersion = [version]$config.version
+          $releaseJson = gh release list --limit 100 --json tagName,isDraft,isPrerelease | Out-String
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not query published GitHub releases."
+          }
+          $releases = ConvertFrom-Json -InputObject $releaseJson
+          $latest = $releases |
+            Where-Object { -not $_.isDraft -and -not $_.isPrerelease } |
+            Sort-Object { [version]($_.tagName.TrimStart('v')) } -Descending |
+            Select-Object -First 1
+          if ($latest) {
+            $latestVersion = [version]($latest.tagName.TrimStart('v'))
+            if ($appVersion -le $latestVersion) {
+              Write-Host "Version $appVersion is not newer than the latest release $($latest.tagName); skipping release."
+              "should_release=false" >> $env:GITHUB_OUTPUT
+              exit 0
+            }
+          }
+          "version=$appVersion" >> $env:GITHUB_OUTPUT
+          "should_release=true" >> $env:GITHUB_OUTPUT
+          Write-Host "Preparing release v$appVersion."
+
       # Cache the pnpm store via its own dir; setup-node's cache: pnpm fails
       # on a fresh checkout because `pnpm store path` errors before install.
       - name: Get pnpm store directory
         id: pnpm-cache
+        if: steps.version.outputs.should_release == 'true'
         shell: bash
         run: |
           STORE_DIR="$(pnpm store path 2>/dev/null | tail -n 1)"
@@ -33,6 +90,7 @@ jobs:
           echo "store dir: $STORE_DIR"
 
       - uses: actions/cache@v4
+        if: steps.version.outputs.should_release == 'true'
         with:
           path: ${{ steps.pnpm-cache.outputs.dir }}
           key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -40,18 +98,22 @@ jobs:
             pnpm-store-${{ runner.os }}-
 
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.version.outputs.should_release == 'true'
 
       - uses: swatinem/rust-cache@v2
+        if: steps.version.outputs.should_release == 'true'
         with:
           workspaces: src-tauri
 
       - name: Install frontend dependencies
+        if: steps.version.outputs.should_release == 'true'
         run: pnpm install --frozen-lockfile
 
       # Generate release notes from commits since the previous release tag.
       # Conventional-commit prefixes map to user-readable section labels
       # (see .github/changelog-config.json).
       - name: Build changelog
+        if: steps.version.outputs.should_release == 'true'
         id: changelog
         uses: mikepenz/release-changelog-builder-action@v5
         with:
@@ -62,6 +124,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate updater signing configuration
+        if: steps.version.outputs.should_release == 'true'
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -79,14 +142,15 @@ jobs:
           }
 
       - name: Build Tauri app (NSIS)
+        if: steps.version.outputs.should_release == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "LumenDeck ${{ github.ref_name }}"
+          tagName: v${{ steps.version.outputs.version }}
+          releaseName: "LumenDeck v${{ steps.version.outputs.version }}"
           releaseBody: ${{ steps.changelog.outputs.changelog }}
           releaseDraft: false
           prerelease: false
