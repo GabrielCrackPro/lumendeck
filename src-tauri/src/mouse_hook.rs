@@ -42,6 +42,15 @@ pub enum ClickResult {
     Cancel,
 }
 
+/// ESC pressed while an interactive session (placement/editor) is active.
+/// The keyboard hook sets this; the editor forwarder drains it.
+pub static ESC_PRESSED: AtomicBool = AtomicBool::new(false);
+
+/// True when the last keyboard event was Escape with no other key held.
+fn is_escape(vk: u32) -> bool {
+    vk == 0x1B // VK_ESCAPE
+}
+
 /// Arm the hook. The next left click resolves the pending waiter with
 /// `Place`; a right click resolves it with `Cancel`.
 pub fn arm() {
@@ -200,13 +209,26 @@ unsafe extern "system" fn hook_proc(
                 });
             }
             // Swallow button events while editing so clicks don't reach desktop
-            // icons/windows underneath. Moves always pass. (If this process
-            // dies, Windows removes the hook automatically — no lock-out.)
+            // icons/windows underneath — EXCEPT clicks over LumenDeck's own
+            // windows (the dashboard's "Done" button must stay clickable).
+            // Moves always pass. (If this process dies, Windows removes the
+            // hook automatically — no lock-out.)
             if msg == WM_LBUTTONDOWN
                 || msg == WM_LBUTTONUP
                 || msg == WM_RBUTTONDOWN
                 || msg == WM_RBUTTONUP
             {
+                if crate::win32::point_over_own_window(info.pt.x, info.pt.y) {
+                    // Let our own UI receive the click normally. Also reset
+                    // tracked button state so the editor doesn't think a drag
+                    // is in progress when the click was on the dashboard.
+                    if msg == WM_LBUTTONDOWN {
+                        L_DOWN.store(false, Ordering::Relaxed);
+                    } else if msg == WM_RBUTTONDOWN {
+                        R_DOWN.store(false, Ordering::Relaxed);
+                    }
+                    return CallNextHookEx(None, code, wparam, lparam);
+                }
                 return LRESULT(1);
             }
         }
@@ -282,9 +304,27 @@ unsafe extern "system" fn keyboard_hook_proc(
     lparam: windows::Win32::Foundation::LPARAM,
 ) -> windows::Win32::Foundation::LRESULT {
     use windows::Win32::UI::WindowsAndMessaging::CallNextHookEx;
+    use windows::Win32::UI::WindowsAndMessaging::{WM_KEYDOWN, WM_SYSKEYDOWN};
 
     if code >= 0 {
         touch_input();
+        // Interactive sessions end on ESC (same convention as Wallpaper
+        // Engine / Lively use for their placement flows). Observed, never
+        // swallowed — the focused app gets its normal ESC handling too.
+        let msg = wparam.0 as u32;
+        if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+            && (editor_mode_on() || ARMED.load(Ordering::SeqCst))
+        {
+            let kbd = &*(lparam.0 as *const windows::Win32::UI::WindowsAndMessaging::KBDLLHOOKSTRUCT);
+            if is_escape(kbd.vkCode) {
+                ESC_PRESSED.store(true, Ordering::SeqCst);
+                if ARMED.load(Ordering::SeqCst) {
+                    ARMED.store(false, Ordering::SeqCst);
+                    log::info!("[keyboard-hook] placement cancelled (ESC)");
+                    fire(ClickResult::Cancel);
+                }
+            }
+        }
     }
     CallNextHookEx(None, code, wparam, lparam)
 }

@@ -123,6 +123,24 @@ impl EngineState {
     }
 }
 
+/// Brightness cap (0..1) when the local time is inside the configured night
+/// window, else None. Handles windows that wrap midnight (e.g. 22:00-07:00).
+pub fn night_cap(cfg: &RgbConfig) -> Option<f64> {
+    let (start, end) = (cfg.night_start.trim(), cfg.night_end.trim());
+    if start.is_empty() || end.is_empty() {
+        return None;
+    }
+    let parse = |s: &str| -> Option<u32> {
+        let (h, m) = s.split_once(':')?;
+        let h: u32 = h.trim().parse().ok()?;
+        let m: u32 = m.trim().parse().ok()?;
+        if h > 23 || m > 59 { None } else { Some(h * 60 + m) }
+    };
+    let (s, e, now) = (parse(start)?, parse(end)?, crate::win32::local_time_minutes()?);
+    let inside = if s <= e { now >= s && now < e } else { now >= s || now < e };
+    inside.then(|| cfg.night_brightness.clamp(0.0, 1.0))
+}
+
 /// Compute the target color for one device from config + latest samples.
 /// Reactive modes only — animation modes own the frame generator instead.
 pub fn target_color_for_device(device_id: u32, cfg: &RgbConfig, samples: &[ZoneSample]) -> Option<[u8; 3]> {
@@ -376,7 +394,12 @@ async fn engine_loop(
             _ = ticker.tick() => {}
         }
 
-        let cfg: RgbConfig = cfg_rx.borrow_and_update().rgb.clone();
+        let mut cfg: RgbConfig = cfg_rx.borrow_and_update().rgb.clone();
+        // Night dimming: cap brightness inside the scheduled window. Applied
+        // here so every mode (reactive + animation) is affected uniformly.
+        if let Some(cap) = night_cap(&cfg) {
+            cfg.mixer.brightness = cfg.mixer.brightness.min(cap);
+        }
 
         // Expire samples from displays that stopped pushing (3s of silence).
         if !latest.is_empty() {
@@ -910,5 +933,33 @@ mod tests {
         let b = s.step(1, [255, 255, 255], 0.0);
         assert_eq!(a, [0, 0, 0]);
         assert!(b[0] > 200, "smoothing 0 should move most of the way: {b:?}");
+    }
+
+    fn night_cfg(start: &str, end: &str, cap: f64) -> RgbConfig {
+        RgbConfig {
+            night_start: start.into(),
+            night_end: end.into(),
+            night_brightness: cap,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn night_cap_disabled_when_unset() {
+        assert_eq!(night_cap(&night_cfg("", "07:00", 0.3)), None);
+        assert_eq!(night_cap(&night_cfg("22:00", "", 0.3)), None);
+    }
+
+    #[test]
+    fn night_cap_invalid_times_disabled() {
+        assert_eq!(night_cap(&night_cfg("25:00", "07:00", 0.3)), None);
+        assert_eq!(night_cap(&night_cfg("22:00", "7am", 0.3)), None);
+    }
+
+    #[test]
+    fn night_cap_clamped() {
+        // Cap out of range is clamped into 0..1 whatever the window says.
+        let c = night_cap(&night_cfg("00:00", "23:59", 4.0));
+        assert!(matches!(c, Some(v) if (v - 1.0).abs() < f64::EPSILON));
     }
 }

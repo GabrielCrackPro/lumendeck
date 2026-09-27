@@ -39,6 +39,9 @@ pub struct GeneralConfig {
     /// First-run onboarding wizard has been completed. False on fresh
     /// installs; the dashboard shows a guided setup until it's done.
     pub onboarded: bool,
+    /// AMOLED mode: true-black surfaces in dark theme (pixels fully off on
+    /// OLED panels). Ignored in light theme.
+    pub amoled: bool,
 }
 
 impl Default for GeneralConfig {
@@ -58,6 +61,7 @@ impl Default for GeneralConfig {
             accent_sync_armed: false,
             lock_screen_follows_wallpaper: false,
             onboarded: false,
+            amoled: false,
         }
     }
 }
@@ -242,6 +246,13 @@ pub struct RgbConfig {
     pub cycle_spread: f64,
     /// Named lighting profiles: snapshot of mode/color/speed for quick switching.
     pub profiles: Vec<RgbProfile>,
+    /// Night dimming: between `night_start` and `night_end` (local "hh:mm",
+    /// may wrap midnight), device brightness is capped at `night_brightness`
+    /// (0..1). Empty strings = disabled.
+    pub night_start: String,
+    pub night_end: String,
+    /// Brightness cap during the night window (0..1).
+    pub night_brightness: f64,
 }
 
 /// A named lighting profile bundling the most-tweaked RGB knobs.
@@ -276,6 +287,9 @@ impl Default for RgbConfig {
             wave_direction: 1,
             cycle_spread: 360.0,
             profiles: Vec::new(),
+            night_start: String::new(),
+            night_end: String::new(),
+            night_brightness: 0.3,
         }
     }
 }
@@ -360,12 +374,16 @@ impl Default for StickerSnap {
 pub struct StickerConfig {
     /// Remove flat background at placement time (transparent PNG/APNG).
     pub remove_background: bool,
+    /// Mirror every wallpaper-layer sticker onto all monitors instead of
+    /// showing it only at its placed virtual-screen position.
+    pub all_monitors: bool,
 }
 
 impl Default for StickerConfig {
     fn default() -> Self {
         Self {
             remove_background: true,
+            all_monitors: true,
         }
     }
 }

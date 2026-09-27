@@ -36,13 +36,16 @@ interface WallpaperInfo {
   monitors: { device: string; x: number; y: number; w: number; h: number; primary: boolean }[];
   /** Snap behavior for the sticker editor. */
   snap: Config["stickerSnap"];
+  /** Mirror wallpaper-layer stickers on every monitor. */
+  stickerAllMonitors: boolean;
 }
 
 type VideoFit = "cover" | "contain" | "fill" | "auto";
 
 /** Send a diagnostics line to the Rust log. Level maps to the file's
- * severity (info/warn/error) so grepping for ERROR finds real problems. */
-function logLine(msg: string, level: "info" | "warn" | "error" = "info") {
+ * severity (info/warn/error/debug) so grepping for ERROR finds real problems.
+ * "debug" lines are hidden at the default log level. */
+function logLine(msg: string, level: "info" | "warn" | "error" | "debug" = "info") {
   invoke("log_frontend", { level, msg }).catch(() => {});
 }
 
@@ -161,12 +164,17 @@ function WallpaperRoot() {
     <>
       <MediaStage info={info} zones={zones} />
       {info && !editorOn && (
-        <StickerLayer stickers={info.stickers} monitor={info.monitor} scale={info.scale} />
+        <StickerLayer
+          stickers={info.stickers}
+          monitor={info.monitor}
+          scale={info.scale}
+          allMonitors={info.stickerAllMonitors}
+          monitors={info.monitors}
+        />
       )}
       {info && <StickerEditor info={info} />}
       <PausedBadge />
       <ReloadToast />
-      <PlacingPreview monitor={info?.monitor} scale={info?.scale ?? 1} />
     </>
   );
 }
@@ -382,6 +390,8 @@ function StickerEditor({ info }: { info: WallpaperInfo }) {
         stickers={info.stickers}
         monitor={info.monitor}
         scale={info.scale}
+        allMonitors={false}
+        monitors={info.monitors}
         focusId={focusId ?? undefined}
         focusMode={focusMode}
         overrides={overrideMap}
@@ -433,6 +443,8 @@ function StickerLayer({
   focusId,
   focusMode,
   overrides,
+  allMonitors,
+  monitors,
 }: {
   stickers: StickerDef[];
   monitor: MonitorInfo;
@@ -440,28 +452,56 @@ function StickerLayer({
   focusId?: string;
   focusMode?: Handle | null;
   overrides?: Record<string, { x: number; y: number; w: number; h: number }>;
+  allMonitors: boolean;
+  monitors: MonitorInfo[];
 }) {
   const visible = stickers.filter((s) => s.visible);
   if (visible.length === 0) return null;
   const dpr = scale && scale > 0 ? scale : 1;
   return (
     <div className="pointer-events-none fixed inset-0 z-10 overflow-hidden">
-      {visible.map((s0) => {
+      {visible.flatMap((s0) => {
         const ov = overrides?.[s0.id];
         const s = ov ? { ...s0, ...ov } : s0;
+        // Mirror mode: replicate the sticker at its position relative to the
+        // anchor monitor on EVERY monitor. The anchor is whichever monitor
+        // contains the sticker's placed position; other displays get a copy
+        // at the same relative offset (clamped into their bounds). With the
+        // flag off, only the intersection with the anchor monitor renders.
+        const anchor =
+          monitors.find(
+            (m) => s.x + s.w > m.x && s.y + s.h > m.y && s.x < m.x + m.w && s.y < m.y + m.h,
+          ) ?? monitor;
+        const relX = s.x - anchor.x;
+        const relY = s.y - anchor.y;
+        const targets: { mon: MonitorInfo; sx: number; sy: number; key: string }[] =
+          allMonitors && monitors.length > 1
+            ? monitors.map((m, i) => ({
+                mon: m,
+                sx: m.x + Math.min(Math.max(relX, -(s.w - 48)), Math.max(m.w - 48, 0)),
+                sy: m.y + Math.min(Math.max(relY, -(s.h - 48)), Math.max(m.h - 48, 0)),
+                key: `${s.id}:${i}`,
+              }))
+            : [{ mon: monitor, sx: s.x, sy: s.y, key: s.id }];
+        return targets.map(({ mon, sx, sy, key }) => ({
+          s: { ...s, x: sx, y: sy },
+          mon,
+          key,
+        }));
+      }).map(({ s, mon, key }) => {
         // Config coords are PHYSICAL screen pixels (mouse hook, config files);
         // CSS layout needs logical pixels: divide by the window's scale
         // factor from the backend (authoritative DPI).
-        const left = (s.x - monitor.x) / dpr;
-        const top = (s.y - monitor.y) / dpr;
+        const left = (s.x - mon.x) / dpr;
+        const top = (s.y - mon.y) / dpr;
         const width = s.w / dpr;
         const height = s.h / dpr;
-        // Skip stickers entirely outside this monitor (physical compare).
+        // Skip copies entirely outside this monitor (physical compare).
         if (
-          s.x + s.w <= monitor.x ||
-          s.y + s.h <= monitor.y ||
-          s.x >= monitor.x + monitor.w ||
-          s.y >= monitor.y + monitor.h
+          s.x + s.w <= mon.x ||
+          s.y + s.h <= mon.y ||
+          s.x >= mon.x + mon.w ||
+          s.y >= mon.y + mon.h
         ) {
           return null;
         }
@@ -480,7 +520,7 @@ function StickerLayer({
           }).catch(() => {});
         return (
           <div
-            key={s.id}
+            key={key}
             style={{
               position: "absolute",
               left,
@@ -516,77 +556,6 @@ function StickerLayer({
         );
       })}
     </div>
-  );
-}
-
-/**
- * Placement feedback: while armed, a dashed 220x220 box follows the cursor
- * (live positions streamed from the backend mouse hook) with the actual
- * sticker media inside, plus a hint pill. Coordinates arrive as physical
- * screen px; converted to local logical px like StickerLayer.
- */
-function PlacingPreview({ monitor, scale }: { monitor?: MonitorInfo; scale: number }) {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
-
-  useEffect(() => {
-    const subs = [
-      listen<string | null>(EVENTS.PLACING, (e) => {
-        setPreviewUrl(e.payload);
-        if (!e.payload) setCursor(null);
-      }),
-      listen<[number, number]>(EVENTS.PLACING_CURSOR, (e) => {
-        setCursor({ x: e.payload[0], y: e.payload[1] });
-      }),
-    ];
-    return () => {
-      subs.forEach((s) => s.then((f) => f()).catch(() => {}));
-    };
-  }, []);
-
-  if (!previewUrl) return null;
-  const W = 220;
-  const H = 220;
-  const dpr = scale && scale > 0 ? scale : 1;
-  const mon = monitor ?? { x: 0, y: 0, w: 0, h: 0, device: "", primary: false };
-  // Cursor is in physical screen coords; convert to local logical.
-  const cx = ((cursor?.x ?? mon.x + mon.w / 2) - mon.x) / dpr;
-  const cy = ((cursor?.y ?? mon.y + mon.h / 2) - mon.y) / dpr;
-  const onThisMonitor =
-    !!cursor &&
-    cursor.x >= mon.x &&
-    cursor.x < mon.x + mon.w &&
-    cursor.y >= mon.y &&
-    cursor.y < mon.y + mon.h;
-
-  return (
-    <>
-      {onThisMonitor && (
-        <div
-          className="pointer-events-none absolute flex items-center justify-center overflow-hidden"
-          style={{
-            left: cx - W / (2 * dpr),
-            top: cy - H / (2 * dpr),
-            width: W / dpr,
-            height: H / dpr,
-            border: "2px dashed rgba(56, 189, 248, 0.9)",
-            borderRadius: 10,
-            background: "rgba(56, 189, 248, 0.10)",
-          }}
-        >
-          <img
-            src={previewUrl}
-            alt=""
-            style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-          />
-        </div>
-      )}
-      <div className="pointer-events-none fixed inset-x-0 top-6 flex justify-center">
-        <div className="rounded-full bg-black/70 px-4 py-2 font-sans text-xs text-white ring-1 ring-white/15 backdrop-blur">
-          Click to place the sticker · Right-click to cancel
-        </div>
-      </div>
-    </>
   );
 }
 
@@ -669,50 +638,124 @@ function VideoCanvas({
   fit,
   fx,
   onReady,
+  framePush = true,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   fit: CSSProperties["objectFit"];
   fx?: { speed: number; brightness: number; saturation: number; hue: number };
   onReady: () => void;
+  /** Only the primary monitor's window captures the OS-background frame;
+   * secondary windows render the same source and would push near-identical
+   * (but not byte-identical) JPEGs that defeat the backend's hash dedup. */
+  framePush?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fitRef = useRef(fit);
   fitRef.current = fit;
   const readyRef = useRef(false);
+  // onReady may be a new function identity each parent render (it's an inline
+  // arrow); keeping it in a ref lets the blit effect avoid depending on it.
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  // Live-frame throttle state lives OUTSIDE the blit effect on purpose: the
+  // effect re-runs (and would otherwise reset these) whenever a parent render
+  // hands us a new onReady identity, which happens on every info poll.
+  const pushStateRef = useRef({ pushedForSource: "", lastFramePush: 0 });
+  const framePushRef = useRef(framePush);
+  framePushRef.current = framePush;
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    const video = videoRef.current;
-    if (!canvas || !video) return;
-    const ctx = canvas.getContext("2d");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
     if (!ctx) return;
     let raf = 0;
     let running = true;
     const drewRef = { current: false };
+    const pushState = pushStateRef.current;
     // Last media time blitted: when it hasn't advanced (same frame decoded,
     // or a duplicate rAF tick), skip the fill+draw — repeating an identical
     // 4K blit costs real GPU time and can drop frames on integrated GPUs.
     let lastT = -1;
     let lastW = 0;
     let lastH = 0;
-    let lastFramePush = 0;
-    // The push is keyed to the source: a frame is captured shortly after a
-    // wallpaper change, then never again while the same source plays (the
-    // backend dedupes identical frames anyway — this just saves the encoding).
-    let pushedForSource = "";
+    // Native-fps estimate: the smallest currentTime advance between decoded
+    // frames is one source frame (1/fps). rAF fires at display rate (60–144
+    // Hz); for a 24fps source that's 2–6 redundant full-canvas blits per
+    // frame. Skipping ticks closer together than one source frame (~85% of
+    // the measured interval, to absorb timing jitter) roughly halves the blit
+    // cost for typical anime loops and cuts it ~6x for 24fps on 144Hz panels.
+    let minFrameDelta = 0; // 0 = unknown: blit every tick until measured
+    const frameDeltas: number[] = [];
+    let lastBlitWall = 0;
+    // Dev-only cadence counters: every 10s, log rAF ticks, ticks where media
+    // time advanced (= what an unthrottled loop would blit), and actual blits
+    // (= what this loop blits). The gap between the last two is the savings.
+    let ticks = 0;
+    let advanced = 0;
+    let blits = 0;
+    const measure = import.meta.env.DEV
+      ? window.setInterval(
+          () =>
+            logLine(
+              `blit cadence: raf=${(ticks / 10).toFixed(1)}/s advanced=${(advanced / 10).toFixed(1)}/s blits=${(blits / 10).toFixed(1)}/s saved=${(((advanced - blits) / Math.max(1, advanced)) * 100).toFixed(0)}% cap=${minFrameDelta.toFixed(1)}ms`,
+              "debug",
+            ),
+          10_000,
+        )
+      : 0;
 
-    const draw = () => {
-      if (!running) return;
-      // While paused, freeze on the last drawn frame instead of skipping
-      // entirely: a canvas that was never blitted (pause active at startup,
-      // e.g. on-battery auto-pause) shows as transparent black — an all-black
-      // desktop. Keep blitting until the first successful draw, then stop
-      // redrawing (canvas content persists) to save GPU while paused.
-      if (pausedGlobal && !document.hasFocus() && drewRef.current) {
-        raf = requestAnimationFrame(draw);
-        return;
+    // Cached geometry: reading getBoundingClientRect every frame forces
+    // style/layout recalc and is a classic rAF jank source. Recompute only
+    // when the canvas actually resizes (window/monitor changes).
+    let pw = 0;
+    let ph = 0;
+    let coversAll = false; // blit fills the whole canvas (no letterbox)
+    const syncGeometry = () => {
+      const rect = canvas.getBoundingClientRect();
+      // Cap the backing resolution at 1080p-height equivalent when the
+      // display is very dense: a 4K blit at 60fps costs real GPU time and
+      // the visual difference behind desktop icons is imperceptible.
+      const dpr = Math.min(window.devicePixelRatio || 1, Math.max(1, 2160 / Math.max(1, rect.height)));
+      pw = Math.max(1, Math.round(rect.width * dpr));
+      ph = Math.max(1, Math.round(rect.height * dpr));
+      if (canvas.width !== pw || canvas.height !== ph) {
+        canvas.width = pw;
+        canvas.height = ph;
       }
+    };
+    const ro = new ResizeObserver(() => syncGeometry());
+    ro.observe(canvas);
+    syncGeometry();
+
+    const blit = () => {
+      // Re-read on every tick: the <video> element can be remounted under us
+      // (decode-error retry recreates it via videoEpoch) — a video captured
+      // once at effect start would leave the canvas frozen on a dead element.
+      const video = videoRef.current;
+      if (!video) return;
       const t = video.currentTime;
+      // Native-fps throttle: media-time deltas between consecutive renders
+      // are noisy, so we estimate the frame interval as the median of recent
+      // deltas (clamped to 8–240fps plausibility) rather than the minimum.
+      const nowWall = performance.now();
+      const tAdvanced = t !== lastT;
+      if (tAdvanced) advanced++;
+      ticks++;
+      // Record the media-time delta between consecutive rendered frames to
+      // refine the interval estimate (clamped to 8–240fps plausibility).
+      if (t !== lastT && lastT >= 0 && t > lastT) {
+        const d = t - lastT;
+        if (d >= 1 / 240 && d <= 1 / 8) {
+          frameDeltas.push(d);
+          if (frameDeltas.length > 20) frameDeltas.shift();
+          if (frameDeltas.length >= 5) {
+            const sorted = [...frameDeltas].sort((a, b) => a - b);
+            const mid = sorted[Math.floor(sorted.length / 2)] ?? sorted[0];
+            if (mid !== undefined) minFrameDelta = mid * 1000;
+          }
+        }
+      }
       const vw = video.videoWidth;
       const vh = video.videoHeight;
       if (
@@ -723,80 +766,103 @@ function VideoCanvas({
         video.readyState >= 2 &&
         !video.seeking
       ) {
-        // Frame unchanged: skip repaint, canvas keeps showing the last blit.
-        raf = requestAnimationFrame(draw);
+        return; // frame unchanged: canvas keeps showing the last blit
+      }
+      // Native-fps throttle: this tick's media time advanced, but if the last
+      // blit was less than one source frame ago the presentation would either
+      // duplicate the same decoded frame or tear. Wait for the next tick.
+      if (tAdvanced && minFrameDelta > 0 && nowWall - lastBlitWall < minFrameDelta * 0.85) {
         return;
       }
       lastT = t;
       lastW = vw;
       lastH = vh;
-      const rect = canvas.getBoundingClientRect();
-      // Cap the backing resolution at 1080p-height equivalent when the
-      // display is very dense: a 4K blit at 60fps costs real GPU time and
-      // the visual difference behind desktop icons is imperceptible.
-      const dpr = Math.min(window.devicePixelRatio || 1, Math.max(1, 2160 / Math.max(1, rect.height)));
-      const pw = Math.max(1, Math.round(rect.width * dpr));
-      const ph = Math.max(1, Math.round(rect.height * dpr));
-      if (canvas.width !== pw || canvas.height !== ph) {
-        canvas.width = pw;
-        canvas.height = ph;
+      lastBlitWall = nowWall;
+      blits++;
+      if (!readyRef.current) {
+        readyRef.current = true;
+        onReadyRef.current();
       }
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, pw, ph);
-      if (vw > 0 && vh > 0 && video.readyState >= 2) {
-        if (!readyRef.current) {
-          readyRef.current = true;
-          onReady();
-        }
-        drewRef.current = true;
-        const isCover = fitRef.current === "cover";
-        const isFill = fitRef.current === "fill";
-        const scale = isFill || isCover
-          ? Math.max(pw / vw, ph / vh)
-          : Math.min(pw / vw, ph / vh); // contain (letterbox)
-        const dw = isFill ? pw : vw * scale;
-        const dh = isFill ? ph : vh * scale;
-        const dx = (pw - dw) / 2;
-        const dy = (ph - dh) / 2;
-        ctx.drawImage(video, dx, dy, dw, dh);
-        // Push a real captured frame to the backend as the Windows desktop /
-        // lock-screen background and decode-failure fallback — once per
-        // source change (after a short settle delay so it's a mid-loop frame,
-        // not the first), plus at most every 30 minutes for the same source.
-        const now = Date.now();
-        const src = videoRef.current?.src ?? "";
-        const sourceChanged = pushedForSource !== src;
-        const dueForRefresh = now - lastFramePush > 30 * 60_000;
-        const settleWait = lastFramePush !== 0 && now < lastFramePush + 4_000;
-        if ((sourceChanged && !settleWait) || dueForRefresh) {
-          pushedForSource = src;
-          lastFramePush = now;
-          canvas.toBlob(
-            (blob) => {
-              if (!blob) return;
-              blob
-                .arrayBuffer()
-                .then((buf) =>
-                  invoke("set_live_frame", {
-                    frame: Array.from(new Uint8Array(buf)),
-                    source: src,
-                  }),
-                )
-                .catch(() => {});
-            },
-            "image/jpeg",
-            0.85,
-          );
-        }
+      drewRef.current = true;
+      const isCover = fitRef.current === "cover";
+      const isFill = fitRef.current === "fill";
+      const scale = isFill || isCover
+        ? Math.max(pw / vw, ph / vh)
+        : Math.min(pw / vw, ph / vh); // contain (letterbox)
+      const dw = isFill ? pw : vw * scale;
+      const dh = isFill ? ph : vh * scale;
+      const dx = (pw - dw) / 2;
+      const dy = (ph - dh) / 2;
+      // Skip the clear when the frame fully covers the canvas (cover/fill at
+      // or beyond canvas size): a full clear + full redraw is one extra
+      // fill pass over 8M+ pixels per frame for zero visual change.
+      coversAll = dx <= 0.5 && dy <= 0.5 && dw >= pw - 1 && dh >= ph - 1;
+      if (!coversAll) {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, pw, ph);
       }
-      raf = requestAnimationFrame(draw);
+      ctx.drawImage(video, dx, dy, dw, dh);
+
+      // Push a real captured frame to the backend as the Windows desktop /
+      // lock-screen background and decode-failure fallback — once per
+      // source change (after a short settle delay so it's a mid-loop frame,
+      // not the first), plus at most every 30 minutes for the same source.
+      if (!framePushRef.current) return;
+      const now = Date.now();
+      const src = video.src;
+      const sourceChanged = pushState.pushedForSource !== src;
+      const dueForRefresh = now - pushState.lastFramePush > 30 * 60_000;
+      const settleWait =
+        pushState.lastFramePush !== 0 && now < pushState.lastFramePush + 4_000;
+      if ((sourceChanged && !settleWait) || dueForRefresh) {
+        pushState.pushedForSource = src;
+        pushState.lastFramePush = now;
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) return;
+            blob
+              .arrayBuffer()
+              .then((buf) =>
+                invoke("set_live_frame", {
+                  frame: Array.from(new Uint8Array(buf)),
+                  source: src,
+                }),
+              )
+              .catch(() => {});
+          },
+          "image/jpeg",
+          0.85,
+        );
+      }
     };
-    raf = requestAnimationFrame(draw);
+
+    // Frame-cadence: rAF loop. (requestVideoFrameCallback was tried here,
+    // but its handle is bound to the <video> element — when decode-retry
+    // remounts the element the chain dies and the canvas freezes.) The
+    // duplicate-frame skip below makes redundant rAF ticks nearly free.
+    const onFrame = () => {
+      if (!running) return;
+      // While paused, freeze on the last drawn frame instead of skipping
+      // entirely: a canvas that was never blitted (pause active at startup,
+      // e.g. on-battery auto-pause) shows as transparent black — an all-black
+      // desktop. Keep blitting until the first successful draw, then stop
+      // redrawing (canvas content persists) to save GPU while paused.
+      if (!(pausedGlobal && !document.hasFocus() && drewRef.current)) {
+        blit();
+      }
+      raf = requestAnimationFrame(onFrame);
+    };
+    raf = requestAnimationFrame(onFrame);
     return () => {
       running = false;
       cancelAnimationFrame(raf);
+      ro.disconnect();
+      if (measure) window.clearInterval(measure);
     };
-  }, [videoRef, onReady]);
+    // onReady intentionally excluded: read through a ref (see above) so the
+    // effect isn't torn down on every parent re-render — restarting it reset
+    // the live-frame throttle and caused a push per poll cycle.
+  }, []);
 
   // Playback-rate control (live config updates included).
   useEffect(() => {
@@ -1035,7 +1101,7 @@ function MediaSurface({
           onStalled={() => videoRef.current?.play().catch(() => {})}
           onLoadedData={() => {
             videoRetries.current = 0;
-            logLine(`video loaded-data ok src=${source} ${videoRef.current?.videoWidth}x${videoRef.current?.videoHeight}`);
+            logLine(`video loaded-data ok src=${source} ${videoRef.current?.videoWidth}x${videoRef.current?.videoHeight}`, "debug");
             // Occluded/background webviews may refuse autoplay: retry once.
             videoRef.current?.play().catch(() => {});
             fireReady();
@@ -1049,7 +1115,7 @@ function MediaSurface({
             if (videoRetries.current < 3) {
               const delay = 1000 * 2 ** videoRetries.current;
               videoRetries.current += 1;
-              logLine(`video retry ${videoRetries.current}/3 in ${delay}ms src=${source}`, "warn");
+              logLine(`video retry ${videoRetries.current}/3 in ${delay}ms src=${source}`, "debug");
               window.setTimeout(() => setVideoEpoch((n) => n + 1), delay);
               return;
             }
@@ -1059,7 +1125,13 @@ function MediaSurface({
             fireReady();
           }}
         />
-        <VideoCanvas videoRef={videoRef} fit={videoFitStyle} fx={fx} onReady={fireReady} />
+        <VideoCanvas
+          videoRef={videoRef}
+          fit={videoFitStyle}
+          fx={fx}
+          onReady={fireReady}
+          framePush={screen.primary}
+        />
       </div>
     );
   }

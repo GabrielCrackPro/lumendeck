@@ -96,6 +96,7 @@ type MonEntry = Awaited<ReturnType<typeof api.monitors>>[number];
 export default function WallpaperTab() {
   const { cfg, rgb, save } = useStore();
   const [busy, setBusy] = useState(false);
+  const [urlOpen, setUrlOpen] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState("");
@@ -392,9 +393,33 @@ export default function WallpaperTab() {
                 <IconLayers className="h-4 w-4" />
                 Import folder
               </Btn>
+              <Btn disabled={busy} onClick={() => setUrlOpen(true)}>
+                <IconGlobe className="h-4 w-4" />
+                From URL
+              </Btn>
               <span className="ml-auto hidden text-[11px] text-[var(--text-faint)] sm:block">
                 …or drop files and folders anywhere in the vault
               </span>
+              {urlOpen && (
+                <UrlImport
+                  busy={busy}
+                  onCancel={() => setUrlOpen(false)}
+                  onSubmit={async (url, name) => {
+                    setBusy(true);
+                    try {
+                      const list = await api.galleryAddFromUrl(url, name || undefined);
+                      const added = list[list.length - 1];
+                      if (added) await api.galleryApply(added.id);
+                      toast("ok", `Downloaded and applied "${added?.name ?? (name || url)}"`);
+                      setUrlOpen(false);
+                    } catch (e) {
+                      toast("error", `URL import failed: ${truncateError(e)}`);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                />
+              )}
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
 
@@ -993,7 +1018,7 @@ export default function WallpaperTab() {
             </div>
           </Card>
 
-          <Card title="Active source">
+          <Card title="Playback">
             {wall.kind === "video" && (
               <>
                 <Slider
@@ -1037,7 +1062,7 @@ export default function WallpaperTab() {
                   </p>
                 </div>
                 <div className="mt-3 border-t border-[var(--line)] pt-2">
-                  <Section title="Color grading">
+                  <Section title="Color grading" defaultOpen>
                   <Slider
                     label="Brightness"
                     min={0.2}
@@ -1114,6 +1139,7 @@ export default function WallpaperTab() {
             </div>
           </Card>
         </div>
+
 
         <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-4 text-xs leading-relaxed text-[var(--text-faint)]">
           Each display gets its own wallpaper window sized to its exact resolution.
@@ -1232,5 +1258,48 @@ export default function WallpaperTab() {
           </div>
         </Card>
       </div>
+  );
+}
+
+function UrlImport({
+  busy,
+  onCancel,
+  onSubmit,
+}: {
+  busy: boolean;
+  onCancel: () => void;
+  onSubmit: (url: string, name: string) => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [name, setName] = useState("");
+  return (
+    <div className="mb-4 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          autoFocus
+          type="url"
+          placeholder="https://example.com/wallpaper.mp4"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2 text-sm outline-none focus:border-[rgb(var(--glow)/0.5)]"
+        />
+        <input
+          type="text"
+          placeholder="Name (optional)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-44 rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2 text-sm outline-none focus:border-[rgb(var(--glow)/0.5)]"
+        />
+        <Btn variant="primary" disabled={busy || !url.trim()} onClick={() => onSubmit(url.trim(), name.trim())}>
+          Download
+        </Btn>
+        <Btn disabled={busy} onClick={onCancel}>
+          Cancel
+        </Btn>
+      </div>
+      <p className="mt-2 text-[11px] text-[var(--text-faint)]">
+        Direct link to an mp4/webm video or png/jpg/webp/gif image (max 200 MB). It is downloaded into your vault.
+      </p>
+    </div>
   );
 }

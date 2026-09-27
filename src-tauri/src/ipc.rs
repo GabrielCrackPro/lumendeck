@@ -31,6 +31,8 @@ pub struct WallpaperInfo {
     pub monitors: Vec<crate::win32::MonitorRect>,
     /// Snap behavior for the sticker editor.
     pub snap: crate::config::StickerSnap,
+    /// Mirror wallpaper-layer stickers on every monitor.
+    pub sticker_all_monitors: bool,
 }
 
 // ---------- Config ----------
@@ -202,6 +204,7 @@ pub fn get_wallpaper_info(webview_window: tauri::WebviewWindow) -> WallpaperInfo
             .map(|p| p.crossfade_sec)
             .unwrap_or(0.0),
         snap: cfg.sticker_snap,
+        sticker_all_monitors: cfg.sticker.all_monitors,
         source: pm_source,
         config: effective,
         paused: crate::wallpaper::is_paused(),
@@ -236,8 +239,40 @@ fn spawn_editor_forwarder(app: AppHandle) {
         return;
     };
     tauri::async_runtime::spawn(async move {
-        while let Some((x, y, l, r)) = rx.recv().await {
-            crate::events::emit_all(&app, crate::events::EDITOR_MOUSE, &(x, y, l, r));
+        // Auto-exit: an editor session left on blocks desktop clicks forever
+        // (the hook swallows button events while active). 5 minutes without
+        // any input ends the session safely; ESC exits immediately.
+        const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+        let mut last_input = std::time::Instant::now();
+        loop {
+            if last_input.elapsed() > IDLE_TIMEOUT {
+                log::info!("sticker editor: auto-exit after 5 min idle");
+                break;
+            }
+            if crate::mouse_hook::editor_mode_on() {
+                // any mouse activity resets the idle clock (LAST_INPUT_MS is
+                // touched by both hooks on every event)
+                last_input = std::time::Instant::now();
+            }
+            // ESC ends the session (keyboard hook flags it) — same convention
+            // as Wallpaper Engine / Lively interactive flows.
+            if crate::mouse_hook::ESC_PRESSED.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                log::info!("sticker editor: exit (ESC)");
+                break;
+            }
+            match tokio::time::timeout(std::time::Duration::from_millis(50), rx.recv()).await {
+                Ok(Some((x, y, l, r))) => {
+                    crate::events::emit_all(&app, crate::events::EDITOR_MOUSE, &(x, y, l, r));
+                }
+                Ok(None) => break, // stream closed
+                Err(_) => continue, // poll tick: re-check ESC
+            }
+        }
+        // Only end the session if this forwarder still owns it (a new
+        // session may have started after our timeout fired).
+        if crate::mouse_hook::editor_mode_on() {
+            log::info!("sticker editor: auto-exit after 5 min idle");
+            let _ = end_sticker_editor();
         }
     });
 }
@@ -252,7 +287,8 @@ fn spawn_editor_forwarder(app: AppHandle) {
 #[tauri::command]
 pub fn log_frontend(level: Option<String>, msg: String) {
     const WINDOW_MS: u128 = 2_000;
-    static LAST: std::sync::Mutex<Option<(u128, String, u32)>> = std::sync::Mutex::new(None);
+    static LAST: std::sync::Mutex<Option<(u128, String, u32, Option<String>)>> =
+        std::sync::Mutex::new(None);
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -262,19 +298,28 @@ pub fn log_frontend(level: Option<String>, msg: String) {
     // Rate-limit identical messages.
     let mut guard = LAST.lock().expect("log_frontend mutex poisoned");
     match guard.as_mut() {
-        Some((ts, last_msg, suppressed)) if *last_msg == msg && now - *ts < WINDOW_MS => {
+        Some((ts, last_msg, suppressed, _)) if *last_msg == msg && now - *ts < WINDOW_MS => {
             *suppressed += 1;
             return;
         }
-        Some((ts, last_msg, suppressed)) if *suppressed > 0 && (*last_msg != msg || now - *ts >= WINDOW_MS) => {
+        Some((ts, last_msg, suppressed, last_level))
+            if *suppressed > 0 && (*last_msg != msg || now - *ts >= WINDOW_MS) =>
+        {
             let n = *suppressed;
             let prev = last_msg.clone();
-            *guard = Some((now, msg.clone(), 0));
+            let prev_level = last_level.clone();
+            *guard = Some((now, msg.clone(), 0, level.clone()));
             drop(guard);
-            log::warn!("[frontend] {prev} (suppressed {n} repeats)");
+            // Suppression notice inherits the original line's level so debug
+            // diagnostics don't resurface as warnings.
+            match prev_level.as_deref() {
+                Some("error") => log::error!("[frontend] {prev} (suppressed {n} repeats)"),
+                Some("debug") => log::debug!("[frontend] {prev} (suppressed {n} repeats)"),
+                _ => log::info!("[frontend] {prev} (suppressed {n} repeats)"),
+            }
         }
         _ => {
-            *guard = Some((now, msg.clone(), 0));
+            *guard = Some((now, msg.clone(), 0, level.clone()));
             drop(guard);
         }
     }
@@ -282,6 +327,9 @@ pub fn log_frontend(level: Option<String>, msg: String) {
     match level.as_deref() {
         Some("error") => log::error!("[frontend] {msg}"),
         Some("warn") => log::warn!("[frontend] {msg}"),
+        // Debug diagnostics (perf counters etc.) are hidden at the default
+        // log level; enable RUST_LOG=lumendeck=debug to see them.
+        Some("debug") => log::debug!("[frontend] {msg}"),
         _ => log::info!("[frontend] {msg}"),
     }
 }
@@ -298,7 +346,7 @@ pub fn log_sticker_render(
     url: String,
 ) {
     if ok {
-        log::info!(
+        log::debug!(
             "sticker render ok: id={id} rect=({left:.0},{top:.0} {width:.0}x{height:.0}) logical px url={url}",
         );
     } else {
@@ -579,6 +627,99 @@ pub fn gallery_apply_monitor(
     Ok(())
 }
 
+/// Download a remote wallpaper (direct video/image URL) into the app media
+/// folder and add it to the gallery. Returns the new entry (full list).
+/// Safety: HTTPS-only, 200 MB cap, extension sniffed from Content-Type —
+/// never executed, only served back through the media:// scheme.
+#[tauri::command]
+pub async fn gallery_add_from_url(
+    url: String,
+    name: Option<String>,
+) -> Result<Vec<crate::config::GalleryEntry>, String> {
+    const MAX_BYTES: usize = 200 * 1024 * 1024;
+    let parsed = url
+        .trim()
+        .parse::<url::Url>()
+        .map_err(|_| "Not a valid URL")?;
+    if parsed.scheme() != "https" && parsed.scheme() != "http" {
+        return Err("Only http(s) URLs are supported".into());
+    }
+    let resp = reqwest::get(parsed.as_str())
+        .await
+        .map_err(|e| format!("Download failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Download failed: HTTP {}", resp.status().as_u16()));
+    }
+    let ct = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let (kind, ext) = match ct.as_str() {
+        "video/mp4" => (crate::config::WallpaperKind::Video, "mp4"),
+        "video/webm" => (crate::config::WallpaperKind::Video, "webm"),
+        "image/png" => (crate::config::WallpaperKind::Image, "png"),
+        "image/jpeg" | "image/jpg" => (crate::config::WallpaperKind::Image, "jpg"),
+        "image/webp" => (crate::config::WallpaperKind::Image, "webp"),
+        "image/gif" => (crate::config::WallpaperKind::Image, "gif"),
+        other => return Err(format!("Unsupported content type: {other}")),
+    };
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("Download failed: {e}"))?;
+    if bytes.len() > MAX_BYTES {
+        return Err(format!("File too large ({} MB max)", MAX_BYTES / 1024 / 1024));
+    }
+    if bytes.is_empty() {
+        return Err("Downloaded file is empty".into());
+    }
+
+    // Deterministic name from the URL path (fallback: hash) to keep
+    // re-imports idempotent at the same target path.
+    let stem = parsed
+        .path()
+        .rsplit('/')
+        .find(|s| !s.is_empty())
+        .and_then(|s| std::path::Path::new(s).file_stem().map(|s| s.to_string_lossy().to_string()))
+        .filter(|s| !s.is_empty() && s.len() <= 80)
+        .unwrap_or_else(|| format!("web-{:x}", md5_lite(&bytes)));
+    let media_dir = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("LumenDeck")
+        .join("media");
+    std::fs::create_dir_all(&media_dir).map_err(|e| e.to_string())?;
+    let mut target = media_dir.join(format!("{stem}.{ext}"));
+    let mut n = 1u32;
+    while target.exists() && std::fs::read(&target).map(|b| b.as_slice() != bytes.as_ref()).unwrap_or(true) {
+        target = media_dir.join(format!("{stem}-{n}.{ext}"));
+        n += 1;
+    }
+    if !target.exists() {
+        std::fs::write(&target, bytes.as_ref()).map_err(|e| format!("Save failed: {e}"))?;
+    }
+    let path_str = target.to_string_lossy().to_string();
+    let display = name
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| stem.replace(['-', '_'], " "));
+    Ok(gallery_add(display, kind, path_str, None))
+}
+
+/// Tiny FNV-1a hash for collision fallback names (not security-sensitive).
+fn md5_lite(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
 #[tauri::command]
 pub async fn pick_media_file() -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -772,9 +913,14 @@ pub async fn begin_sticker_placement(
             // real virtual-screen bounds rather than assuming (0,0) origin.
             let (x, y) = clamp_placement(x, y);
             let size = placed_size.unwrap_or(crate::constants_sticker::DEFAULT_W as i32) as u32;
+            // Aspect-aware default: probe the media's natural dimensions and
+            // scale the wheel-chosen size to fit, so a wide banner doesn't
+            // land as a letterboxed square. Video probe is best-effort; the
+            // square default remains the fallback.
+            let (w, h) = media_aspect_size(&url, size);
             let (x, y) = (
-                x - size as i32 / 2,
-                y - size as i32 / 2,
+                x - w as i32 / 2,
+                y - h as i32 / 2,
             );
             let sticker = StickerDef {
                 id: format!("stk-{}", nanoid_like()),
@@ -782,8 +928,8 @@ pub async fn begin_sticker_placement(
                 url,
                 x,
                 y,
-                w: size,
-                h: size,
+                w,
+                h,
                 ..StickerDef::default()
             };
             let mut stickers = cfg.stickers.clone();
@@ -908,6 +1054,40 @@ pub fn update_sticker(app: AppHandle, sticker: StickerDef) -> Result<(), String>
 #[tauri::command]
 pub fn remove_sticker(app: AppHandle, id: String) -> Result<(), String> {
     crate::config_store::update(|c| c.stickers.retain(|s| s.id != id))?;
+    crate::stickers::broadcast(&app);
+    Ok(())
+}
+
+/// Duplicate a sticker: new id/name, offset +24px so both stay grabbable.
+#[tauri::command]
+pub fn duplicate_sticker(app: AppHandle, id: String) -> Result<(), String> {
+    let source = crate::config_store::get().stickers.iter().find(|s| s.id == id).cloned();
+    let Some(mut copy) = source else {
+        return Err("sticker not found".into());
+    };
+    copy.id = gen_gallery_id(now_ms() as u128);
+    copy.name = format!("{} copy", copy.name);
+    copy.x += 24;
+    copy.y += 24;
+    crate::config_store::update(|c| c.stickers.push(copy.clone()))?;
+    crate::stickers::broadcast(&app);
+    Ok(())
+}
+
+/// Reorder within the sticker list (render order in the wallpaper layer =
+/// list order; later entries draw on top). delta -1 = back, +1 = forward.
+#[tauri::command]
+pub fn reorder_sticker(app: AppHandle, id: String, delta: i32) -> Result<(), String> {
+    crate::config_store::update(|c| {
+        let Some(idx) = c.stickers.iter().position(|s| s.id == id) else {
+            return;
+        };
+        let new_idx = (idx as i32 + delta).clamp(0, c.stickers.len() as i32 - 1) as usize;
+        if new_idx != idx {
+            let s = c.stickers.remove(idx);
+            c.stickers.insert(new_idx, s);
+        }
+    })?;
     crate::stickers::broadcast(&app);
     Ok(())
 }
@@ -1241,6 +1421,34 @@ fn now_ms() -> u64 {
 /// Keep a placed sticker's default rect inside the virtual screen: the mouse
 /// hook reports raw physical coordinates, and a click near a screen edge
 /// would otherwise center the 220px default rect partly off-screen.
+/// Aspect-aware placed size: probe natural media dimensions and scale the
+/// target `base` (the wheel-chosen box) to fit inside it while preserving
+/// aspect. Falls back to a `base × base` square when the probe fails (video
+/// headers need a demuxer; images decode cheaply and reliably).
+fn media_aspect_size(url: &str, base: u32) -> (u32, u32) {
+    let path = crate::media::decode_media_ref(url);
+    let dims = (|| -> Option<(u32, u32)> {
+        let bytes = std::fs::read(&path).ok()?;
+        if bytes.len() > 64 * 1024 * 1024 {
+            return None; // probing huge files isn't worth the stall
+        }
+        let img = image::load_from_memory(&bytes).ok()?;
+        Some((img.width(), img.height()))
+    })();
+    let Some((iw, ih)) = dims else {
+        return (base, base);
+    };
+    if iw == 0 || ih == 0 {
+        return (base, base);
+    }
+    let aspect = iw as f64 / ih as f64;
+    if aspect >= 1.0 {
+        (base, ((base as f64) / aspect).round().max(48.0) as u32)
+    } else {
+        (((base as f64) * aspect).round().max(48.0) as u32, base)
+    }
+}
+
 fn clamp_placement(x: i32, y: i32) -> (i32, i32) {
     use crate::constants_sticker::{DEFAULT_H, DEFAULT_W};
     let mons = crate::win32::monitors();

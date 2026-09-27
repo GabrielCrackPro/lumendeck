@@ -185,7 +185,7 @@ pub fn spawn_gallery_thumb_worker() {
             for entry in &pending {
                 match ensure_thumb(&entry.source, 512) {
                     Ok(png) => {
-                        log::info!("gallery thumb ok: {}", entry.name);
+                        log::debug!("gallery thumb ok: {}", entry.name);
                         let url = thumb_media_url(&png);
                         let _ = crate::config_store::update(|c| {
                             if let Some(slot) = c.gallery.iter_mut().find(|g| g.id == entry.id) {

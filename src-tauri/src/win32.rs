@@ -216,6 +216,24 @@ pub fn on_battery_or_saver() -> Option<bool> {
 }
 
 /// Keep a window out of Alt-Tab and prevent focus stealing.
+/// True when the given screen point is over one of LumenDeck's own windows
+/// (dashboard, sticker windows, overlays). Used by the mouse hook to avoid
+/// swallowing clicks on our own UI while the sticker editor is active.
+pub fn point_over_own_window(x: i32, y: i32) -> bool {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::{WindowFromPoint, GetWindowThreadProcessId};
+    let pt = POINT { x, y };
+    unsafe {
+        let hwnd = WindowFromPoint(pt);
+        if hwnd.is_invalid() {
+            return false;
+        }
+        let mut pid: u32 = 0;
+        let _ = GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        pid == std::process::id()
+    }
+}
+
 pub fn make_tool_window(hwnd: HWND) {
     let cur = get_ex_style(hwnd);
     set_ex_style(hwnd, cur | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);

@@ -13,39 +13,60 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ---------- design tokens ---------- */
+/* ============================================================
+   LumenDeck console design language
+   ------------------------------------------------------------
+   Dark: graphite instrument panel. Light: warm ivory workbench.
+   The accent (--glow) is the live system color; it appears as
+   thin rules, dots and fills — precision, not bloom.
+   ============================================================ */
 
 :root {
   color-scheme: light;
 
-  /* The living accent: a colour triplet (r g b). Driven by the RGB engine
-     output at runtime (Shell sets --glow); these are the offline defaults. */
+  /* live accent triplet (r g b); Shell sets this at runtime */
   --glow: 56 189 248;
 
-  --bg: #eef0f6;
-  --panel: rgba(255, 255, 255, 0.72);
-  --panel-strong: rgba(255, 255, 255, 0.95);
-  --line: rgba(15, 23, 42, 0.1);
-  --line-strong: rgba(15, 23, 42, 0.2);
-  --text: #0a0f1d;
-  --text-dim: #454f6a;
-  --text-faint: #6c7691;
-  --radius: 16px;
-  --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 16px 44px -28px rgba(15, 23, 42, 0.3);
+  --bg: #e9e7e0;
+  --panel: rgba(255, 255, 254, 0.78);
+  --panel-strong: rgba(255, 255, 255, 0.96);
+  --panel-sunken: rgba(12, 14, 18, 0.05);
+  --line: rgba(28, 27, 24, 0.12);
+  --line-strong: rgba(28, 27, 24, 0.24);
+  --text: #17150f;
+  --text-dim: #4d4a41;
+  --text-faint: #847f72;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --shadow: 0 0 0 1px rgba(28, 27, 24, 0.05), 0 2px 6px rgba(28, 27, 24, 0.06), 0 20px 48px -32px rgba(28, 27, 24, 0.4);
 }
 
 .dark {
   color-scheme: dark;
-  --bg: #05070c;
-  --panel: rgba(255, 255, 255, 0.032);
+  --bg: #101214;
+  --panel: rgba(255, 255, 255, 0.026);
   --panel-strong: rgba(255, 255, 255, 0.055);
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.15);
-  --text: #eef1f8;
-  --text-dim: #a3abc0;
-  --text-faint: #626a82;
-  --radius: 16px;
-  --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 24px 70px -32px rgba(0, 0, 0, 0.85);
+  --panel-sunken: rgba(0, 0, 0, 0.35);
+  --line: rgba(255, 255, 255, 0.075);
+  --line-strong: rgba(255, 255, 255, 0.17);
+  --text: #ecedef;
+  --text-dim: #a5a8ae;
+  --text-faint: #66696f;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 24px 60px -34px rgba(0, 0, 0, 0.9);
+}
+
+/* AMOLED: true-black surfaces stacked on .dark — pixels fully off on OLED
+   panels. Hairlines dim to keep contrast from vibrating on pure black. */
+.dark.amoled {
+  --bg: #000000;
+  --panel: rgba(255, 255, 255, 0.02);
+  --panel-strong: rgba(255, 255, 255, 0.04);
+  --panel-sunken: rgba(0, 0, 0, 0.6);
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.2);
+  --shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 24px 60px -34px rgba(0, 0, 0, 1);
 }
 
 @theme {
@@ -74,7 +95,7 @@ body {
 *:focus-visible {
   outline: 2px solid rgb(var(--glow) / 0.6);
   outline-offset: 2px;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 /* thin luminous scrollbar */
@@ -92,94 +113,68 @@ body {
   background-clip: content-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--glow) / 0.45);
+  background: rgb(var(--glow) / 0.5);
   background-clip: content-box;
 }
 
 /* ---------- atmosphere ---------- */
 
-/* Fixed room-glow backdrop: one orb follows the live accent colour so the
-   interface itself lights up the way the devices light the room. */
+/* Console backdrop: a fine engineering grid plus a single soft accent
+   wash that follows the live color. Reads as a control surface. */
 .aura {
   position: fixed;
   inset: 0;
   z-index: -2;
   pointer-events: none;
   background:
-    radial-gradient(
-      52rem 32rem at 12% -6%,
-      rgb(var(--glow) / 0.13),
-      transparent 60%
-    ),
-    radial-gradient(
-      40rem 30rem at 106% 8%,
-      rgb(99 102 241 / 0.09),
-      transparent 56%
-    ),
-    radial-gradient(
-      66rem 54rem at 50% 116%,
-      rgb(45 212 191 / 0.07),
-      transparent 60%
-    ),
+    linear-gradient(rgb(var(--glow) / 0.05), transparent 34%),
+    radial-gradient(64rem 40rem at 50% -18%, rgb(var(--glow) / 0.1), transparent 62%),
+    linear-gradient(to bottom, rgb(var(--glow) / 0.035) 1px, transparent 1px) 0 0 / 100% 56px,
+    linear-gradient(to right, rgb(var(--glow) / 0.03) 1px, transparent 1px) 0 0 / 56px 100%,
     var(--bg);
-  transition:
-    background 0.6s ease,
-    color 0.3s ease;
+  transition: background 0.6s ease;
+}
+:root:not(.dark) .aura {
+  background:
+    radial-gradient(64rem 40rem at 50% -18%, rgb(var(--glow) / 0.12), transparent 62%),
+    var(--bg);
 }
 
-/* film grain over everything (kept subtle so glass panels read clean) */
+/* film grain over everything (kept subtle so panels read clean) */
 .grain::after {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 90;
   pointer-events: none;
-  opacity: 0.05;
+  opacity: 0.04;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* ---------- primitives ---------- */
 
+/* Panel: flat console tile. Crisp 1px frame, sunken header rule,
+   no hover lift (panels are furniture, not buttons). */
 .glass {
   position: relative;
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--panel);
   box-shadow: var(--shadow);
-  transition:
-    border-color 0.25s ease,
-    background 0.25s ease,
-    transform 0.25s ease;
+  backdrop-filter: blur(14px);
+  transition: border-color 0.25s ease;
 }
 .glass:hover {
   border-color: var(--line-strong);
 }
 
-/* Light mode: solid up the glass, add a crisp inner border + softer shadow
-   so cards read as distinct panels instead of washed-out streaks. */
-:root:not(.dark) .glass {
-  background: var(--panel-strong);
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.06),
-    0 12px 32px -20px rgba(15, 23, 42, 0.22),
-    inset 0 1px 0 rgb(255 255 255 / 0.9);
-}
-:root:not(.dark) .glass:hover {
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.07),
-    0 16px 40px -20px rgba(15, 23, 42, 0.28),
-    inset 0 1px 0 rgb(255 255 255 / 0.9);
-}
-:root:not(.dark) .grain::after {
-  opacity: 0.025;
-}
-
+/* kicker: technical section label */
 .kicker {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 500;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--text-faint);
 }
@@ -192,19 +187,19 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* raised glowing primary surface */
+/* accent surfaces: flat fills, no outer bloom */
 .glow-fill {
   background: rgb(var(--glow));
-  color: #06121f;
-  box-shadow: 0 8px 28px -10px rgb(var(--glow) / 0.7);
+  color: #0b0d10;
+  box-shadow: none;
 }
 .glow-fill:hover {
-  filter: brightness(1.08);
+  filter: brightness(1.1);
 }
 .glow-tint {
-  background: rgb(var(--glow) / 0.14);
+  background: rgb(var(--glow) / 0.12);
   color: rgb(var(--glow));
-  border-color: rgb(var(--glow) / 0.35);
+  border-color: rgb(var(--glow) / 0.4);
 }
 
 /* ---------- controls ---------- */
@@ -218,12 +213,12 @@ input[type="range"] {
   cursor: pointer;
 }
 input[type="range"]::-webkit-slider-runnable-track {
-  height: 5px;
+  height: 3px;
   border-radius: 99px;
   background: linear-gradient(
     to right,
-    rgb(var(--glow) / 0.85) 0%,
-    rgb(var(--glow) / 0.85) var(--fill, 50%),
+    rgb(var(--glow)) 0%,
+    rgb(var(--glow)) var(--fill, 50%),
     var(--line-strong) var(--fill, 50%),
     var(--line-strong) 100%
   );
@@ -231,35 +226,34 @@ input[type="range"]::-webkit-slider-runnable-track {
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  margin-top: -5.5px;
+  margin-top: -6.5px;
   height: 16px;
   width: 16px;
-  border-radius: 99px;
+  border-radius: 4px;
   background: #fff;
   border: 2px solid rgb(var(--glow));
-  box-shadow: 0 0 0 4px rgb(var(--glow) / 0.15), 0 4px 14px -2px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.6);
   transition: transform 0.15s ease;
 }
 input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
+  transform: scale(1.12);
 }
 input[type="range"]::-moz-range-track {
-  height: 5px;
+  height: 3px;
   border-radius: 99px;
   background: var(--line-strong);
 }
 input[type="range"]::-moz-range-progress {
-  height: 5px;
+  height: 3px;
   border-radius: 99px;
-  background: rgb(var(--glow) / 0.85);
+  background: rgb(var(--glow));
 }
 input[type="range"]::-moz-range-thumb {
   height: 16px;
   width: 16px;
-  border-radius: 99px;
+  border-radius: 4px;
   background: #fff;
   border: 2px solid rgb(var(--glow));
-  box-shadow: 0 0 0 4px rgb(var(--glow) / 0.15);
 }
 
 /* number input: hide spinners for cleanliness on compact readouts */
@@ -286,7 +280,7 @@ input[type="color"]::-webkit-color-swatch-wrapper {
 }
 input[type="color"]::-webkit-color-swatch {
   border: none;
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 /* ---------- motion ---------- */
@@ -294,7 +288,7 @@ input[type="color"]::-webkit-color-swatch {
 @keyframes lfade {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -310,7 +304,7 @@ input[type="color"]::-webkit-color-swatch {
   }
   50% {
     opacity: 1;
-    box-shadow: 0 0 12px 2px rgb(var(--glow) / 0.5);
+    box-shadow: 0 0 10px 2px rgb(var(--glow) / 0.45);
   }
 }
 
@@ -326,25 +320,20 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 
-/* Tab transition: the whole page rises with the same curve as the stagger
-   reveals; the header text gets its own slightly faster beat so the two read
-   as one motion. */
 @keyframes lpage {
   from {
     opacity: 0;
-    transform: translateY(14px) scale(0.995);
-    filter: blur(3px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
     transform: none;
-    filter: blur(0);
   }
 }
 @keyframes lpageHeader {
   from {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(-5px);
   }
   to {
     opacity: 1;
@@ -353,23 +342,21 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 .page-enter {
-  animation: lpage 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: lpage 0.38s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 .page-enter-header {
-  animation: lpageHeader 0.34s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: lpageHeader 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-/* Toggle switch burst: a light ring expands and fades each time the switch
-   flips, keyed by remounting the ripple span. */
 @keyframes switchBurst {
   0% {
     opacity: 0.7;
-    box-shadow: 0 0 0 0 rgb(var(--glow) / 0.55), inset 0 0 0 1px rgb(255 255 255 / 0.4);
+    box-shadow: 0 0 0 0 rgb(var(--glow) / 0.55);
     transform: scale(0.6);
   }
   100% {
     opacity: 0;
-    box-shadow: 0 0 0 14px rgb(var(--glow) / 0), inset 0 0 0 1px rgb(255 255 255 / 0);
+    box-shadow: 0 0 0 14px rgb(var(--glow) / 0);
     transform: scale(1.35);
   }
 }
@@ -381,7 +368,6 @@ input[type="color"]::-webkit-color-swatch {
   animation-duration: 0.2s;
 }
 
-/* Config-save progress hairline: a glowing segment sweeping the top edge. */
 @keyframes saveSweep {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(400%); }
@@ -390,40 +376,20 @@ input[type="color"]::-webkit-color-swatch {
   animation: saveSweep 0.9s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
-/* staggered reveal for card grids: animation-delay scales with child order */
+/* staggered reveal for card grids */
 .stagger > * {
-  animation: lfade 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: lfade 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-.stagger > *:nth-child(1) {
-  animation-delay: 0.02s;
-}
-.stagger > *:nth-child(2) {
-  animation-delay: 0.06s;
-}
-.stagger > *:nth-child(3) {
-  animation-delay: 0.1s;
-}
-.stagger > *:nth-child(4) {
-  animation-delay: 0.14s;
-}
-.stagger > *:nth-child(5) {
-  animation-delay: 0.18s;
-}
-.stagger > *:nth-child(6) {
-  animation-delay: 0.22s;
-}
-.stagger > *:nth-child(7) {
-  animation-delay: 0.26s;
-}
-.stagger > *:nth-child(8) {
-  animation-delay: 0.3s;
-}
-.stagger > *:nth-child(9) {
-  animation-delay: 0.34s;
-}
-.stagger > *:nth-child(10) {
-  animation-delay: 0.38s;
-}
+.stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger > *:nth-child(3) { animation-delay: 0.1s; }
+.stagger > *:nth-child(4) { animation-delay: 0.14s; }
+.stagger > *:nth-child(5) { animation-delay: 0.18s; }
+.stagger > *:nth-child(6) { animation-delay: 0.22s; }
+.stagger > *:nth-child(7) { animation-delay: 0.26s; }
+.stagger > *:nth-child(8) { animation-delay: 0.3s; }
+.stagger > *:nth-child(9) { animation-delay: 0.34s; }
+.stagger > *:nth-child(10) { animation-delay: 0.38s; }
 
 @media (prefers-reduced-motion: reduce) {
   * {

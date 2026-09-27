@@ -53,6 +53,38 @@ export default function StickersTab() {
   const [busy, setBusy] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [editing, setEditing] = useState(false);
+  // Which sticker the keyboard targets while editing (last clicked card).
+  const [selected, setSelected] = useState<string | null>(null);
+
+  // Keyboard control while editor mode is on: arrows nudge the selected
+  // sticker (Shift = 10px), Delete/Backspace removes it. Lives in the
+  // dashboard because the wallpaper webviews never receive OS key focus.
+  useEffect(() => {
+    if (!editing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!selected) return;
+      const s = useStore.getState().cfg?.stickers.find((k) => k.id === selected);
+      if (!s) return;
+      const step = e.shiftKey ? 10 : 1;
+      const move = (dx: number, dy: number) => {
+        e.preventDefault();
+        api.updateSticker({ ...s, x: s.x + dx, y: s.y + dy }).catch(console.error);
+      };
+      if (e.key === "ArrowLeft") move(-step, 0);
+      else if (e.key === "ArrowRight") move(step, 0);
+      else if (e.key === "ArrowUp") move(0, -step);
+      else if (e.key === "ArrowDown") move(0, step);
+      else if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        api
+          .removeSticker(selected)
+          .then(() => useStore.getState().toast("info", "Sticker removed"))
+          .catch(console.error);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editing, selected]);
 
   // Reflect backend placement/editor state in the UI.
   useEffect(() => {
@@ -87,61 +119,70 @@ export default function StickersTab() {
   const update = (id: string, patch: Partial<StickerDef>) => {
     const s = cfg.stickers.find((x) => x.id === id);
     if (!s) return;
+    // Single path: update_sticker persists AND broadcasts CONFIG_CHANGED;
+    // the store refresh picks it up. No parallel save() (that used to fire a
+    // second broadcast with the same data).
     api.updateSticker({ ...s, ...patch }).catch(console.error);
-    save((c) => {
-      const slot = c.stickers.find((x) => x.id === id);
-      if (slot) Object.assign(slot, patch);
-    });
   };
 
   return (
     <div className="stagger space-y-6">
-        <Card title="Deck">
-          <div className="flex flex-wrap gap-2.5">
-            {placing ? (
-              <Btn variant="danger" onClick={() => api.cancelStickerPlacement()}>
-                Cancel placement
+        <Card
+          title="Sticker deck"
+          right={
+            <span className="font-mono text-[10px] tracking-wide text-[var(--text-faint)]">
+              {cfg.stickers.length} sticker{cfg.stickers.length === 1 ? "" : "s"}
+            </span>
+          }
+        >
+          {/* Session banner: replaces the controls when a mode is active */}
+          {placing ? (
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.08)] px-3.5 py-2.5">
+              <span className="text-xs font-medium text-[rgb(var(--glow))]">
+                Click anywhere on the desktop to place · scroll to resize · right-click or ESC-style cancel to abort
+              </span>
+              <Btn size="sm" variant="danger" onClick={() => api.cancelStickerPlacement()}>
+                Cancel
               </Btn>
-            ) : (
+            </div>
+          ) : editing ? (
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.08)] px-3.5 py-2.5">
+              <span className="text-xs font-medium text-[rgb(var(--glow))]">
+                Drag to move · edges/corners to resize · right-click deletes · arrows nudge the selected card · auto-exits after 5 min idle
+              </span>
+              <Btn size="sm" variant="primary" onClick={() => api.endStickerEditor()}>
+                Done
+              </Btn>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2.5">
               <Btn variant="primary" disabled={busy} onClick={importAndPlace}>
                 <IconPlus className="h-4 w-4" />
                 Add sticker…
               </Btn>
-            )}
-            {editing ? (
-              <Btn variant="primary" onClick={() => api.endStickerEditor()}>
-                Done editing
-              </Btn>
-            ) : (
               <Btn onClick={() => api.beginStickerEditor()} disabled={cfg.stickers.length === 0}>
                 <IconSparkle className="h-4 w-4" />
                 Edit on wallpaper
               </Btn>
-            )}
-          </div>
-          <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-[var(--text-dim)]">
-            {placing ? (
-              <span className="flex items-center gap-1.5">
-                <IconSparkle className="h-3.5 w-3.5 text-[rgb(var(--glow))]" />
-                Click anywhere on the desktop to place · right-click or Cancel to abort
+              <span className="ml-auto hidden max-w-sm text-[11px] leading-relaxed text-[var(--text-faint)] sm:block">
+                Stickers draw into the wallpaper itself — no extra windows — and follow
+                it across monitors.
               </span>
-            ) : editing ? (
-              <span className="flex items-center gap-1.5">
-                <IconSparkle className="h-3.5 w-3.5 text-[rgb(var(--glow))]" />
-                Drag stickers to move, grab edges/corners to resize, right-click to delete
-              </span>
-            ) : (
-              <span>
-                Pick a file, then click anywhere on the desktop — the sticker is drawn into
-                the wallpaper itself (no extra window) and follows it across monitors. Use{" "}
-                <b className="text-[var(--text)]">Edit on wallpaper</b> to arrange them
-                directly, or fine-tune position and size below.
-              </span>
-            )}
-          </p>
+            </div>
+          )}
         </Card>
 
         <Card title="Snapping & behavior">
+            <Toggle
+              label="Show on all monitors"
+              description="Every wallpaper-layer sticker appears on each display at the same relative position. Off: stickers render only where you placed them."
+              checked={cfg.sticker?.allMonitors ?? true}
+              onChange={(v) =>
+                save((c) => {
+                  c.sticker = { ...c.sticker, allMonitors: v };
+                })
+              }
+            />
             <Toggle
               label="Alignment guides"
               description="Snap sticker edges to other stickers and monitor edges & centers (amber lines)."
@@ -197,7 +238,7 @@ export default function StickersTab() {
               checked={cfg.sticker?.removeBackground ?? true}
               onChange={(v) =>
                 save((c) => {
-                  c.sticker = { removeBackground: v };
+                  c.sticker = { ...c.sticker, removeBackground: v };
                 })
               }
             />
@@ -220,7 +261,27 @@ export default function StickersTab() {
         {cfg.stickers.length > 0 && (
           <div className="grid gap-5 lg:grid-cols-2">
             {cfg.stickers.map((s) => (
-              <Card key={s.id} title={s.name}>
+              <div
+                key={s.id}
+                onClick={() => setSelected((p) => (p === s.id ? null : s.id))}
+                className={`cursor-pointer rounded-[var(--radius-lg)] transition-shadow ${
+                  selected === s.id ? "ring-1 ring-[rgb(var(--glow)/0.5)]" : ""
+                }`}
+              >
+              <Card
+                title={s.name}
+                right={
+                  <span
+                    className={`rounded-md border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors ${
+                      selected === s.id
+                        ? "border-[rgb(var(--glow)/0.5)] text-[rgb(var(--glow))]"
+                        : "border-transparent text-[var(--text-faint)]"
+                    }`}
+                  >
+                    {selected === s.id ? "keyboard target" : ""}
+                  </span>
+                }
+              >
                 <StickerPreview s={s} />
                 <Toggle label="Visible" checked={s.visible} onChange={(v) => update(s.id, { visible: v })} />
                 <Section title="Placement & appearance">
@@ -269,10 +330,32 @@ export default function StickersTab() {
                     />
                   </div>
                 </Section>
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 flex items-center justify-between gap-2 border-t border-[var(--line)] pt-4">
+                  <div className="flex gap-1.5">
+                    <Btn
+                      size="sm"
+                      onClick={() => api.reorderSticker(s.id, -1).catch(console.error)}
+                    >
+                      ← back
+                    </Btn>
+                    <Btn
+                      size="sm"
+                      onClick={() => api.reorderSticker(s.id, 1).catch(console.error)}
+                    >
+                      forward →
+                    </Btn>
+                    <Btn
+                      size="sm"
+                      onClick={() => api.duplicateSticker(s.id).catch(console.error)}
+                    >
+                      Duplicate
+                    </Btn>
+                  </div>
                   <Btn
                     variant="danger"
-                    onClick={() =>
+                    size="sm"
+                    onClick={() => {
+                      if (selected === s.id) setSelected(null);
                       api
                         .removeSticker(s.id)
                         .then(() =>
@@ -282,14 +365,15 @@ export default function StickersTab() {
                           useStore
                             .getState()
                             .toast("error", `Remove failed: ${truncateError(e)}`),
-                        )
-                    }
+                        );
+                    }}
                   >
                     <IconTrash className="h-4 w-4" />
                     Remove
                   </Btn>
                 </div>
               </Card>
+              </div>
             ))}
           </div>
         )}

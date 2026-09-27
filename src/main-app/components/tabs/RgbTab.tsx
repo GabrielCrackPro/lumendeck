@@ -827,6 +827,59 @@ export default function RgbTab() {
                 />
               </>
             )}
+
+            <div className="mt-4 border-t border-[var(--line)] pt-4">
+              <Toggle
+                label="Night dimming"
+                description="Cap LED brightness during a daily window (e.g. 22:00 to 07:00) so the lights don't glare in the dark."
+                checked={!!rgbCfg.nightStart && !!rgbCfg.nightEnd}
+                onChange={(v) =>
+                  save((c) => {
+                    if (v) {
+                      c.rgb.nightStart = "22:00";
+                      c.rgb.nightEnd = "07:00";
+                      if (!c.rgb.nightBrightness) c.rgb.nightBrightness = 0.3;
+                    } else {
+                      c.rgb.nightStart = "";
+                      c.rgb.nightEnd = "";
+                    }
+                  })
+                }
+              />
+              {!!rgbCfg.nightStart && !!rgbCfg.nightEnd && (
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] text-[var(--text-faint)]">Starts</span>
+                    <input
+                      type="time"
+                      value={rgbCfg.nightStart}
+                      onChange={(e) => save((c) => (c.rgb.nightStart = e.target.value))}
+                      className="w-full rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-2.5 py-1.5 text-sm outline-none focus:border-[rgb(var(--glow)/0.5)]"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] text-[var(--text-faint)]">Ends</span>
+                    <input
+                      type="time"
+                      value={rgbCfg.nightEnd}
+                      onChange={(e) => save((c) => (c.rgb.nightEnd = e.target.value))}
+                      className="w-full rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-2.5 py-1.5 text-sm outline-none focus:border-[rgb(var(--glow)/0.5)]"
+                    />
+                  </label>
+                  <div className="col-span-2">
+                    <Slider
+                      label="Night brightness cap"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={Math.round(rgbCfg.nightBrightness * 100)}
+                      format={(v) => `${v}%`}
+                      onChange={(v) => save((c) => (c.rgb.nightBrightness = v / 100))}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </Card>
       </div>

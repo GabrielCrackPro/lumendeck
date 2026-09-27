@@ -360,7 +360,7 @@ fn set_desktop_wallpaper(path: &PathBuf) {
 fn set_lock_screen_wallpaper(path: &PathBuf) {
     use windows::Win32::System::Registry::{
         RegCreateKeyExW, RegOpenKeyExW, RegSetValueExW, RegCloseKey, HKEY_CURRENT_USER,
-        KEY_QUERY_VALUE, KEY_SET_VALUE, REG_OPEN_CREATE_OPTIONS, REG_VALUE_TYPE, REG_SAM_FLAGS,
+        KEY_QUERY_VALUE, KEY_SET_VALUE, REG_OPEN_CREATE_OPTIONS, REG_VALUE_TYPE,
     };
 
     unsafe {

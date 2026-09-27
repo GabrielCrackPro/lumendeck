@@ -99,7 +99,8 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
         if let Some(w) = app.get_webview_window(&label) {
             let pos = w.outer_position().map(|p| (p.x, p.y)).unwrap_or((-1, -1));
             let size = w.outer_size().map(|s| (s.width, s.height)).unwrap_or((0, 0));
-            log::info!(
+            // Geometry ground truth: pure diagnostics, hidden at default level.
+            log::debug!(
                 "wallpaper-{index}: monitor=({},{} {}x{}) window=({},{} {}x{})",
                 m.x, m.y, m.w, m.h, pos.0, pos.1, size.0, size.1
             );

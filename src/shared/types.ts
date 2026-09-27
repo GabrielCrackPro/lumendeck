@@ -93,6 +93,11 @@ export interface RgbConfig {
   cycleSpread: number;
   /** Named lighting profiles for quick switching (tray + dashboard). */
   profiles: RgbProfile[];
+  /** Night dimming window (local "hh:mm", wraps midnight; empty = off). */
+  nightStart: string;
+  nightEnd: string;
+  /** Brightness cap during the night window (0..1). */
+  nightBrightness: number;
 }
 
 export interface RgbProfile {
@@ -123,6 +128,12 @@ export interface StickerDef {
   onTop: boolean;
 }
 
+export interface StickerSettings {
+  removeBackground: boolean;
+  /** Mirror wallpaper-layer stickers onto all monitors. */
+  allMonitors: boolean;
+}
+
 export interface GeneralConfig {
   autostart: boolean;
   theme: ThemeMode;
@@ -141,6 +152,8 @@ export interface GeneralConfig {
   lockScreenFollowsWallpaper: boolean;
   /** First-run onboarding wizard has been completed. */
   onboarded: boolean;
+  /** True-black surfaces in dark theme (saves power on OLED panels). */
+  amoled: boolean;
 }
 
 export interface GalleryEntry {

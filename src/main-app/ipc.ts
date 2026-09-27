@@ -40,6 +40,8 @@ export const api = {
     invoke<GalleryEntry[]>("gallery_import_folder", { folder }),
   galleryImportPaths: (paths: string[]) =>
     invoke<GalleryEntry[]>("gallery_import_paths", { paths }),
+  galleryAddFromUrl: (url: string, name?: string) =>
+    invoke<GalleryEntry[]>("gallery_add_from_url", { url, name: name ?? null }),
 
   collectionCreate: (name: string) =>
     invoke<WallpaperCollection>("collection_create", { name }),
@@ -77,6 +79,9 @@ export const api = {
   updateSticker: (sticker: StickerDef) =>
     invoke<void>("update_sticker", { sticker }),
   removeSticker: (id: string) => invoke<void>("remove_sticker", { id }),
+  duplicateSticker: (id: string) => invoke<void>("duplicate_sticker", { id }),
+  reorderSticker: (id: string, delta: number) =>
+    invoke<void>("reorder_sticker", { id, delta }),
 
   monitors: () =>
     invoke<

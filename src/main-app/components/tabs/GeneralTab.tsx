@@ -12,7 +12,7 @@ export default function GeneralTab() {
   if (!cfg) return null;
 
   return (    <div className="stagger space-y-6">
-      <Card title="General">
+      <Card title="Appearance">
           <Select<ThemeMode>
             label="Theme"
             value={cfg.general.theme}
@@ -23,7 +23,27 @@ export default function GeneralTab() {
             ]}
             onChange={(v) => save((c) => (c.general.theme = v))}
           />
-          <div className="border-t border-[var(--line)]" />
+          <Toggle
+            label="AMOLED mode"
+            description="True-black surfaces in dark theme — OLED pixels switch fully off, saving power and making the accent color pop. No effect in light theme."
+            checked={cfg.general.amoled ?? false}
+            onChange={(v) => save((c) => (c.general.amoled = v))}
+          />
+          <Toggle
+            label="Sync Windows accent color to wallpaper"
+            description="The taskbar, Start menu and window highlights shift tone with your wallpaper's dominant color. Your original accent is remembered and restored when this is turned off."
+            checked={cfg.general.accentSyncEnabled}
+            onChange={(v) => save((c) => (c.general.accentSyncEnabled = v))}
+          />
+          <Toggle
+            label="Lock screen follows wallpaper"
+            description="Also apply wallpaper changes to the Windows lock screen. Off by default, so you can keep a personal lock image while your desktop stays dynamic."
+            checked={cfg.general.lockScreenFollowsWallpaper}
+            onChange={(v) => save((c) => (c.general.lockScreenFollowsWallpaper = v))}
+          />
+        </Card>
+
+      <Card title="Startup & power">
           <Toggle
             label="Launch at startup"
             description="Start LumenDeck with Windows so your lights follow your screen from the boot."
@@ -41,28 +61,19 @@ export default function GeneralTab() {
             checked={cfg.general.pauseOnFullscreen}
             onChange={(v) => save((c) => (c.general.pauseOnFullscreen = v))}
           />
+          {wallpaperPaused && (
+            <div className="mt-3 text-sm text-amber-500">Currently paused by the system.</div>
+          )}
+        </Card>
+
+      <Card title="Playback engine">
           <Toggle
             label="Software video decoding"
             description="Fallback for machines whose GPU video decoder glitches. Uses more CPU and may stutter on 4K wallpapers. Takes effect after restarting LumenDeck."
             checked={cfg.general.softwareVideoDecode}
             onChange={(v) => save((c) => (c.general.softwareVideoDecode = v))}
           />
-          <Toggle
-            label="Sync Windows accent color to wallpaper"
-            description="The taskbar, Start menu and window highlights shift tone with your wallpaper's dominant color. Your original accent is remembered and restored when this is turned off."
-            checked={cfg.general.accentSyncEnabled}
-            onChange={(v) => save((c) => (c.general.accentSyncEnabled = v))}
-          />
-          <Toggle
-            label="Lock screen follows wallpaper"
-            description="Also apply wallpaper changes to the Windows lock screen. Off by default, so you can keep a personal lock image while your desktop stays dynamic."
-            checked={cfg.general.lockScreenFollowsWallpaper}
-            onChange={(v) => save((c) => (c.general.lockScreenFollowsWallpaper = v))}
-          />
-          {wallpaperPaused && (
-            <div className="mt-3 text-sm text-amber-500">Currently paused by the system.</div>
-          )}
-          <div className="mt-5 flex items-center justify-between gap-4 border-t border-[var(--line)] pt-5">
+          <div className="mt-4 flex items-center justify-between gap-4 border-t border-[var(--line)] pt-4">
             <div className="text-sm text-[var(--text-dim)]">
               Manual edits to <code className="font-mono text-xs">config.json</code> are
               picked up automatically within a few seconds.

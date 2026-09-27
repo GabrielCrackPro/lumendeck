@@ -64,16 +64,22 @@ export default function App() {
   useEffect(() => {
     const root = document.documentElement;
     const theme = cfg?.general.theme ?? "dark";
+    const amoled = cfg?.general.amoled ?? false;
+    // AMOLED only applies to the dark theme — light stays unchanged.
+    root.classList.toggle("amoled", amoled && theme !== "light");
     // "system" follows the OS preference live; dark/light are explicit.
     if (theme === "system") {
       const mq = window.matchMedia("(prefers-color-scheme: light)");
-      const apply = () => root.classList.toggle("dark", !mq.matches);
+      const apply = () => {
+        root.classList.toggle("dark", !mq.matches);
+        root.classList.toggle("amoled", amoled && !mq.matches);
+      };
       apply();
       mq.addEventListener("change", apply);
       return () => mq.removeEventListener("change", apply);
     }
     root.classList.toggle("dark", theme !== "light");
-  }, [cfg?.general.theme]);
+  }, [cfg?.general.theme, cfg?.general.amoled]);
 
   if (loadError) {
     return <LoadError error={loadError} onRetry={() => load()} />;
@@ -98,15 +104,12 @@ function Splash({ stage }: { stage: Stage }) {
     <div className="grain relative flex h-screen items-center justify-center overflow-hidden">
       <div className="aura" />
       <div className="relative z-10 flex flex-col items-center gap-7">
-        <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-[1.4rem] border border-[rgb(var(--glow)/0.45)] shadow-[0_0_50px_-4px_rgb(var(--glow)/0.8)]">
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(120% 120% at 50% 0%, rgb(var(--glow) / 0.5), transparent 70%)",
-            }}
+        <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-[1.4rem] border border-[rgb(var(--glow)/0.45)]">
+          <img
+            src="/app-icon.png"
+            alt=""
+            className="h-full w-full object-cover animate-[lbreath_2.4s_ease-in-out_infinite]"
           />
-          <div className="relative h-3 w-3 animate-[lbreath_2.4s_ease-in-out_infinite] rounded-full bg-white shadow-[0_0_16px_4px_rgb(var(--glow))]" />
         </div>
         <div className="flex flex-col items-center">
           <div className="lednum text-xl tracking-[0.16em] text-[var(--text)]">LUMEN&nbsp;DECK</div>

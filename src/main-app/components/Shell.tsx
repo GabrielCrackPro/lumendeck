@@ -1,6 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
-import { Chip } from "./ui";
 import { IconBulb, IconImage, IconSticker, IconGear, IconPause, IconZap, IconRailCollapse } from "./icons";
 import { DEFAULT_GLOW } from "@shared/constants";
 import TitleBar from "./TitleBar";
@@ -100,18 +99,18 @@ function BootSplash() {
       <img
         src="/app-icon.png"
         alt=""
-        className="h-14 w-14 animate-[lpage_0.6s_ease-out_both] rounded-2xl border border-[rgb(var(--glow)/0.4)] shadow-[0_0_40px_-8px_rgb(var(--glow)/0.9)]"
+        className="h-14 w-14 animate-[lpage_0.6s_ease-out_both] rounded-xl border border-[rgb(var(--glow)/0.5)]"
       />
       <div className="flex items-center gap-1.5">
         {[0, 1, 2].map((i) => (
           <span
             key={i}
-            className="h-1.5 w-1.5 animate-[lpulse_1.4s_ease-in-out_infinite] rounded-full bg-[rgb(var(--glow))]"
+            className="h-1 w-4 animate-[lpulse_1.4s_ease-in-out_infinite] rounded-[2px] bg-[rgb(var(--glow))]"
             style={{ animationDelay: `${i * 0.2}s` }}
           />
         ))}
       </div>
-      <div className="kicker">warming up the lights</div>
+      <div className="kicker">initializing engine</div>
     </div>
   );
 }
@@ -164,19 +163,30 @@ function HeaderStatus() {
   const excluded = useStore((s) => s.cfg?.rgb.excludedDevices);
   const active = rgb.devices.filter((d) => !(excluded ?? []).includes(d.id));
   const ledCount = active.reduce((n, d) => n + d.leds, 0);
+  // Quiet mono readout instead of pills: dot + text, separated by hairlines.
   return (
-    <div className="flex shrink-0 items-center gap-2">
-      {wallpaperPaused && (
-        <Chip tone="warn" pulse>
-          paused
-        </Chip>
-      )}
-      <Chip tone={rgb.connected ? "ok" : "danger"} pulse={rgb.connected}>
-        {rgb.connected ? `${active.length}/${rgb.devices.length} devices` : "openrgb offline"}
-      </Chip>
-      {rgb.connected && (
-        <Chip tone="accent">{ledCount.toLocaleString()} leds</Chip>
-      )}
+    <div className="flex shrink-0 items-center gap-3 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-faint)]">
+      <span className="flex items-center gap-1.5">
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${
+            wallpaperPaused
+              ? "bg-amber-400"
+              : "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"
+          }`}
+        />
+        {wallpaperPaused ? "paused" : "live"}
+      </span>
+      <span className="h-3 w-px bg-[var(--line-strong)]" />
+      <span className="flex items-center gap-1.5">
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${
+            rgb.connected
+              ? "bg-emerald-400"
+              : "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.7)]"
+          }`}
+        />
+        {rgb.connected ? `${active.length}/${rgb.devices.length} · ${ledCount.toLocaleString()} leds` : "openrgb offline"}
+      </span>
     </div>
   );
 }
@@ -185,10 +195,10 @@ function HeaderStatus() {
 function TabSkeleton() {
   return (
     <div className="stagger space-y-6">
-      <div className="glass h-44 animate-pulse" />
+      <div className="glass h-44" />
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="glass h-64 animate-pulse" />
-        <div className="glass h-64 animate-pulse" />
+        <div className="glass h-64" />
+        <div className="glass h-64" />
       </div>
     </div>
   );
@@ -213,44 +223,28 @@ function NavItem({
     <button
       onClick={onClick}
       title={item.blurb}
-      className={`group relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg px-2.5 py-2 text-left transition-all duration-200 ${
+      className={`group relative flex w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-[7px] text-left transition-all duration-150 ${
         active
-          ? "bg-[linear-gradient(90deg,rgb(var(--glow)/0.16),rgb(var(--glow)/0.03))] text-[rgb(var(--glow))]"
+          ? "bg-[rgb(var(--glow)/0.13)] text-[rgb(var(--glow))]"
           : dim
             ? "text-[var(--text-faint)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
             : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
       } ${collapsed ? "justify-center" : ""}`}
     >
+      {/* active marker: full-height accent bar on the left edge */}
       {active && (
-        <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-[rgb(var(--glow))] shadow-[0_0_10px_rgb(var(--glow))]" />
+        <span className="absolute inset-y-[3px] left-0 w-[3px] rounded-r-sm bg-[rgb(var(--glow))]" />
       )}
-      <span
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-colors ${
-          active
-            ? "border-[rgb(var(--glow)/0.35)] bg-[rgb(var(--glow)/0.12)]"
-            : "border-transparent group-hover:border-[var(--line)]"
-        }`}
-      >
-        <Icon className="h-[15px] w-[15px]" />
-      </span>
+      <Icon className={`h-[16px] w-[16px] shrink-0 ${active ? "" : "opacity-80"}`} />
       {!collapsed && (
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-tight">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium tracking-tight">
           {item.label}
         </span>
       )}
       {!collapsed && (
-        <kbd className="rounded border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--text-faint)] opacity-0 transition-opacity group-hover:opacity-100">
+        <kbd className="rounded-[3px] border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--text-faint)] opacity-0 transition-opacity group-hover:opacity-100">
           {(TABS.findIndex((t) => t.id === item.id) + 1) || 5}
         </kbd>
-      )}
-      {!collapsed && !dim && (
-        <span
-          className={`h-1 w-1 shrink-0 rounded-full transition-opacity ${
-            active
-              ? "bg-[rgb(var(--glow))] opacity-100 shadow-[0_0_6px_rgb(var(--glow))]"
-              : "opacity-0"
-          }`}
-        />
       )}
     </button>
   );
@@ -326,38 +320,40 @@ export default function Shell() {
       <div className="relative z-10 flex min-h-0 w-full flex-1 gap-2">
         {/* ---------- floating glass rail ---------- */}
         <nav
-          className={`flex shrink-0 flex-col rounded-2xl border border-[var(--line)] bg-[var(--panel)] shadow-[var(--shadow)] backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
-            collapsed ? "w-[64px]" : "w-[208px]"
+          className={`flex shrink-0 flex-col rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-[var(--shadow)] backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
+            collapsed ? "w-[60px]" : "w-[200px]"
           }`}
         >
           {/* brand + collapse toggle */}
-          <div className={`flex items-center justify-between px-3.5 pb-4 pt-4 ${collapsed ? "flex-col gap-3" : ""}`}>
+          <div className={`flex items-center justify-between border-b border-[var(--line)] px-3 py-3 ${collapsed ? "flex-col gap-2" : ""}`}>
             <div className={`flex items-center gap-2.5 ${collapsed ? "justify-center" : ""}`}>
               <img
                 src="/app-icon.png"
                 alt="LumenDeck"
-                className="h-9 w-9 shrink-0 rounded-xl border border-[rgb(var(--glow)/0.4)] shadow-[0_0_24px_-6px_rgb(var(--glow)/0.8)]"
+                className="h-8 w-8 shrink-0 rounded-lg border border-[var(--line-strong)]"
               />
               {!collapsed && (
                 <div className="min-w-0">
-                  <div className="lednum truncate text-[13px] tracking-[0.08em] text-[var(--text)]">
-                    LUMEN&nbsp;DECK
+                  <div className="lednum truncate text-[12px] tracking-[0.1em] text-[var(--text)]">
+                    LUMENDECK
                   </div>
-                  <div className="kicker mt-0.5">light platform</div>
+                  <div className="kicker mt-0.5">v{__APP_VERSION__}</div>
                 </div>
               )}
             </div>
-            <button
-              onClick={() => setCollapsed((v) => !v)}
-              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
-            >
-              <IconRailCollapse
-                className={`h-[15px] w-[15px] transition-transform duration-300 ${
-                  collapsed ? "rotate-180" : ""
-                }`}
-              />
-            </button>
+            {!collapsed && (
+              <button
+                onClick={() => setCollapsed((v) => !v)}
+                title="Collapse sidebar"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
+              >
+                <IconRailCollapse
+                  className={`h-[14px] w-[14px] transition-transform duration-300 ${
+                    collapsed ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+            )}
           </div>
 
           {/* nav: grouped sections (spaces the eye; finds things faster) */}
@@ -391,36 +387,47 @@ export default function Shell() {
             />
           </div>
           {/* rail footer: live engine pulse — glanceable without the header */}
-          <div
-            className={`mx-2 mb-2 flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-2.5 py-2 ${
-              collapsed ? "justify-center" : ""
-            }`}
-          >
-            <EnginePulse />
-            {!collapsed && (
-              <span className="min-w-0 truncate font-mono text-[10px] tracking-wide text-[var(--text-faint)]">
-                engine live
-              </span>
+          <div className="border-t border-[var(--line)]">
+            <div
+              className={`flex items-center gap-2 px-4 py-2.5 ${
+                collapsed ? "justify-center" : ""
+              }`}
+            >
+              <EnginePulse />
+              {!collapsed && (
+                <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--text-faint)]">
+                  engine live
+                </span>
+              )}
+            </div>
+            {collapsed && (
+              <button
+                onClick={() => setCollapsed((v) => !v)}
+                title="Expand sidebar"
+                className="flex w-full items-center justify-center pb-2.5 text-[var(--text-faint)] transition-colors hover:text-[var(--text)]"
+              >
+                <IconRailCollapse className="h-[14px] w-[14px] rotate-180" />
+              </button>
             )}
           </div>
         </nav>
 
         {/* ---------- workspace ---------- */}
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[color-mix(in_srgb,var(--bg)_55%,var(--panel))] shadow-[var(--shadow)] backdrop-blur-xl">
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-[color-mix(in_srgb,var(--bg)_60%,var(--panel))] shadow-[var(--shadow)] backdrop-blur-xl">
           {!loaded ? (
             <BootSplash />
           ) : (
           <>
-          <header className="flex min-h-[62px] shrink-0 items-center justify-between gap-4 border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_60%,transparent)] px-6 py-3 backdrop-blur-xl">
-            <div key={tab} className="page-enter-header flex min-w-0 items-baseline gap-3">
-              <h1 className="lednum shrink-0 truncate text-[17px] leading-tight text-[var(--text)]">{current.label}</h1>
-              <span className="hidden h-4 w-px bg-[var(--line-strong)] sm:block" />
-              <div className="kicker mt-0.5 hidden truncate sm:block">{current.blurb}</div>
+          <header className="flex min-h-[52px] shrink-0 items-center justify-between gap-4 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-5">
+            <div key={tab} className="page-enter-header flex min-w-0 items-center gap-3">
+              <h1 className="lednum shrink-0 text-[15px] leading-none text-[var(--text)]">{current.label}</h1>
+              <span className="hidden h-3.5 w-px bg-[var(--line-strong)] sm:block" />
+              <div className="kicker hidden truncate sm:block">{current.blurb}</div>
             </div>
             <HeaderStatus />
           </header>
 
-          <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="flex-1 overflow-y-auto px-5 py-4">
             <div key={tab} className="page-enter mx-auto w-full max-w-[1400px]">
               <Suspense fallback={<TabSkeleton />}>
                 {tab === "overview" && <OverviewTab onNavigate={(t) => setTab(t as TabId)} />}

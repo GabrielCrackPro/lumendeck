@@ -162,8 +162,8 @@ fn not_found() -> Response<Vec<u8>> {
 /// serves in one response. Videos are then streamed chunk-by-chunk via follow-up
 /// range requests, so the first frame arrives fast and a multi-GB file never sits
 /// in RAM (one copy per wallpaper window). Sized so a 4K loop (30-60 Mbps)
-/// buffers several seconds ahead — small windows cause mid-loop stalls.
-const OPEN_ENDED_CHUNK: u64 = 32 * 1024 * 1024;
+/// buffers ~8s ahead — small windows cause mid-loop stalls and loop-seam hitches.
+const OPEN_ENDED_CHUNK: u64 = 48 * 1024 * 1024;
 /// Sequential read buffer used to assemble a byte range without one giant read.
 const CHUNK_READ: usize = 64 * 1024;
 

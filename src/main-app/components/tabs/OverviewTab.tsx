@@ -1,6 +1,6 @@
 import { useStore } from "../../store";
-import { Card, Chip, DisplaysCard, IconBox, RefreshBtn } from "../ui";
-import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers } from "../icons";
+import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, Btn } from "../ui";
+import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { basename } from "../../utilities";
@@ -17,7 +17,7 @@ function WallpaperThumb({
 }) {
   const mediaUrl = convertFileSrc(source, "media");
   return (
-    <div className="group relative h-24 w-40 shrink-0 overflow-hidden rounded-xl border border-[var(--line)] bg-black">
+    <div className="relative h-full min-h-32 w-full overflow-hidden rounded-lg border border-[var(--line)] bg-black">
       {kind === "video" && source ? (
         <video
           key={mediaUrl}
@@ -43,16 +43,72 @@ function WallpaperThumb({
         </div>
       )}
       {paused && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50 font-mono text-[9px] uppercase tracking-widest text-amber-200">
-          paused
+        <div className="absolute inset-0 flex items-center justify-center bg-black/55 backdrop-blur-[2px]">
+          <span className="flex items-center gap-1.5 rounded-md bg-black/60 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-amber-300">
+            paused
+          </span>
         </div>
       )}
     </div>
   );
 }
 
+/** Technical readout: tiny uppercase label over a mono value. */
+function Metric({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <div className="kicker">{label}</div>
+      <div
+        className={`lednum mt-1 truncate text-[15px] leading-tight ${
+          accent ? "text-[rgb(var(--glow))]" : "text-[var(--text)]"
+        }`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+/** One row in the engine's device table: live color + name + LED count. */
+function DeviceRow({
+  name,
+  typeName,
+  leds,
+  color,
+  excluded,
+}: {
+  name: string;
+  typeName: string;
+  leds: number;
+  color?: [number, number, number];
+  excluded: boolean;
+}) {
+  const c = color;
+  return (
+    <div className="flex items-center gap-3 border-t border-[var(--line)] py-2 first:border-t-0">
+      <span
+        className="h-6 w-6 shrink-0 rounded-md border border-[var(--line-strong)] transition-colors duration-500"
+        style={{
+          background: c && !excluded ? `rgb(${c[0]} ${c[1]} ${c[2]})` : "var(--panel-sunken)",
+          boxShadow:
+            c && !excluded ? `inset 0 0 8px -2px rgb(${c[0]} ${c[1]} ${c[2]})` : undefined,
+        }}
+      />
+      <div className="min-w-0 flex-1">
+        <div className={`truncate text-[13px] font-medium ${excluded ? "text-[var(--text-faint)] line-through" : "text-[var(--text)]"}`}>
+          {name}
+        </div>
+        <div className="font-mono text-[10px] text-[var(--text-faint)]">{typeName}</div>
+      </div>
+      <span className="shrink-0 font-mono text-[11px] tabular-nums text-[var(--text-dim)]">
+        {leds.toLocaleString()} LED{leds === 1 ? "" : "s"}
+      </span>
+    </div>
+  );
+}
+
 export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) => void }) {
-  const { cfg, rgb, wallpaperPaused, deviceColors } = useStore();
+  const { cfg, rgb, wallpaperPaused, deviceColors, save } = useStore();
 
   if (!cfg) return null;
 
@@ -61,8 +117,13 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
   const excluded = new Set(cfg.rgb.excludedDevices);
   const activeDevices = rgb.devices.filter((d) => !excluded.has(d.id));
   const ledActive = activeDevices.reduce((n, d) => n + d.leds, 0);
+  const ledTotal = rgb.devices.reduce((n, d) => n + d.leds, 0);
   const paused = !cfg.general.wallpaperEnabled || wallpaperPaused;
   const idleOn = cfg.rgb.idleTimeoutSec > 0;
+  const nightOn = !!cfg.rgb.nightStart && !!cfg.rgb.nightEnd;
+  const playlistOn = (cfg.playlists ?? []).some((p) => p.enabled);
+  const scenes = cfg.scenes ?? [];
+  const pmCount = Object.keys(cfg.wallpaper.perMonitor ?? {}).length;
   const wallpaperName =
     cfg.wallpaper.kind === "shader"
       ? (SHADERS.find((s) => s.id === cfg.wallpaper.source)?.label ?? cfg.wallpaper.source)
@@ -70,173 +131,278 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
         ? basename(cfg.wallpaper.source)
         : "Nothing applied";
 
-  const shortcuts = [
-    {
-      id: "rgb",
-      label: "Lighting",
-      detail: rgb.connected
-        ? `${activeDevices.length}/${rgb.devices.length} devices · ${ledActive.toLocaleString()} LEDs live`
-        : "OpenRGB offline",
-      Icon: IconBulb,
-    },
-    {
-      id: "wallpaper",
-      label: "Wallpaper",
-      detail: `${cfg.gallery.length} in vault · ${wallpaperName}`,
-      Icon: IconImage,
-    },
-    {
-      id: "stickers",
-      label: "Stickers",
-      detail: stickers.length
-        ? `${visibleStickers.length}/${stickers.length} visible`
-        : "none placed yet",
-      Icon: IconSticker,
-    },
-  ];
+  const togglePause = () => {
+    if (!cfg) return;
+    save((c) => (c.general.wallpaperEnabled = !c.general.wallpaperEnabled));
+  };
 
   return (
-    <div className="stagger space-y-6">
-      {/* Row 1: wallpaper identity + live system status */}
-      <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
-        <Card title="Current wallpaper">
-          <div className="flex items-center gap-5">
-            <WallpaperThumb
-              kind={cfg.wallpaper.kind}
-              source={cfg.wallpaper.source}
-              paused={paused}
-            />
-            <div className="min-w-0 flex-1">
-              <div className="lednum truncate text-lg text-[var(--text)]">{wallpaperName}</div>
-              <div className="mt-1 truncate font-mono text-[11px] text-[var(--text-faint)]">
+    <div className="stagger space-y-5">
+      {/* ===== row 1: now playing + engine ===== */}
+      <div className="grid gap-5 xl:grid-cols-12">
+        {/* Now playing — spans 5 */}
+        <Card title="Now playing" right={
+          <Chip tone={paused ? "warn" : "ok"} pulse={!paused}>
+            {paused ? "paused" : "live"}
+          </Chip>
+        }>
+          <div className="flex gap-4">
+            <div className="w-44 shrink-0 self-stretch">
+              <WallpaperThumb
+                kind={cfg.wallpaper.kind}
+                source={cfg.wallpaper.source}
+                paused={paused}
+              />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="lednum truncate text-base text-[var(--text)]">{wallpaperName}</div>
+              <div className="mt-1 font-mono text-[10.5px] capitalize text-[var(--text-faint)]">
                 {cfg.wallpaper.kind}
+                {pmCount > 0 && ` · ${pmCount} override${pmCount === 1 ? "" : "s"}`}
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  onClick={() => onNavigate("wallpaper")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--panel)] px-2.5 py-1 text-xs font-semibold text-[var(--text-dim)] transition-all hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
-                >
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
+                <Metric label="vault" value={`${cfg.gallery.length}`} />
+                <Metric label="playlist" value={playlistOn ? "rotating" : "off"} />
+              </div>
+              <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
+                <Btn size="sm" variant="primary" onClick={() => onNavigate("wallpaper")}>
                   Change
-                </button>
-                {paused && (
-                  <span className="inline-flex items-center rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-amber-300">
-                    paused
-                  </span>
-                )}
+                </Btn>
+                <Btn size="sm" onClick={togglePause}>
+                  {paused ? (
+                    <>
+                      <IconPlay className="h-3.5 w-3.5" />
+                      Resume
+                    </>
+                  ) : (
+                    <>
+                      <IconPause className="h-3.5 w-3.5" />
+                      Pause
+                    </>
+                  )}
+                </Btn>
               </div>
             </div>
           </div>
         </Card>
 
-        <Card title="Lighting engine">
-          <div className="flex items-start justify-between gap-3">
-            <div className="lednum text-lg capitalize text-[var(--text)]">
-              {cfg.rgb.enabled ? cfg.rgb.mode : "off"}
+        {/* Engine — spans 7: mode header, device table, live spectrum */}
+        <Card
+          title="Lighting engine"
+          right={
+            <div className="flex items-center gap-2">
+              <Chip tone={rgb.connected ? "ok" : "danger"} pulse={rgb.connected}>
+                {rgb.connected ? "connected" : "offline"}
+              </Chip>
+              <button
+                onClick={() => onNavigate("rgb")}
+                className="rounded-md border border-[var(--line-strong)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+              >
+                configure
+              </button>
             </div>
-            <Chip tone={rgb.connected ? "ok" : "idle"} pulse={rgb.connected}>
-              {rgb.connected ? "openrgb" : "offline"}
-            </Chip>
-          </div>
-          {/* live color bar per device */}
-          <div className="mt-4 flex gap-1.5">
-            {rgb.connected && activeDevices.length > 0 ? (
-              activeDevices.map((d) => {
-                const c = deviceColors[d.id]?.rgb;
-                return (
-                  <span
-                    key={d.id}
-                    title={`${d.name} · ${d.leds} LEDs`}
-                    className="h-8 min-w-0 flex-1 rounded-md border border-[var(--line)] transition-colors duration-500"
-                    style={{
-                      background: c
-                        ? `rgb(${c[0]} ${c[1]} ${c[2]})`
-                        : "var(--panel-strong)",
-                      boxShadow: c ? `0 0 12px -3px rgb(${c[0]} ${c[1]} ${c[2]})` : undefined,
-                    }}
-                  />
-                );
-              })
-            ) : (
-              <div className="h-8 w-full rounded-md border border-[var(--line)] bg-[var(--panel-strong)]" />
-            )}
-          </div>
-          <div className="mt-3 grid grid-cols-3 gap-2 font-mono text-[11px]">
-            <div>
-              <div className="text-[var(--text-faint)]">devices</div>
-              <div className="text-[var(--text)]">
-                {rgb.connected ? `${activeDevices.length}/${rgb.devices.length}` : "—"}
-              </div>
-            </div>
-            <div>
-              <div className="text-[var(--text-faint)]">leds live</div>
-              <div className="text-[var(--text)]">
-                {rgb.connected ? ledActive.toLocaleString() : "—"}
-              </div>
-            </div>
-            <div>
-              <div className="text-[var(--text-faint)]">idle off</div>
-              <div className="text-[var(--text)]">{idleOn ? `${cfg.rgb.idleTimeoutSec}s` : "no"}</div>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Row 2: displays + stickers */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <DisplaysCard compact />
-
-        <Card title="Stickers">
-          {stickers.length === 0 ? (
-            <button
-              onClick={() => onNavigate("stickers")}
-              className="flex w-full flex-col items-center gap-1.5 rounded-2xl border border-dashed border-[var(--line-strong)] py-7 text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
-            >
-              <IconSticker className="h-5 w-5" />
-              <span className="text-xs font-semibold">Place your first sticker</span>
-            </button>
-          ) : (
-            <div className="space-y-2">
-              {stickers.slice(0, 4).map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2"
-                >
-                  <img
-                    src={s.url}
-                    alt=""
-                    className="h-9 w-9 shrink-0 rounded-lg border border-[var(--line)] bg-black/30 object-contain"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-[var(--text)]">{s.name}</div>
-                    <div className="font-mono text-[10.5px] text-[var(--text-faint)]">
-                      {Math.round(s.w)}×{Math.round(s.h)} · {s.onTop ? "on top" : "wallpaper layer"}
-                    </div>
-                  </div>
-                  <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                      s.visible
-                        ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)]"
-                        : "bg-[var(--text-faint)]"
-                    }`}
-                  />
-                </div>
-              ))}
-              {stickers.length > 4 && (
-                <button
-                  onClick={() => onNavigate("stickers")}
-                  className="text-xs font-semibold text-[var(--text-faint)] transition-colors hover:text-[rgb(var(--glow))]"
-                >
-                  +{stickers.length - 4} more — manage stickers
-                </button>
+          }
+        >
+          {/* mode headline */}
+          <div className="flex items-baseline justify-between gap-3">
+            <div className="flex items-baseline gap-2.5">
+              <span className="lednum text-lg capitalize text-[var(--text)]">
+                {cfg.rgb.enabled ? cfg.rgb.mode : "off"}
+              </span>
+              {cfg.rgb.enabled && rgb.connected && (
+                <span className="font-mono text-[10px] text-[var(--text-faint)]">
+                  {Math.round(cfg.rgb.mixer.brightness * 100)}% bright
+                </span>
               )}
             </div>
-          )}
+            <div className="flex gap-1.5">
+              {nightOn && (
+                <Chip tone="accent">
+                  night {cfg.rgb.nightStart}–{cfg.rgb.nightEnd}
+                </Chip>
+              )}
+              {idleOn && <Chip tone="idle">idle {cfg.rgb.idleTimeoutSec}s</Chip>}
+            </div>
+          </div>
+
+          {/* device table */}
+          <div className="mt-3 max-h-[172px] overflow-y-auto rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] px-3 py-1">
+            {rgb.devices.length === 0 ? (
+              <div className="py-6 text-center text-xs text-[var(--text-faint)]">
+                {rgb.connected ? "No devices reported" : "Start OpenRGB and hit refresh"}
+              </div>
+            ) : (
+              rgb.devices.map((d) => (
+                <DeviceRow
+                  key={d.id}
+                  name={d.name}
+                  typeName={d.typeName}
+                  leds={d.leds}
+                  color={deviceColors[d.id]?.rgb}
+                  excluded={excluded.has(d.id)}
+                />
+              ))
+            )}
+          </div>
+
+          {/* footer metrics + activity spectrum */}
+          <div className="mt-3 flex items-end justify-between gap-4">
+            <div className="grid flex-1 grid-cols-3 gap-x-4">
+              <Metric
+                label="devices"
+                value={rgb.connected ? `${activeDevices.length}/${rgb.devices.length}` : "—"}
+              />
+              <Metric label="leds live" value={ledActive.toLocaleString()} accent />
+              <Metric label="of total" value={ledTotal.toLocaleString()} />
+            </div>
+            {/* live spectrum strip: one cell per device, fills by share of LEDs */}
+            {rgb.connected && rgb.devices.length > 0 && (
+              <div className="flex h-9 w-40 shrink-0 items-end gap-[3px]">
+                {rgb.devices.map((d) => {
+                  const c = deviceColors[d.id]?.rgb;
+                  const share = ledTotal ? Math.max(6, Math.round((d.leds / ledTotal) * 100)) : 10;
+                  return (
+                    <span
+                      key={d.id}
+                      title={`${d.name} · ${d.leds} LEDs`}
+                      className="min-w-0 flex-1 rounded-[3px] border border-[var(--line)] transition-all duration-500"
+                      style={{
+                        height: `${excluded.has(d.id) ? 20 : share}%`,
+                        background: c && !excluded.has(d.id) ? `rgb(${c[0]} ${c[1]} ${c[2]})` : "var(--panel-sunken)",
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </Card>
       </div>
 
-      {/* Shortcut cards */}
+      {/* ===== row 2: displays + stickers ===== */}
+      <div className="grid gap-5 xl:grid-cols-12">
+        <div className="xl:col-span-7">
+          <DisplaysCard compact />
+        </div>
+        <div className="xl:col-span-5">
+          <Card title="Stickers" right={
+            stickers.length > 0 ? (
+              <span className="font-mono text-[10px] text-[var(--text-faint)]">
+                {visibleStickers.length}/{stickers.length} visible
+              </span>
+            ) : undefined
+          }>
+            {stickers.length === 0 ? (
+              <button
+                onClick={() => onNavigate("stickers")}
+                className="flex w-full flex-col items-center gap-1.5 rounded-lg border border-dashed border-[var(--line-strong)] py-6 text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+              >
+                <IconSticker className="h-5 w-5" />
+                <span className="text-xs font-semibold">Place your first sticker</span>
+              </button>
+            ) : (
+              <div className="space-y-1.5">
+                {stickers.slice(0, 3).map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex items-center gap-3 rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] px-3 py-2"
+                  >
+                    <img
+                      src={s.url}
+                      alt=""
+                      className="h-8 w-8 shrink-0 rounded-md border border-[var(--line)] bg-black/30 object-contain"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-medium text-[var(--text)]">{s.name}</div>
+                      <div className="font-mono text-[10px] text-[var(--text-faint)]">
+                        {Math.round(s.w)}×{Math.round(s.h)} · {s.onTop ? "on top" : "wallpaper layer"}
+                      </div>
+                    </div>
+                    <span
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                        s.visible
+                          ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)]"
+                          : "bg-[var(--text-faint)]"
+                      }`}
+                    />
+                  </div>
+                ))}
+                {stickers.length > 3 && (
+                  <button
+                    onClick={() => onNavigate("stickers")}
+                    className="px-1 text-xs font-semibold text-[var(--text-faint)] transition-colors hover:text-[rgb(var(--glow))]"
+                  >
+                    +{stickers.length - 3} more — manage stickers
+                  </button>
+                )}
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+
+      {/* ===== row 3: scenes + shortcuts ===== */}
+      <div className="grid gap-5 xl:grid-cols-12">
+        {scenes.length > 0 && (
+          <Card title="Scenes" right={
+            <button
+              onClick={() => onNavigate("general")}
+              className="rounded-md border border-[var(--line-strong)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+            >
+              manage
+            </button>
+          }>
+            <div className="flex flex-wrap gap-2">
+              {scenes.slice(0, 5).map((s) => (
+                <button
+                  key={s.id}
+                  onClick={async () => {
+                    try {
+                      const { api } = await import("../../ipc");
+                      await api.sceneApply(s.id);
+                      useStore.getState().toast("ok", `Scene "${s.name}" applied`);
+                    } catch {
+                      useStore.getState().toast("error", "Apply failed");
+                    }
+                  }}
+                  className="rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-1.5 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          </Card>
+        )}
+      </div>
+
+      {/* jump links */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {shortcuts.map(({ id, label, detail, Icon }) => (
+        {(
+          [
+            {
+              id: "rgb",
+              label: "Lighting",
+              detail: rgb.connected
+                ? `${cfg.rgb.mode} · ${ledActive.toLocaleString()} LEDs`
+                : "Connect OpenRGB",
+              Icon: IconBulb,
+            },
+            {
+              id: "wallpaper",
+              label: "Wallpaper",
+              detail: `${cfg.gallery.length} in vault · ${playlistOn ? "rotating" : wallpaperName}`,
+              Icon: IconImage,
+            },
+            {
+              id: "stickers",
+              label: "Stickers",
+              detail: stickers.length
+                ? `${visibleStickers.length}/${stickers.length} visible`
+                : "none placed yet",
+              Icon: IconSticker,
+            },
+          ] as const
+        ).map(({ id, label, detail, Icon }) => (
           <button
             key={id}
             onClick={() => onNavigate(id)}
@@ -251,6 +417,9 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             </span>
           </button>
         ))}
+      </div>
+
+      <div className="flex justify-end">
         <RefreshBtn />
       </div>
     </div>

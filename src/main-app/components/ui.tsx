@@ -41,7 +41,7 @@ export function Section({
   );
 }
 
-/** Frosted-glass panel with a quiet section header. */
+/** Console panel: flat tile with a hairline header rule. */
 export function Card({
   title,
   children,
@@ -52,22 +52,12 @@ export function Card({
   right?: ReactNode;
 }) {
   return (
-    <section className="glass">
-      {/* top edge light */}
-      <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
-      <div className="relative p-5">
-        <header className="mb-4 flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            {/* quiet color key: ties the card to the live accent */}
-            <span className="h-3.5 w-[3px] shrink-0 rounded-full bg-[rgb(var(--glow))] opacity-70 shadow-[0_0_6px_rgb(var(--glow)/0.8)]" />
-            <h2 className="truncate text-[13px] font-semibold tracking-tight text-[var(--text)]">
-              {title}
-            </h2>
-          </div>
-          {right}
-        </header>
-        {children}
-      </div>
+    <section className="glass overflow-hidden">
+      <header className="flex min-h-[42px] items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4">
+        <h2 className="kicker !text-[var(--text-dim)]">{title}</h2>
+        {right}
+      </header>
+      <div className="relative p-4">{children}</div>
     </section>
   );
 }
@@ -90,15 +80,15 @@ export function Chip({
     accent: "bg-[rgb(var(--glow))]",
   }[tone];
   const frame = {
-    ok: "border-emerald-500/25 text-emerald-300",
-    warn: "border-amber-500/25 text-amber-300",
-    danger: "border-red-500/30 text-red-300",
-    idle: "border-[var(--line)] text-[var(--text-dim)]",
-    accent: "border-[rgb(var(--glow)/0.35)] text-[rgb(var(--glow))]",
+    ok: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+    warn: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+    danger: "border-red-500/30 bg-red-500/10 text-red-300",
+    idle: "border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-dim)]",
+    accent: "border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.1)] text-[rgb(var(--glow))]",
   }[tone];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 font-mono text-[10px] font-medium tracking-wide ${frame}`}
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] ${frame}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${dot} ${pulse ? "animate-[lpulse_2s_ease-in-out_infinite]" : ""}`} />
       {children}
@@ -131,17 +121,17 @@ export function Toggle({
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`switch-btn relative h-6 w-11 shrink-0 rounded-full border transition-all duration-200 ${
+        className={`switch-btn relative h-[22px] w-[38px] shrink-0 rounded-md border transition-all duration-200 ${
           checked
-            ? "border-transparent bg-[rgb(var(--glow))] shadow-[0_2px_14px_-2px_rgb(var(--glow)/0.7)]"
-            : "border-[var(--line-strong)] bg-[var(--panel-strong)]"
+            ? "border-transparent bg-[rgb(var(--glow))]"
+            : "border-[var(--line-strong)] bg-[var(--panel-sunken)]"
         }`}
       >
         {/* ripple burst on toggle */}
-        <span key={String(checked)} className="switch-ripple absolute inset-0 rounded-full" />
+        <span key={String(checked)} className="switch-ripple absolute inset-0 rounded-md" />
         <span
-          className={`absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all duration-200 ${
-            checked ? "left-[24px]" : "left-[3px]"
+          className={`absolute top-[3px] h-[14px] w-[16px] rounded-[3px] bg-white shadow transition-all duration-200 ${
+            checked ? "left-[19px]" : "left-[3px]"
           }`}
         />
       </button>
@@ -266,10 +256,10 @@ export function Dropdown<T extends string | number>({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors ${
+        className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
           open
             ? "border-[rgb(var(--glow)/0.6)]"
-            : "border-[var(--line)] hover:border-[var(--line-strong)]"
+            : "border-[var(--line-strong)] hover:border-[rgb(var(--glow)/0.5)]"
         } bg-[var(--panel-strong)] text-[var(--text)]`}
       >
         <span className="min-w-0 truncate">{current?.label ?? String(value)}</span>
@@ -288,7 +278,7 @@ export function Dropdown<T extends string | number>({
       {open && (
         <div
           role="listbox"
-          className="page-enter-header absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-64 overflow-y-auto rounded-xl border border-[var(--line)] bg-[color-mix(in_srgb,var(--bg)_92%,transparent)] p-1 shadow-[0_20px_50px_-16px_rgb(0_0_0/0.7)] backdrop-blur-xl"
+          className="page-enter-header absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-64 overflow-y-auto rounded-lg border border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] p-1 shadow-[0_20px_50px_-16px_rgb(0_0_0/0.7)] backdrop-blur-xl"
         >
           {options.map((o) => {
             const active = o.id === value;
@@ -302,7 +292,7 @@ export function Dropdown<T extends string | number>({
                   onChange(o.id);
                   setOpen(false);
                 }}
-                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
+                className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
                   active
                     ? "bg-[rgb(var(--glow)/0.12)] font-semibold text-[rgb(var(--glow))]"
                     : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
@@ -336,16 +326,16 @@ export function Btn({
 }) {
   const styles = {
     default:
-      "border border-[var(--line)] bg-[var(--panel-strong)] text-[var(--text)] hover:border-[var(--line-strong)] hover:brightness-110",
-    primary: "glow-fill border-transparent text-[#06121f]",
+      "border border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text)] hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]",
+    primary: "glow-fill border-transparent",
     danger:
-      "border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:shadow-[0_8px_24px_-10px_rgba(239,68,68,0.5)]",
+      "border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20",
     ghost: "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]",
   }[variant];
   const sizing =
     size === "sm"
-      ? "rounded-lg px-2.5 py-1.5 text-xs"
-      : "rounded-xl px-4 py-2.5 text-sm";
+      ? "rounded-md px-2.5 py-1.5 text-xs"
+      : "rounded-lg px-4 py-2 text-sm";
   return (
     <button
       onClick={onClick}
@@ -641,7 +631,7 @@ export function TextInput({
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-3.5 py-2.5 text-sm text-[var(--text)] placeholder-[var(--text-faint)] shadow-inner outline-none transition-colors hover:border-[var(--line-strong)] focus:border-[rgb(var(--glow)/0.6)]"
+      className="w-full rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-2 text-sm text-[var(--text)] placeholder-[var(--text-faint)] outline-none transition-colors hover:border-[rgb(var(--glow)/0.5)] focus:border-[rgb(var(--glow)/0.6)]"
     />
   );
 }
@@ -671,7 +661,7 @@ export function NumberField({
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-3.5 py-2.5 font-mono text-sm text-[var(--text)] shadow-inner outline-none transition-colors hover:border-[var(--line-strong)] focus:border-[rgb(var(--glow)/0.6)]"
+        className="w-full rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-2 font-mono text-sm text-[var(--text)] outline-none transition-colors hover:border-[rgb(var(--glow)/0.5)] focus:border-[rgb(var(--glow)/0.6)]"
       />
     </label>
   );
@@ -720,7 +710,7 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center gap-3.5 rounded-2xl border border-dashed border-[var(--line-strong)] px-8 py-14 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--panel-strong)] text-[var(--text-faint)]">
+      <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-faint)]">
         {icon}
       </div>
       <div>
@@ -753,13 +743,13 @@ export function IconBox({
   }[size];
   const iconSize = { sm: "h-3.5 w-3.5", md: "h-[18px] w-[18px]", lg: "h-5 w-5" }[size];
   const border = {
-    neutral: "border-[var(--line)] bg-[var(--panel-strong)] text-[var(--text-dim)]",
-    glow: "border-[rgb(var(--glow)/0.25)] bg-[rgb(var(--glow)/0.08)] text-[rgb(var(--glow))]",
-    amber: "border-amber-500/25 bg-amber-500/10 text-amber-300",
+    neutral: "border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-dim)]",
+    glow: "border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.1)] text-[rgb(var(--glow))]",
+    amber: "border-amber-500/30 bg-amber-500/10 text-amber-300",
   }[variant];
   return (
     <span
-      className={`flex shrink-0 items-center justify-center rounded-xl border ${sizeClass} ${border} ${className ?? ""}`}
+      className={`flex shrink-0 items-center justify-center rounded-lg border ${sizeClass} ${border} ${className ?? ""}`}
     >
       <span className={iconSize}>{children}</span>
     </span>
