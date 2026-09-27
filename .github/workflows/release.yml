@@ -65,9 +65,13 @@ jobs:
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
             throw "Set the TAURI_SIGNING_PRIVATE_KEY GitHub Actions secret before publishing."
+          }
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
+            throw "Set the TAURI_SIGNING_PRIVATE_KEY_PASSWORD GitHub Actions secret before publishing."
           }
           $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
           if (-not $config.plugins.updater.pubkey) {

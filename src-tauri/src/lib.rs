@@ -286,6 +286,8 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         // Serve local media to webviews over http://media.localhost (WebView2
         // treats custom schemes this way, which enables range requests).
         .register_uri_scheme_protocol("media", |_ctx, request| {
@@ -331,10 +333,8 @@ pub fn run() {
             ipc::duplicate_sticker,
             ipc::reorder_sticker,
             ipc::is_paused,
-            ipc::check_for_update,
             ipc::set_live_frame,
             ipc::monitors,
-            ipc::open_url,
             ipc::quit,
             ipc::factory_reset,
             ipc::collection_create,

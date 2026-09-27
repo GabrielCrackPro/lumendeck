@@ -1097,111 +1097,6 @@ pub fn is_paused() -> bool {
     crate::wallpaper::is_paused()
 }
 
-// ---------- Misc ----------
-
-/// What the update check reports. `Update` carries the info needed to act
-/// on it; `UpToDate` and `Unknown` are separate so the UI can tell "no update"
-/// apart from "the check itself failed" (offline, rate-limited, ...).
-#[derive(serde::Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum UpdateCheck {
-    Update {
-        version: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        url: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        notes: Option<String>,
-    },
-    UpToDate,
-    /// The check could not complete (network, GitHub error, bad payload).
-    Unknown { reason: String },
-}
-
-/// Probe the public GitHub releases for a version newer than ours. Network or
-/// parse problems yield `Unknown` — distinguishable from a clean "up to date".
-#[tauri::command]
-pub async fn check_for_update() -> UpdateCheck {
-    const RELEASES_URL: &str =
-        "https://api.github.com/repos/GabrielCrackPro/lumendeck/releases/latest";
-    let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(8))
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => return UpdateCheck::Unknown { reason: e.to_string() },
-    };
-    let resp = match client
-        .get(RELEASES_URL)
-        .header("User-Agent", "LumenDeck")
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return UpdateCheck::Unknown { reason: e.to_string() },
-    };
-    if !resp.status().is_success() {
-        return UpdateCheck::Unknown {
-            reason: format!("GitHub returned HTTP {}", resp.status().as_u16()),
-        };
-    }
-    #[derive(serde::Deserialize)]
-    struct Release {
-        tag_name: String,
-        #[serde(default)]
-        html_url: String,
-        #[serde(default)]
-        body: String,
-    }
-    let Ok(rel) = resp.json::<Release>().await else {
-        return UpdateCheck::Unknown {
-            reason: "unexpected GitHub response".into(),
-        };
-    };
-    let latest = rel.tag_name.trim_start_matches('v').to_string();
-    let current = env!("CARGO_PKG_VERSION");
-    if !version_newer(&latest, current) {
-        return UpdateCheck::UpToDate;
-    }
-    // First paragraph of the release notes (markdown stripped lightly) as a
-    // one-line summary; the full notes are one click away via `url`.
-    let notes = rel
-        .body
-        .lines()
-        .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
-        .map(|l| {
-            l.trim()
-                .trim_start_matches("- ")
-                .trim_start_matches("* ")
-                .chars()
-                .take(140)
-                .collect::<String>()
-        });
-    let url = (!rel.html_url.is_empty()).then_some(rel.html_url);
-    UpdateCheck::Update {
-        version: latest,
-        url,
-        notes,
-    }
-}
-
-/// Semantic-ish comparison: split on dots, numeric segments.
-fn version_newer(candidate: &str, current: &str) -> bool {
-    let parse = |s: &str| -> Vec<u64> {
-        s.split('.')
-            .map(|p| p.trim().parse().unwrap_or(0))
-            .collect()
-    };
-    let (a, b) = (parse(candidate), parse(current));
-    for i in 0..a.len().max(b.len()) {
-        let (x, y) = (a.get(i).copied().unwrap_or(0), b.get(i).copied().unwrap_or(0));
-        if x != y {
-            return x > y;
-        }
-    }
-    false
-}
-
 /// The active wallpaper webview pushes a real decoded frame here (JPEG,
 /// captured from its presentation canvas). Installed as the static fallback
 /// AND the Windows desktop/lock-screen background — always a genuine frame
@@ -1222,24 +1117,6 @@ pub fn set_live_frame(
 #[tauri::command]
 pub fn monitors() -> Vec<crate::win32::MonitorRect> {
     crate::win32::monitors()
-}
-
-/// Open an https URL in the user's default browser. Only https is allowed —
-/// this is reachable from any webview, so file://, ms-store:// and friends
-/// must not pass through.
-#[tauri::command]
-pub fn open_url(url: String) -> Result<(), String> {
-    if !url.starts_with("https://") {
-        return Err(format!("refusing to open non-https url: {url}"));
-    }
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-    Command::new("cmd")
-        .args(["/C", "start", "", &url])
-        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 #[tauri::command]

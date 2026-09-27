@@ -1,50 +1,62 @@
-//! Save the current wallpaper as a static image and apply it as the Windows
-//! desktop + lock screen background, so the user has a matching wallpaper if
-//! LumenDeck is closed.
-
 #![cfg(windows)]
 
 use crate::config::{WallpaperConfig, WallpaperKind};
 use crate::media;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-/// Track the last wallpaper source we applied as a background, so we don't
-/// re-set it on every unrelated config save.
 static LAST_SOURCE: Mutex<String> = Mutex::new(String::new());
 
-/// Hash of the last live frame pushed — dedupes identical frames so the OS
-/// background isn't repainted (flicker) when nothing changed.
 static LAST_FRAME_HASH: Mutex<Option<u64>> = Mutex::new(None);
 
-/// Coalescing job slot for the background worker: holds the latest requested
-/// config while a previous capture is still running. Rapid config saves
-/// (dragging sliders) collapse into at most one pending capture.
 static PENDING: Mutex<Option<WallpaperConfig>> = Mutex::new(None);
+static WORKER_RUNNING: AtomicBool = AtomicBool::new(false);
 
-/// Queue a static-background capture on the dedicated worker thread. Captures
-/// (especially Shell video thumbnails on 4K files) block for 100ms+ — doing
-/// that inline stalled the config-save and IPC paths.
 pub fn request_bg(cfg: WallpaperConfig) {
-    // Coalesce: drop any queued-but-not-started request, keep only the latest.
     if let Ok(mut slot) = PENDING.lock() {
         *slot = Some(cfg);
     }
-    std::thread::Builder::new()
-        .name("wallpaper-bg".into())
-        .spawn(| | {
-            loop {
-                let job = PENDING.lock().ok().and_then(|mut s| s.take());
-                let Some(cfg) = job else { break };
-                apply_bg(&cfg);
-            }
-        })
-        .ok();
-    // Note: multiple worker threads can briefly coexist (each spawn drains
-    // until the slot is empty); LAST_SOURCE keeps the work idempotent.
+    start_worker();
 }
 
-/// Resolved background image path under %APPDATA%/LumenDeck/.
+fn start_worker() {
+    if WORKER_RUNNING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+
+    let spawned = std::thread::Builder::new()
+        .name("wallpaper-bg".into())
+        .spawn(|| loop {
+            let job = PENDING.lock().ok().and_then(|mut slot| slot.take());
+            if let Some(cfg) = job {
+                apply_bg(&cfg);
+                continue;
+            }
+            WORKER_RUNNING.store(false, Ordering::Release);
+            let has_pending = PENDING
+                .lock()
+                .map(|slot| slot.is_some())
+                .unwrap_or(false);
+            if has_pending
+                && WORKER_RUNNING
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+            {
+                continue;
+            }
+            break;
+        });
+
+    if let Err(error) = spawned {
+        WORKER_RUNNING.store(false, Ordering::Release);
+        log::warn!("wallpaper-bg: worker spawn failed: {error}");
+    }
+}
+
 fn bg_path() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -52,8 +64,6 @@ fn bg_path() -> PathBuf {
         .join("wallpaper-bg.jpg")
 }
 
-/// Servable URL for the static fallback frame, for the wallpaper webview's
-/// under-video layer. Empty string when no snapshot exists yet.
 pub fn bg_media_url() -> String {
     let p = bg_path();
     if p.is_file() {
@@ -63,14 +73,7 @@ pub fn bg_media_url() -> String {
     }
 }
 
-/// Install a live frame captured by the wallpaper webview itself. Called via
-/// the `set_live_frame` IPC command after the webview blits a real decoded
-/// frame. This is the highest-fidelity fallback: an actual mid-playback frame
-/// (Shell thumbnails can be stale, generic, or fail entirely).
-/// Also pushes it as the Windows desktop + lock-screen background.
-/// Returns false when the payload is not usable, so the caller can fall back.
 pub fn install_live_frame(jpeg: &[u8], source: &str) -> bool {
-    // Sanity: must be a plausible JPEG (SOI marker) and non-trivial size.
     if jpeg.len() < 4_096 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 {
         return false;
     }
@@ -83,20 +86,14 @@ pub fn install_live_frame(jpeg: &[u8], source: &str) -> bool {
         log::warn!("wallpaper-bg: live frame write failed: {e}");
         return false;
     }
-    // This frame corresponds to `source`; remember it so the async worker
-    // doesn't immediately overwrite it with a Shell thumbnail of the same file.
     if let Ok(mut last) = LAST_SOURCE.lock() {
-        *last = source.to_string();
+        *last = wallpaper_key(WallpaperKind::Video, source, "");
     }
-    // Only re-apply the OS background when the frame actually differs from
-    // the last one pushed (same-size JPEGs of near-identical frames still
-    // differ, so compare content): SystemParametersInfoW triggers a desktop
-    // repaint, and two monitors pushing every 5 min each = visible flicker.
     {
         let mut last = LAST_FRAME_HASH.lock().expect("frame hash poisoned");
         let hash = fnv_hash(jpeg);
         if *last == Some(hash) {
-            return true; // frame identical; skip the OS repaint
+            return true;
         }
         *last = Some(hash);
     }
@@ -111,8 +108,6 @@ pub fn install_live_frame(jpeg: &[u8], source: &str) -> bool {
     true
 }
 
-/// FNV-1a hash of frame bytes — enough to detect "identical frame" without
-/// hashing collisions mattering in practice.
 fn fnv_hash(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for &b in bytes {
@@ -122,7 +117,6 @@ fn fnv_hash(bytes: &[u8]) -> u64 {
     h
 }
 
-/// Resolve the wallpaper source to a local file path (images and videos only).
 fn resolve_file(source: &str) -> Option<PathBuf> {
     let raw = media::decode_media_ref(source);
     if raw.is_file() {
@@ -132,20 +126,24 @@ fn resolve_file(source: &str) -> Option<PathBuf> {
     }
 }
 
-/// Capture the current wallpaper as a static JPEG and set it as the Windows
-/// desktop + lock screen background. Called whenever the wallpaper changes.
-///
-/// - **Images**: copied directly (no re-encode).
-/// - **Videos**: a poster frame is extracted via the Shell thumbnail API.
-/// - **Shaders / Web**: no static fallback available; silently skipped.
+fn wallpaper_key(kind: WallpaperKind, source: &str, slideshow_folder: &str) -> String {
+    let source = match kind {
+        WallpaperKind::Video | WallpaperKind::Image => {
+            media::decode_media_ref(source)
+                .to_string_lossy()
+                .replace('/', "\\")
+        }
+        WallpaperKind::Slideshow | WallpaperKind::Web | WallpaperKind::Shader => source.to_string(),
+    };
+    format!("{kind:?}:{source}:{slideshow_folder}")
+}
+
 pub fn apply_bg(cfg: &WallpaperConfig) {
-    // Skip if the wallpaper source hasn't changed since the last apply.
     let mut last = LAST_SOURCE.lock().expect("last_source poisoned");
-    if *last == cfg.source {
+    let key = wallpaper_key(cfg.kind, &cfg.source, &cfg.slideshow.folder);
+    if *last == key {
         return;
     }
-    *last = cfg.source.clone();
-
     let out = bg_path();
     if let Err(e) = std::fs::create_dir_all(out.parent().unwrap()) {
         log::warn!("wallpaper-bg: create dir failed: {e}");
@@ -163,6 +161,7 @@ pub fn apply_bg(cfg: &WallpaperConfig) {
     };
 
     if ok {
+        *last = key;
         set_desktop_wallpaper(&out);
         if lock_screen_follows() {
             set_lock_screen_wallpaper(&out);
@@ -175,10 +174,6 @@ pub fn apply_bg(cfg: &WallpaperConfig) {
 fn lock_screen_follows() -> bool {
     crate::config_store::get().general.lock_screen_follows_wallpaper
 }
-
-// ---------------------------------------------------------------------------
-// Per-kind helpers
-// ---------------------------------------------------------------------------
 
 fn apply_image(source: &str, out: &PathBuf) -> bool {
     let Some(path) = resolve_file(source) else {
@@ -215,28 +210,12 @@ fn apply_video_frame(source: &str, out: &PathBuf) -> bool {
 }
 
 fn apply_slideshow(cfg: &WallpaperConfig, out: &PathBuf) -> bool {
-    // Use the first image in the slideshow folder as the static fallback.
     let folder = std::path::PathBuf::from(&cfg.slideshow.folder);
     if !folder.is_dir() {
         log::warn!("wallpaper-bg: slideshow folder not found: {}", cfg.slideshow.folder);
         return false;
     }
-    let exts: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp"];
-    let mut first: Option<PathBuf> = None;
-    if let Ok(entries) = std::fs::read_dir(&folder) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.is_file() {
-                if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-                    if exts.contains(&ext.to_ascii_lowercase().as_str()) {
-                        first = Some(p);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    let Some(path) = first else {
+    let Some(path) = slideshow_image(&folder) else {
         log::warn!("wallpaper-bg: no images in slideshow folder");
         return false;
     };
@@ -252,9 +231,28 @@ fn apply_slideshow(cfg: &WallpaperConfig, out: &PathBuf) -> bool {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Video frame extraction via Windows Shell (same approach as thumbs.rs)
-// ---------------------------------------------------------------------------
+fn slideshow_image(folder: &std::path::Path) -> Option<PathBuf> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(folder)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(is_slideshow_image_extension)
+        })
+        .collect();
+    paths.sort();
+    paths.into_iter().next()
+}
+
+fn is_slideshow_image_extension(extension: &str) -> bool {
+    ["png", "jpg", "jpeg", "webp", "bmp"]
+        .iter()
+        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+}
 
 fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), String> {
     use windows::core::{Interface, HSTRING};
@@ -277,7 +275,6 @@ fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), St
         let factory: IShellItemImageFactory =
             item.cast().map_err(|e| format!("cast: {e}"))?;
 
-        // Request a monitor-sized thumbnail for best quality.
         let hbitmap: HBITMAP = factory
             .GetImage(
                 SIZE { cx: 1920, cy: 1080 },
@@ -285,7 +282,6 @@ fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), St
             )
             .map_err(|e| format!("GetImage: {e}"))?;
 
-        // DDB → top-down 32bpp DIB.
         let hdc = GetDC(None);
         let mut bmi = BITMAPINFO::default();
         bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
@@ -315,7 +311,6 @@ fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), St
             return Err("GetDIBits failed".into());
         }
 
-        // BGRA → RGB for JPEG encoding.
         for px in pixels.chunks_exact_mut(4) {
             px.swap(0, 2);
         }
@@ -330,10 +325,6 @@ fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), St
         Ok(())
     }
 }
-
-// ---------------------------------------------------------------------------
-// Win32 wallpaper setting
-// ---------------------------------------------------------------------------
 
 fn set_desktop_wallpaper(path: &PathBuf) {
     use windows::core::HSTRING;
@@ -358,6 +349,7 @@ fn set_desktop_wallpaper(path: &PathBuf) {
 }
 
 fn set_lock_screen_wallpaper(path: &PathBuf) {
+    use std::os::windows::ffi::OsStrExt;
     use windows::Win32::System::Registry::{
         RegCreateKeyExW, RegOpenKeyExW, RegSetValueExW, RegCloseKey, HKEY_CURRENT_USER,
         KEY_QUERY_VALUE, KEY_SET_VALUE, REG_OPEN_CREATE_OPTIONS, REG_VALUE_TYPE,
@@ -368,9 +360,6 @@ fn set_lock_screen_wallpaper(path: &PathBuf) {
             r"SOFTWARE\Microsoft\Windows\CurrentVersion\Personalization",
         );
         let mut hkey = windows::Win32::System::Registry::HKEY::default();
-        // The key may not exist on systems where the user never customized the
-        // lock screen — open read-write first, fall back to creating it.
-        // (WIN32_ERROR(2) = ERROR_FILE_NOT_FOUND from KEY_SET_VALUE-only open.)
         let sam = KEY_SET_VALUE | KEY_QUERY_VALUE;
         let open_result = RegOpenKeyExW(HKEY_CURRENT_USER, &reg_path, Some(0), sam, &mut hkey);
         if open_result.is_err() {
@@ -392,9 +381,12 @@ fn set_lock_screen_wallpaper(path: &PathBuf) {
         }
 
         let value_name = windows::core::HSTRING::from("LockScreenImage");
-        // Registry REG_SZ requires a null-terminated string.
-        let mut value_bytes = path.to_string_lossy().as_bytes().to_vec();
-        value_bytes.push(0);
+        let value_bytes: Vec<u8> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .flat_map(u16::to_le_bytes)
+            .collect();
         let result = RegSetValueExW(hkey, &value_name, Some(0), REG_VALUE_TYPE(1), Some(&value_bytes));
         let _ = RegCloseKey(hkey);
 
@@ -403,5 +395,58 @@ fn set_lock_screen_wallpaper(path: &PathBuf) {
         } else {
             log::warn!("wallpaper-bg: lock screen reg set failed: {result:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_slideshow_image_extension, slideshow_image, wallpaper_key};
+    use crate::config::WallpaperKind;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn slideshow_image_extensions_are_case_insensitive() {
+        assert!(is_slideshow_image_extension("JpEg"));
+        assert!(!is_slideshow_image_extension("gif"));
+    }
+
+    #[test]
+    fn wallpaper_key_normalizes_media_urls_and_includes_kind_and_folder() {
+        let path = r"C:\Wallpapers\scene one.mp4";
+        let media_url = crate::media::media_url_for_file(path);
+
+        assert_eq!(
+            wallpaper_key(WallpaperKind::Video, path, ""),
+            wallpaper_key(WallpaperKind::Video, &media_url, "")
+        );
+        assert_ne!(
+            wallpaper_key(WallpaperKind::Video, path, ""),
+            wallpaper_key(WallpaperKind::Image, path, "")
+        );
+        assert_ne!(
+            wallpaper_key(WallpaperKind::Slideshow, "", "first"),
+            wallpaper_key(WallpaperKind::Slideshow, "", "second")
+        );
+    }
+
+    #[test]
+    fn slideshow_fallback_selects_the_first_image_in_sorted_order() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let folder = std::env::temp_dir().join(format!("lumendeck-wallpaper-{unique}"));
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("z-last.JPG"), []).unwrap();
+        fs::write(folder.join("a-first.png"), []).unwrap();
+        fs::write(folder.join("ignored.gif"), []).unwrap();
+
+        assert_eq!(
+            slideshow_image(&folder),
+            Some(folder.join("a-first.png"))
+        );
+
+        fs::remove_dir_all(folder).unwrap();
     }
 }

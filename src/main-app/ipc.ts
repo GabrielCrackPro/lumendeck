@@ -32,7 +32,8 @@ export const api = {
     source: string;
     thumb?: string | null;
   }) => invoke<GalleryEntry[]>("gallery_add", entry),
-  galleryRemove: (id: string) => invoke<GalleryEntry[]>("gallery_remove", { id }),
+  galleryRemove: (id: string) =>
+    invoke<GalleryEntry[]>("gallery_remove", { id }),
   galleryApply: (id: string) => invoke<void>("gallery_apply", { id }),
   galleryApplyMonitor: (id: string | null, monitor: string) =>
     invoke<void>("gallery_apply_monitor", { id, monitor }),
@@ -85,15 +86,16 @@ export const api = {
 
   monitors: () =>
     invoke<
-      { device: string; x: number; y: number; w: number; h: number; primary: boolean }[]
+      {
+        device: string;
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+        primary: boolean;
+      }[]
     >("monitors"),
 
-  checkForUpdate: () =>
-    invoke<
-      | { status: "update"; version: string; url?: string; notes?: string }
-      | { status: "up_to_date" }
-      | { status: "unknown"; reason: string }
-    >("check_for_update"),
   quit: () => invoke<void>("quit"),
   factoryReset: () => invoke<void>("factory_reset"),
 };

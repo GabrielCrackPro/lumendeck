@@ -6,6 +6,7 @@ import { EVENTS } from "@shared/constants";
 import type { AudioLevel, Config, DeviceColor, RgbStatus } from "@shared/types";
 import { api } from "./ipc";
 import { truncateError } from "./utilities";
+import type { AvailableUpdate } from "./updater";
 
 export interface Toast {
   id: number;
@@ -23,6 +24,7 @@ interface Store {
   /** Wallpaper's current dominant color — drives the UI glow. */
   wallpaperColor: [number, number, number] | null;
   wallpaperPaused: boolean;
+  updateAvailable: AvailableUpdate | null;
   loaded: boolean;
   /** True while a config save is in flight (optimistic UI already applied). */
   saving: boolean;
@@ -34,6 +36,7 @@ interface Store {
   setAudioLevel: (level: AudioLevel) => void;
   setWallpaperColor: (c: [number, number, number]) => void;
   setWallpaperPaused: (p: boolean) => void;
+  setUpdateAvailable: (update: AvailableUpdate | null) => void;
   /** Transient notifications (auto-dismiss in Shell). */
   toasts: Toast[];
   toast: (tone: Toast["tone"], msg: string) => void;
@@ -41,10 +44,17 @@ interface Store {
 }
 
 /** Invoke with a timeout so a hung command becomes a visible error. */
-async function invokeWithTimeout<T>(cmd: string, args?: Record<string, unknown>, ms = 8000): Promise<T> {
+async function invokeWithTimeout<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+  ms = 8000,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`invoke("${cmd}") timed out after ${ms}ms`)), ms);
+    timer = setTimeout(
+      () => reject(new Error(`invoke("${cmd}") timed out after ${ms}ms`)),
+      ms,
+    );
   });
   try {
     return (await Promise.race([invoke<T>(cmd, args), timeout])) as T;
@@ -55,11 +65,17 @@ async function invokeWithTimeout<T>(cmd: string, args?: Record<string, unknown>,
 
 export const useStore = create<Store>((set, get) => ({
   cfg: null,
-  rgb: { connected: false, protocolVersion: null, devices: [], lastError: null },
+  rgb: {
+    connected: false,
+    protocolVersion: null,
+    devices: [],
+    lastError: null,
+  },
   deviceColors: {},
   audioLevel: { volume: 0, beat: false, deviceName: "" },
   wallpaperColor: null,
   wallpaperPaused: false,
+  updateAvailable: null,
   loaded: false,
   saving: false,
   loadError: null,
@@ -98,7 +114,8 @@ export const useStore = create<Store>((set, get) => ({
     set((s) => ({
       toasts: [...s.toasts, { id: Date.now() + Math.random(), tone, msg }],
     })),
-  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  dismissToast: (id) =>
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
   save: async (mutate) => {
     const current = get().cfg;
@@ -112,7 +129,9 @@ export const useStore = create<Store>((set, get) => ({
     } catch (e) {
       get().toast("error", `Save failed: ${truncateError(e, 140)}`);
       // Re-sync with the truth so the optimistic state doesn't linger.
-      get().load().catch(() => {});
+      get()
+        .load()
+        .catch(() => {});
     } finally {
       set({ saving: false });
     }
@@ -128,6 +147,7 @@ export const useStore = create<Store>((set, get) => ({
   setAudioLevel: (audioLevel) => set({ audioLevel }),
   setWallpaperColor: (wallpaperColor) => set({ wallpaperColor }),
   setWallpaperPaused: (wallpaperPaused) => set({ wallpaperPaused }),
+  setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),
 }));
 
 /** Subscribe to backend events; returns a cleanup fn. */

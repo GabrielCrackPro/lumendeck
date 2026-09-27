@@ -1,6 +1,6 @@
 [package]
 name = "lumendeck"
-version = "0.2.3"
+version = "0.2.4"
 description = "Wallpaper-driven RGB lighting, live wallpapers and screen stickers for Windows."
 edition = "2021"
 
@@ -16,6 +16,8 @@ tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 openrgb = "0.1.2"

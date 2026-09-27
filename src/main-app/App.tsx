@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore, bindEvents } from "./store";
+import { checkForAppUpdate } from "./updater";
 import Shell from "./components/Shell";
 import Onboarding from "./components/Onboarding";
 import { IconRefresh } from "./components/icons";
@@ -27,6 +28,7 @@ const STAGE_LABEL: Record<Stage, string> = {
 
 export default function App() {
   const { cfg, loaded, loadError, load } = useStore();
+  const updateCheckStarted = useRef(false);
   // Splash holds until `ready`; `stage` drives the splash's progress copy.
   const [stage, setStage] = useState<Stage>(0);
   const [ready, setReady] = useState(false);
@@ -39,11 +41,32 @@ export default function App() {
     };
   }, [load]);
 
+  useEffect(() => {
+    if (!loaded || !cfg?.general.onboarded || updateCheckStarted.current)
+      return;
+    updateCheckStarted.current = true;
+    checkForAppUpdate()
+      .then((update) => {
+        if (!update) return;
+        useStore.getState().setUpdateAvailable(update);
+        useStore
+          .getState()
+          .toast(
+            "info",
+            `LumenDeck v${update.version} is ready to install in Settings.`,
+          );
+      })
+      .catch((error) => console.debug("update check unavailable", error));
+  }, [loaded, cfg?.general.onboarded]);
+
   // Stage machine: advance as real readiness signals arrive.
   useEffect(() => {
     if (stage === 0 && loaded) setStage(1);
     // Gate 2's grace: don't wait forever for a first frame.
-    const t = window.setTimeout(() => setStage((s) => Math.max(s, 2) as Stage), FIRST_FRAME_GRACE_MS);
+    const t = window.setTimeout(
+      () => setStage((s) => Math.max(s, 2) as Stage),
+      FIRST_FRAME_GRACE_MS,
+    );
     return () => window.clearTimeout(t);
   }, [loaded, stage]);
 
@@ -112,7 +135,9 @@ function Splash({ stage }: { stage: Stage }) {
           />
         </div>
         <div className="flex flex-col items-center">
-          <div className="lednum text-xl tracking-[0.16em] text-[var(--text)]">LUMEN&nbsp;DECK</div>
+          <div className="lednum text-xl tracking-[0.16em] text-[var(--text)]">
+            LUMEN&nbsp;DECK
+          </div>
           <div className="kicker mt-1.5 h-4 transition-all" key={stage}>
             {STAGE_LABEL[stage]}
           </div>
@@ -161,8 +186,8 @@ function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
         <div>
           <h1 className="lednum text-xl text-[var(--text)]">Backend offline</h1>
           <p className="mt-2 text-sm text-[var(--text-dim)]">
-            LumenDeck couldn&apos;t reach its Rust engine. Make sure the app wasn&apos;t
-            closed and try again.
+            LumenDeck couldn&apos;t reach its Rust engine. Make sure the app
+            wasn&apos;t closed and try again.
           </p>
         </div>
         <pre className="w-full overflow-auto rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-3 text-left font-mono text-[11px] leading-relaxed text-[var(--text-dim)]">

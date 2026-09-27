@@ -12,6 +12,7 @@ mood, and tuning the app, so it's usable within a minute of installing.
 ## Features
 
 ### Wallpaper-driven RGB
+
 - Connects to **OpenRGB** (SDK server on `localhost:6742`) and streams colors to all
   detected devices (keyboards, mice, RGB strips, motherboards…)
 - Modes: **Ambient** (whole-wallpaper dominant color), **Zone sync** (draw rectangles
@@ -25,6 +26,7 @@ mood, and tuning the app, so it's usable within a minute of installing.
 - **Accent sync**: pipe the wallpaper's dominant color into the app's UI accent
 
 ### Live wallpapers
+
 - Sources: **video** (looped, hardware-decoded), **image**, **slideshow** (folder,
   interval + crossfade), **web page** (sandboxed), **shader** (4 built-in GLSL presets:
   Aurora, Liquid, Plasma, Starfield)
@@ -43,6 +45,7 @@ mood, and tuning the app, so it's usable within a minute of installing.
   ~half the canvas work of a naive 60 fps loop, with no visible difference
 
 ### Stickers anywhere
+
 - Pin **images, GIFs, or short videos** anywhere on screen
 - Click-to-place overlay with aspect-aware sizing; dedicated transparent window per
   sticker; stickers **mirror across all monitors** by default (configurable)
@@ -52,25 +55,26 @@ mood, and tuning the app, so it's usable within a minute of installing.
   visibility; duplicate and reorder from the tray or the manager UI
 
 ### App
+
 - Console-style UI (graphite/ivory, hairline frames) with light/dark theming,
   **AMOLED mode** (true-black dark theme), and system-accent-derived highlight color
 - Tray menu: open, toggle wallpaper pause, switch lighting mode, edit stickers, quit
 - 12-column overview dashboard; scenes let you apply a saved wallpaper + lighting
-  + sticker profile in one click
+  - sticker profile in one click
 - Launch-on-startup, single-instance, factory reset from the UI
 - Quiet logging by default — routine diagnostics are debug-level; run with
   `RUST_LOG=lumendeck=debug` to see them
 
 ## Tech stack
 
-| Layer      | Tech                                                              |
-|------------|-------------------------------------------------------------------|
-| Shell      | [Tauri 2](https://tauri.app) (Rust) + WebView2                    |
-| UI         | React 19, TypeScript (strict), Tailwind CSS 4, Zustand            |
-| Win32      | `windows` crate — WorkerW attach, click-through, monitor enum, low-level input hooks |
-| RGB        | [`openrgb`](https://crates.io/crates/openrgb) (native SDK client) |
-| Media      | Custom `media://` protocol (path-safe, extension-allowlisted)     |
-| Packaging  | NSIS installer via Tauri bundler (GitHub Actions on `v*` tags)    |
+| Layer     | Tech                                                                                 |
+| --------- | ------------------------------------------------------------------------------------ |
+| Shell     | [Tauri 2](https://tauri.app) (Rust) + WebView2                                       |
+| UI        | React 19, TypeScript (strict), Tailwind CSS 4, Zustand                               |
+| Win32     | `windows` crate — WorkerW attach, click-through, monitor enum, low-level input hooks |
+| RGB       | [`openrgb`](https://crates.io/crates/openrgb) (native SDK client)                    |
+| Media     | Custom `media://` protocol (path-safe, extension-allowlisted)                        |
+| Packaging | NSIS installer via Tauri bundler (GitHub Actions on `v*` tags)                       |
 
 ## Architecture notes
 
@@ -101,18 +105,38 @@ Windows 11), and [OpenRGB](https://openrgb.org) with its SDK server enabled for 
 CI runs `tsc`, `vitest`, and `cargo test` on every push/PR; tagging `vX.Y.Z` builds the
 NSIS installer and attaches it to a GitHub release.
 
+### Signed in-app updates
+
+The first updater-enabled release must be installed manually by users of older builds.
+Future releases are checked at startup and can be installed from Settings.
+
+Generate the updater signing key locally and keep the private key out of the repository:
+
+```powershell
+pnpm tauri signer generate -w "$env:USERPROFILE\.tauri\lumendeck.key"
+```
+
+Set the generated public key as `plugins.updater.pubkey` in
+`src-tauri/tauri.conf.json`. Add the private key file contents to the GitHub Actions
+secret `TAURI_SIGNING_PRIVATE_KEY`; if the key has a password, add it as
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Releases tagged `vX.Y.Z` then publish the signed
+NSIS installer, its signature, and `latest.json`. Never commit or share the private key.
+
+The updater signature verifies update packages; it is separate from Windows
+Authenticode signing and does not by itself remove SmartScreen publisher warnings.
+
 ## Configuration
 
 Settings persist to `%APPDATA%/LumenDeck/config.json` (atomic writes, schema-versioned,
 camelCase — mirrored by `src/shared/types.ts`). Notable groups:
 
-| Group       | What it controls                                                        |
-|-------------|-------------------------------------------------------------------------|
-| `general`   | theme, AMOLED, autostart, pause toggles, accent sync, onboarding flag   |
-| `wallpaper` | kind, source, fit, speed/brightness/saturation/hue, volume, slideshow   |
-| `sticker`   | placement defaults, all-monitors mirroring                              |
-| `rgb`       | mode, zones, mixer, per-device excludes, night dimming schedule         |
-| `scenes`    | named wallpaper + lighting + sticker profiles                           |
+| Group       | What it controls                                                      |
+| ----------- | --------------------------------------------------------------------- |
+| `general`   | theme, AMOLED, autostart, pause toggles, accent sync, onboarding flag |
+| `wallpaper` | kind, source, fit, speed/brightness/saturation/hue, volume, slideshow |
+| `sticker`   | placement defaults, all-monitors mirroring                            |
+| `rgb`       | mode, zones, mixer, per-device excludes, night dimming schedule       |
+| `scenes`    | named wallpaper + lighting + sticker profiles                         |
 
 ## Notes & limits
 
