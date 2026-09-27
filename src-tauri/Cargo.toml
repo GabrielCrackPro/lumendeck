@@ -1,6 +1,6 @@
 [package]
 name = "lumendeck"
-version = "0.2.1"
+version = "0.2.2"
 description = "Wallpaper-driven RGB lighting, live wallpapers and screen stickers for Windows."
 edition = "2021"
 

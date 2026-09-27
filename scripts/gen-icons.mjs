@@ -1,4 +1,5 @@
-// Generates LumenDeck icons: PNG (32, 128, 256) + ICO wrapping the 256 PNG.
+// Generates LumenDeck icons: PNG (32, 128, 256) + ICO wrapping the 256 PNG,
+// plus the UI copy at public/app-icon.png (splash + title bar).
 // Pure Node: raw RGBA rasterizer + zlib PNG encoder. Run: pnpm icons.
 import { deflateSync } from "node:zlib";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -7,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = join(root, "src-tauri", "icons");
+const pubDir = join(root, "public");
 mkdirSync(outDir, { recursive: true });
 
 // ---------- tiny PNG encoder ----------
@@ -54,12 +56,15 @@ function encodePng(w, h, rgba) {
 }
 
 // ---------- rasterizer ----------
+// Design: "RGB halo ring" — a dark graphite rounded tile, three arc segments
+// (red, green, blue) forming a glowing ring around a bright white core: the
+// wallpaper drives the light. Arcs have soft radial + angular falloff so the
+// ring reads as luminous rather than hard-edged, and survives 32px.
 function render(size) {
   const buf = Buffer.alloc(size * size * 4);
   const put = (x, y, r, g, b, a) => {
     if (x < 0 || y < 0 || x >= size || y >= size) return;
     const i = (y * size + x) * 4;
-    // alpha-over blend
     const na = a / 255;
     const oa = buf[i + 3] / 255;
     const outA = na + oa * (1 - na);
@@ -70,41 +75,75 @@ function render(size) {
     buf[i + 3] = Math.round(outA * 255);
   };
   const radius = size * 0.22;
-  const inside = (x, y) => {
-    // rounded-rect SDF
-    const hw = size / 2 - 0.5;
+  const hw = size / 2 - 0.5;
+  const cornerDist = (x, y) => {
     const dx = Math.abs(x - hw) - (hw - radius);
     const dy = Math.abs(y - hw) - (hw - radius);
-    const ox = Math.max(dx, 0);
-    const oy = Math.max(dy, 0);
-    return Math.hypot(ox, oy) <= radius;
+    return Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
+  };
+  // Vertical graphite gradient (matches the console UI tokens).
+  const top = [0x22, 0x26, 0x30];
+  const bottom = [0x0c, 0x0e, 0x13];
+  const cx = hw;
+  const cy = hw;
+  const ringR = size * 0.3;
+  const thick = size * 0.075;
+  const bandSigma = thick / 4.5; // tight falloff: crisp ring, not a blur
+  // Arc segments: 100 degrees each with 20 degree gaps, starting at -60 so a
+  // gap sits at the top (the "missing pixel" the core lights up).
+  const arcs = [
+    { start: -60, color: [248, 76, 92] }, // red
+    { start: 60, color: [86, 220, 130] }, // green
+    { start: 180, color: [96, 140, 255] }, // blue
+  ];
+  const ARC = 100;
+  const FEATHER = 3; // degrees of angular softness per arc edge
+  const angleOf = (x, y) => {
+    let a = (Math.atan2(y - cy, x - cx) * 180) / Math.PI;
+    if (a < 0) a += 360;
+    return a;
+  };
+  const arcAlpha = (ang, arc) => {
+    // Normalize angular distance from arc start, in [0, 360).
+    const d = (ang - arc.start + 360) % 360;
+    if (d > ARC) return 0;
+    const edge = Math.min(d, ARC - d);
+    if (edge >= FEATHER) return 1;
+    return edge / FEATHER;
   };
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      if (!inside(x, y)) continue;
-      // diagonal gradient sky -> fuchsia
-      const t = (x + y) / (2 * size);
-      const r = Math.round(56 + (217 - 56) * t);
-      const g = Math.round(189 + (70 - 189) * t);
-      const b = Math.round(248 + (239 - 248) * t);
-      put(x, y, r, g, b, 255);
-    }
-  }
-  // glow ring (lumen)
-  const cx = size / 2;
-  const cy = size * 0.46;
-  const ringR = size * 0.26;
-  const thick = size * 0.055;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const d = Math.hypot(x - cx, y - cy);
-      const band = Math.max(0, 1 - Math.abs(d - ringR) / thick);
-      if (band > 0) put(x, y, 255, 255, 255, Math.round(230 * band));
-      // bulb base tick
-      const bx = size * 0.36;
-      const bwd = size * 0.28;
-      if (y > cy + ringR + size * 0.06 && y < cy + ringR + size * 0.14 && x > bx && x < bx + bwd) {
-        put(x, y, 255, 255, 255, 200);
+      const d = cornerDist(x, y);
+      // 1px anti-aliased tile edge.
+      const tileA = Math.max(0, Math.min(1, radius + 0.5 - d));
+      if (tileA <= 0) continue;
+      const t = y / Math.max(1, size - 1);
+      const r0 = Math.round(top[0] + (bottom[0] - top[0]) * t);
+      const g0 = Math.round(top[1] + (bottom[1] - top[1]) * t);
+      const b0 = Math.round(top[2] + (bottom[2] - top[2]) * t);
+      put(x, y, r0, g0, b0, Math.round(255 * tileA));
+      const dist = Math.hypot(x - cx, y - cy);
+      // Ring band with soft inner/outer falloff (gaussian-ish).
+      const band = Math.exp(-((dist - ringR) ** 2) / (2 * bandSigma ** 2));
+      if (band > 0.05) {
+        const ang = angleOf(x, y);
+        for (const arc of arcs) {
+          const aa = arcAlpha(ang, arc) * band;
+          if (aa < 0.02) continue;
+          const [cr, cg, cb] = arc.color;
+          // Slightly brighter toward the ring's outside (light-source feel).
+          const boost = 1 + 0.25 * Math.max(0, (dist - ringR) / thick);
+          put(x, y, Math.min(255, cr * boost), Math.min(255, cg * boost), Math.min(255, cb * boost), Math.round(245 * aa));
+        }
+      }
+      // Core: white dot with a tight bloom, the lumen.
+      const coreR = size * 0.07;
+      const bloomR = size * 0.14;
+      if (dist < bloomR) {
+        const bloom = Math.exp(-(dist ** 2) / (2 * (coreR * 0.6) ** 2));
+        const core = Math.max(0, 1 - dist / coreR);
+        const a = Math.round(255 * Math.min(1, core + 0.18 * bloom));
+        put(x, y, 255, 255, 252, a);
       }
     }
   }
@@ -121,6 +160,7 @@ for (const size of [32, 128, 256]) {
   writeFileSync(join(outDir, `${size}x${size}.png`), renderPngBuffer(size));
 }
 writeFileSync(join(outDir, "icon.png"), renderPngBuffer(256));
+writeFileSync(join(pubDir, "app-icon.png"), renderPngBuffer(256));
 
 // ICO with classic 32bpp DIB entries (RC.EXE rejects PNG-compressed entries).
 function icoDibEntry(size, rgba) {

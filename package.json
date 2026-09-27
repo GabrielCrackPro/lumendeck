@@ -1,7 +1,7 @@
 {
   "name": "lumendeck",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Wallpaper-driven RGB lighting, live wallpapers and screen stickers for Windows.",
   "type": "module",
   "scripts": {
