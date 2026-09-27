@@ -68,7 +68,7 @@ pub fn reload_if_changed() -> ConfigReload {
 
     match fs::read_to_string(&path)
         .ok()
-        .and_then(|s| serde_json::from_str::<Config>(&s).ok())
+        .and_then(|s| parse_and_migrate(&s).ok())
     {
         Some(cfg) => {
             mark_persisted();
@@ -148,15 +148,25 @@ pub fn update(f: impl FnOnce(&mut Config)) -> Result<Config, String> {
 fn load() -> Config {
     let path = config_path();
     match fs::read_to_string(&path) {
-        Ok(text) => match serde_json::from_str::<Config>(&text) {
+        Ok(text) => match parse_and_migrate(&text) {
             Ok(cfg) => cfg,
             Err(e) => {
-                log::warn!("config parse failed ({e}); using defaults");
+                log::warn!("config rejected ({e}); using defaults");
                 Config::default()
             }
         },
         Err(_) => Config::default(),
     }
+}
+
+/// Parse config JSON through the migration pipeline so files written by
+/// older (or, defensively, newer) app versions never silently reset the
+/// user's setup.
+fn parse_and_migrate(text: &str) -> Result<Config, String> {
+    let mut raw: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| format!("invalid JSON: {e}"))?;
+    crate::config::migrate(&mut raw, None)?;
+    serde_json::from_value(raw).map_err(|e| format!("schema mismatch: {e}"))
 }
 
 fn persist(cfg: &Config) -> Result<(), String> {
@@ -197,5 +207,32 @@ mod tests {
     fn defaults_parse_from_empty_object() {
         let back: Config = serde_json::from_str("{}").unwrap();
         assert_eq!(back, Config::default());
+    }
+
+    #[test]
+    fn migration_sets_current_version() {
+        // A versionless legacy file migrates to the current schema version.
+        let mut raw: serde_json::Value = serde_json::from_str("{}").unwrap();
+        crate::config::migrate(&mut raw, None).unwrap();
+        assert_eq!(raw["version"], serde_json::json!(crate::config::CONFIG_VERSION));
+    }
+
+    #[test]
+    fn migration_rejects_newer_schema() {
+        let mut raw: serde_json::Value =
+            serde_json::json!({"version": crate::config::CONFIG_VERSION + 1});
+        assert!(crate::config::migrate(&mut raw, None).is_err());
+    }
+
+    #[test]
+    fn parse_and_migrate_preserves_user_fields() {
+        let json = serde_json::json!({
+            "version": crate::config::CONFIG_VERSION,
+            "general": {"autostart": true, "amoled": true}
+        });
+        let cfg = parse_and_migrate(&json.to_string()).unwrap();
+        assert!(cfg.general.autostart);
+        assert!(cfg.general.amoled);
+        assert_eq!(cfg.version, crate::config::CONFIG_VERSION);
     }
 }

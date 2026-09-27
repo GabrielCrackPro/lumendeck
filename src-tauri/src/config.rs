@@ -4,6 +4,29 @@ use serde::{Deserialize, Serialize};
 
 pub const CONFIG_VERSION: u32 = 1;
 
+/// Migrate a config written by an older app version to the current schema.
+/// Serde's `default` fields already absorb additive changes; this hook is for
+/// *breaking* changes (renamed keys, moved data, semantic shifts). Bump
+/// `CONFIG_VERSION` and add a match arm per old version. `from` is the
+/// version read from the file — `None` means the file predates versioning.
+pub fn migrate(raw: &mut serde_json::Value, from: Option<u32>) -> Result<(), String> {
+    let from = from.unwrap_or(if raw.get("version").is_some() {
+        raw["version"].as_u64().ok_or("config version not a number")? as u32
+    } else {
+        CONFIG_VERSION
+    });
+    if from > CONFIG_VERSION {
+        return Err(format!(
+            "config was written by a newer app (schema v{from} > v{CONFIG_VERSION})"
+        ));
+    }
+    // Example for a future break:
+    //   if from < 2 { rename_key(raw, "oldName", "newName"); }
+    let _ = from;
+    raw["version"] = serde_json::json!(CONFIG_VERSION);
+    Ok(())
+}
+
 // ---------- General ----------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
