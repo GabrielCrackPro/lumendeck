@@ -334,6 +334,7 @@ pub fn run() {
             ipc::duplicate_sticker,
             ipc::reorder_sticker,
             ipc::is_paused,
+            ipc::toggle_pause,
             ipc::set_live_frame,
             ipc::monitors,
             ipc::quit,

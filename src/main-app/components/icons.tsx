@@ -15,6 +15,13 @@ const base = (props: P) => ({
   ...props,
 });
 
+export const IconSearch = (props: P) => (
+  <svg {...base(props)}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m20 20-3.8-3.8" />
+  </svg>
+);
+
 export const IconPalette = (props: P) => (
   <svg {...base(props)}>
     <circle cx="12" cy="12" r="9" />
@@ -169,8 +176,9 @@ export const IconPencil = (props: P) => (
 
 export const IconGear = (props: P) => (
   <svg {...base(props)}>
-    <circle cx="12" cy="12" r="3.2" />
-    <path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.9 1.9M16.6 16.6l1.9 1.9M18.5 5.5l-1.9 1.9M7.4 16.6l-1.9 1.9" />
+    {/* proper cog: toothed ring around the hub (Feather "settings" shape) */}
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
   </svg>
 );
 

@@ -1112,6 +1112,16 @@ pub fn is_paused() -> bool {
     crate::wallpaper::is_paused()
 }
 
+/// Manual pause toggle (dashboard / command palette; the tray has the same
+/// control). Returns the new paused state.
+#[tauri::command]
+pub fn toggle_pause(app: AppHandle) -> bool {
+    let now = crate::wallpaper::toggle_manual_pause();
+    log::info!("pause toggled -> {now}");
+    crate::events::emit_all(&app, crate::events::WALLPAUSE, &now);
+    now
+}
+
 /// The active wallpaper webview pushes a real decoded frame here (JPEG,
 /// captured from its presentation canvas). Installed as the static fallback
 /// AND the Windows desktop/lock-screen background — always a genuine frame

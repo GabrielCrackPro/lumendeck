@@ -69,6 +69,9 @@ export const api = {
   rgbStatus: () => invoke<RgbStatus>("rgb_status"),
   rgbRefresh: () => invoke<void>("rgb_refresh"),
 
+  /** Manual pause toggle (same as the tray control). Returns the new state. */
+  togglePause: () => invoke<boolean>("toggle_pause"),
+
   /** Arms the desktop click-capture; resolves with the created sticker. */
   beginStickerPlacement: (name: string, url: string, kind: string) =>
     invoke<StickerDef>("begin_sticker_placement", { name, url, kind }),

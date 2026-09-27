@@ -1,8 +1,9 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
-import { IconBulb, IconImage, IconSticker, IconGear, IconPause, IconZap, IconRailCollapse } from "./icons";
+import { IconBulb, IconImage, IconSticker, IconGear, IconPause, IconZap, IconRailCollapse, IconSearch } from "./icons";
 import { DEFAULT_GLOW } from "@shared/constants";
 import TitleBar from "./TitleBar";
+const CommandPalette = lazy(() => import("./CommandPalette"));
 
 // Tab code is split so the initial bundle only carries the Overview; other
 // tabs stream in on first visit (Tauri serves chunks locally, so it's fast).
@@ -158,35 +159,19 @@ function Toasts() {
 
 /** Live status readout pinned to the right of the header. */
 function HeaderStatus() {
-  const rgb = useStore((s) => s.rgb);
   const wallpaperPaused = useStore((s) => s.wallpaperPaused);
-  const excluded = useStore((s) => s.cfg?.rgb.excludedDevices);
-  const active = rgb.devices.filter((d) => !(excluded ?? []).includes(d.id));
-  const ledCount = active.reduce((n, d) => n + d.leds, 0);
-  // Quiet mono readout instead of pills: dot + text, separated by hairlines.
+  // Quiet mono readout: one dot + label. Device/LED counts live in the
+  // Lighting tab and Overview — the header stays calm.
   return (
-    <div className="flex shrink-0 items-center gap-3 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-faint)]">
-      <span className="flex items-center gap-1.5">
-        <span
-          className={`h-1.5 w-1.5 rounded-full ${
-            wallpaperPaused
-              ? "bg-amber-400"
-              : "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"
-          }`}
-        />
-        {wallpaperPaused ? "paused" : "live"}
-      </span>
-      <span className="h-3 w-px bg-[var(--line-strong)]" />
-      <span className="flex items-center gap-1.5">
-        <span
-          className={`h-1.5 w-1.5 rounded-full ${
-            rgb.connected
-              ? "bg-emerald-400"
-              : "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.7)]"
-          }`}
-        />
-        {rgb.connected ? `${active.length}/${rgb.devices.length} · ${ledCount.toLocaleString()} leds` : "openrgb offline"}
-      </span>
+    <div className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-faint)]">
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          wallpaperPaused
+            ? "bg-amber-400"
+            : "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"
+        }`}
+      />
+      {wallpaperPaused ? "paused" : "live"}
     </div>
   );
 }
@@ -266,6 +251,7 @@ function EnginePulse() {
 
 export default function Shell() {
   const [tab, setTab] = useState<TabId>("overview");
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem("sidebar-collapsed") === "true";
@@ -292,6 +278,11 @@ export default function Shell() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
+      if (e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+        return;
+      }
       const n = Number(e.key);
       if (!Number.isInteger(n) || n < 1 || n > TABS.length + 1) return;
       e.preventDefault();
@@ -337,7 +328,14 @@ export default function Shell() {
                   <div className="lednum truncate text-[12px] tracking-[0.1em] text-[var(--text)]">
                     LUMENDECK
                   </div>
-                  <div className="kicker mt-0.5">v{__APP_VERSION__}</div>
+                  <div className="kicker mt-0.5 flex items-center gap-1.5">
+                    v{__APP_VERSION__}
+                    {__APP_BUILD_MODE__ === "dev" && (
+                      <span className="rounded-sm bg-amber-500/20 px-1 font-mono text-[8.5px] tracking-[0.15em] text-amber-400">
+                        DEV
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -424,7 +422,20 @@ export default function Shell() {
               <span className="hidden h-3.5 w-px bg-[var(--line-strong)] sm:block" />
               <div className="kicker hidden truncate sm:block">{current.blurb}</div>
             </div>
-            <HeaderStatus />
+            <div className="flex shrink-0 items-center gap-3">
+              <HeaderStatus />
+              {/* Command palette trigger: same actions as Ctrl+K, visible for
+                  discoverability (the shortcut still works everywhere). */}
+              <button
+                onClick={() => setPaletteOpen(true)}
+                title="Search commands (Ctrl+K)"
+                className="flex h-7 w-44 items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--panel-sunken)] px-2.5 text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text-dim)]"
+              >
+                <IconSearch className="h-3.5 w-3.5 shrink-0" />
+                <span className="flex-1 truncate text-left text-[11px]">Search…</span>
+                <kbd className="shrink-0 font-mono text-[9px] tracking-widest">CTRL K</kbd>
+              </button>
+            </div>
           </header>
 
           <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -443,6 +454,15 @@ export default function Shell() {
         </main>
       </div>
       </div>
+
+      {/* Command palette (Ctrl+K): quick navigation, wallpaper, scenes. */}
+      <Suspense fallback={null}>
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          onNavigate={(t) => setTab(t as TabId)}
+        />
+      </Suspense>
 
       <Toasts />
 
