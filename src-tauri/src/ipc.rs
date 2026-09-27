@@ -113,6 +113,21 @@ fn apply_side_effects_now(app: &AppHandle, cfg: &Config) {
     } else if let Err(e) = crate::wallpaper::remove(app) {
         log::warn!("wallpaper remove failed: {e}");
     }
+    // Keep the OS autostart entry in sync with the preference. The plugin
+    // is only consulted once at startup, so toggling in the UI must apply
+    // here — otherwise the change only takes effect after a restart.
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        let manager = app.autolaunch();
+        let result = if cfg.general.autostart {
+            manager.enable()
+        } else {
+            manager.disable()
+        };
+        if let Err(e) = result {
+            log::warn!("autostart sync failed: {e}");
+        }
+    }
     // Topmost sticker windows track their per-sticker onTop flag.
     crate::sticker_windows::sync(app);
     log::debug!(

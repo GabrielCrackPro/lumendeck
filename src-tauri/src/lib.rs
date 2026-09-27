@@ -359,11 +359,16 @@ pub fn run() {
             use tauri_plugin_autostart::ManagerExt;
             let autostart = config_store::get().general.autostart;
             let manager = app.autolaunch();
-            let _ = if autostart {
+            let result = if autostart {
                 manager.enable()
             } else {
                 manager.disable()
             };
+            if let Err(e) = result {
+                log::warn!("autostart: could not apply preference: {e}");
+            } else {
+                log::debug!("autostart: preference applied ({})", autostart);
+            }
 
             // Tray icon.
             let dashboard =
