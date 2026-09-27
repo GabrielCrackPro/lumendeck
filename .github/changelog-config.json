@@ -2,107 +2,38 @@
   "categories": [
     {
       "title": "## Fixes",
-      "labels": [],
-      "exhaustive": false,
-      "rules": [
-        {
-          "pattern": "fix",
-          "on_property": "headlinetype"
-        }
-      ]
+      "labels": ["fix"]
     },
     {
       "title": "## Improvements",
-      "labels": [],
-      "exhaustive": false,
-      "rules": [
-        {
-          "pattern": "feat",
-          "on_property": "headlinetype"
-        },
-        {
-          "pattern": "perf",
-          "on_property": "headlinetype"
-        },
-        {
-          "pattern": "refactor",
-          "on_property": "headlinetype"
-        }
-      ]
+      "labels": ["feat", "perf", "refactor"]
     },
     {
       "title": "## Documentation",
-      "labels": [],
-      "exhaustive": false,
-      "rules": [
-        {
-          "pattern": "docs",
-          "on_property": "headlinetype"
-        }
-      ]
+      "labels": ["docs"]
     },
     {
       "title": "## Build & CI",
-      "labels": [],
-      "exhaustive": false,
-      "rules": [
-        {
-          "pattern": "build",
-          "on_property": "headlinetype"
-        },
-        {
-          "pattern": "ci",
-          "on_property": "headlinetype"
-        }
-      ]
+      "labels": ["build", "ci"]
     },
     {
       "title": "## Chores",
-      "labels": [],
-      "exhaustive": false,
-      "rules": [
-        {
-          "pattern": "chore",
-          "on_property": "headlinetype"
-        },
-        {
-          "pattern": "test",
-          "on_property": "headlinetype"
-        }
-      ]
+      "labels": ["chore", "test"]
     },
     {
       "title": "## Other",
-      "labels": [],
-      "exhaustive": false,
-      "rules": [
-        {
-          "pattern": ".*",
-          "on_property": "headlinetype"
-        }
-      ]
+      "labels": ["other"]
     }
   ],
   "label_extractor": [
     {
-      "pattern": "^([^(:]+)",
+      "pattern": "^(\\w+)",
       "on_property": "title",
       "method": "regex"
     }
   ],
-  "trim_values": true,
-  "max_tags_to_fetch": 200,
-  "max_pull_requests": 500,
-  "max_backtrack_time_shown": 1000,
-  "exclude": {
-    "authors": [
-      "github-actions",
-      "dependabot"
-    ],
-    "types": []
-  },
   "tag_prefix": "v",
   "template": "#{{CHANGELOG}}\n\n**Full changelog:** https://github.com/GabrielCrackPro/lumendeck/compare/#{{FROM_TAG}}...#{{TO_TAG}}",
-  "pr_template": "- #{{TITLE}} (#{{MERGED_AT}})",
+  "pr_template": "- #{{TITLE}}",
   "empty_template": "- No notable changes."
 }
