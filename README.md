@@ -107,7 +107,8 @@ After CI succeeds on `main`, GitHub Actions publishes a signed NSIS release when
 the app version is newer than the latest published release. Bump the version in
 `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` together; the
 pre-commit hook and CI reject mismatched values. `pnpm install` configures the local
-`.githooks` automatically.
+`.githooks` automatically. To retry or start a release manually, use **Actions → Release
+→ Run workflow** on `main`; the selected commit must already have a successful CI run.
 
 ### Signed in-app updates
 

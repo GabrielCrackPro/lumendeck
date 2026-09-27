@@ -5,6 +5,7 @@ on:
     workflows: ["CI"]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -17,14 +18,16 @@ concurrency:
 jobs:
   build-windows:
     if: >-
+      (github.event_name == 'workflow_run' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main'
+      github.event.workflow_run.head_branch == 'main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
@@ -40,7 +43,8 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CI_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          TRIGGER_EVENT: ${{ github.event_name }}
         run: |
           node scripts/check-versions.mjs
           if ($LASTEXITCODE -ne 0) {
@@ -54,6 +58,22 @@ jobs:
             Write-Host "CI passed for a stale main commit; the latest main commit will handle the release."
             "should_release=false" >> $env:GITHUB_OUTPUT
             exit 0
+          }
+          if ($env:TRIGGER_EVENT -eq 'workflow_dispatch') {
+            $ciResponse = gh run list --workflow ci.yml --commit $env:CI_HEAD_SHA --limit 20 --json headSha,event,conclusion,status | Out-String
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not verify CI for the selected commit."
+            }
+            $ciRuns = ConvertFrom-Json -InputObject $ciResponse
+            $hasSuccessfulCi = @($ciRuns | Where-Object {
+              $_.headSha -eq $env:CI_HEAD_SHA -and
+              $_.event -eq 'push' -and
+              $_.status -eq 'completed' -and
+              $_.conclusion -eq 'success'
+            }).Count -gt 0
+            if (-not $hasSuccessfulCi) {
+              throw "Manual releases require a successful CI run for the current main commit."
+            }
           }
           $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
           $appVersion = [version]$config.version
