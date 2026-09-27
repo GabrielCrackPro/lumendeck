@@ -64,6 +64,134 @@ fn bg_path() -> PathBuf {
         .join("wallpaper-bg.jpg")
 }
 
+/// Registry value under HKCU\Control Panel\Desktop where we stash the user's
+/// original wallpaper path before LumenDeck sets its own for the first time.
+const ORIG_WALLPAPER_VALUE: &str = "LumenDeckOriginalWallpaper";
+
+/// Remember the user's pre-LumenDeck desktop wallpaper (once). Called before
+/// the first LumenDeck background install; a no-op when the backup already
+/// exists, so a wallpaper the user picked *while* LumenDeck runs is never
+/// mistaken for the original.
+pub fn remember_original_wallpaper() {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Registry::{
+        RegCloseKey, RegGetValueW, RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER,
+        KEY_QUERY_VALUE, KEY_SET_VALUE, RRF_RT_REG_SZ, REG_VALUE_TYPE,
+    };
+    unsafe {
+        let key_name = HSTRING::from("Control Panel\\Desktop");
+        let mut hkey = HKEY::default();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, &key_name, Some(0), KEY_QUERY_VALUE | KEY_SET_VALUE, &mut hkey).is_err() {
+            log::warn!("wallpaper-bg: could not open desktop key for backup");
+            return;
+        }
+        let value_name = HSTRING::from(ORIG_WALLPAPER_VALUE);
+
+        // Already backed up? Never overwrite — the current wallpaper is ours.
+        let mut buf = [0u16; 1024];
+        let mut len = (buf.len() as u32) * 2;
+        let mut kind = REG_VALUE_TYPE::default();
+        let got = RegGetValueW(
+            hkey,
+            None,
+            &value_name,
+            RRF_RT_REG_SZ,
+            Some(&mut kind),
+            Some(buf.as_mut_ptr().cast()),
+            Some(&mut len),
+        );
+        if got.is_ok() {
+            let _ = RegCloseKey(hkey);
+            return;
+        }
+
+        // Read the current wallpaper path (the OS keeps it in "Wallpaper").
+        let mut cur = [0u16; 1024];
+        let mut cur_len = (cur.len() as u32) * 2;
+        let cur_name = HSTRING::from("Wallpaper");
+        let got = RegGetValueW(
+            hkey,
+            None,
+            &cur_name,
+            RRF_RT_REG_SZ,
+            None,
+            Some(cur.as_mut_ptr().cast()),
+            Some(&mut cur_len),
+        );
+        if got.is_ok() && cur_len >= 2 {
+            let path = String::from_utf16_lossy(&cur[..((cur_len / 2) - 1) as usize]);
+            if !path.is_empty()
+                && path.to_ascii_lowercase() != bg_path().to_string_lossy().to_ascii_lowercase()
+            {
+                let bytes: Vec<u8> = path
+                    .encode_utf16()
+                    .chain(std::iter::once(0))
+                    .flat_map(|u| u.to_le_bytes())
+                    .collect();
+                if RegSetValueExW(hkey, &value_name, Some(0), REG_VALUE_TYPE(1u32), Some(&bytes)).is_ok() {
+                    log::info!("wallpaper-bg: original wallpaper backed up ({path})");
+                }
+            }
+        }
+        let _ = RegCloseKey(hkey);
+    }
+}
+
+/// Put the user's original desktop wallpaper back (tray quick-control).
+/// No-op when no backup exists (LumenDeck never changed the background).
+pub fn restore_original_wallpaper() -> bool {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Registry::{
+        RegCloseKey, RegDeleteValueW, RegGetValueW, RegOpenKeyExW, HKEY, HKEY_CURRENT_USER,
+        KEY_QUERY_VALUE, KEY_SET_VALUE, RRF_RT_REG_SZ,
+    };
+    unsafe {
+        let key_name = HSTRING::from("Control Panel\\Desktop");
+        let mut hkey = HKEY::default();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, &key_name, Some(0), KEY_QUERY_VALUE | KEY_SET_VALUE, &mut hkey).is_err() {
+            log::warn!("wallpaper-bg: could not open desktop key for restore");
+            return false;
+        }
+        let value_name = HSTRING::from(ORIG_WALLPAPER_VALUE);
+        let mut buf = [0u16; 1024];
+        let mut len = (buf.len() as u32) * 2;
+        let got = RegGetValueW(
+            hkey,
+            None,
+            &value_name,
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr().cast()),
+            Some(&mut len),
+        );
+        let _ = RegCloseKey(hkey);
+        if got.is_err() || len < 2 {
+            log::info!("wallpaper-bg: no original wallpaper backup to restore");
+            return false;
+        }
+        let path = String::from_utf16_lossy(&buf[..((len / 2) - 1) as usize]);
+        let path = std::path::PathBuf::from(path);
+        if !path.is_file() {
+            log::warn!("wallpaper-bg: original wallpaper missing on disk: {}", path.display());
+            return false;
+        }
+        let ok = set_desktop_wallpaper(&path);
+        if ok {
+            // The backup has served its purpose; remove it so a future first
+            // install picks up whatever the user chooses next.
+            unsafe {
+                let mut hkey2 = HKEY::default();
+                if RegOpenKeyExW(HKEY_CURRENT_USER, &key_name, Some(0), KEY_SET_VALUE, &mut hkey2).is_ok() {
+                    let _ = RegDeleteValueW(hkey2, &value_name);
+                    let _ = RegCloseKey(hkey2);
+                }
+            }
+            log::info!("wallpaper-bg: original wallpaper restored ({})", path.display());
+        }
+        ok
+    }
+}
+
 pub fn bg_media_url() -> String {
     let p = bg_path();
     if p.is_file() {
@@ -75,6 +203,13 @@ pub fn bg_media_url() -> String {
 
 pub fn install_live_frame(jpeg: &[u8], source: &str) -> bool {
     if jpeg.len() < 4_096 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 {
+        return false;
+    }
+    // Reject near-black frames: a canvas whose video is stuck/erroring still
+    // blits black pixels, and an all-black capture would overwrite the good
+    // shell-extracted poster — leaving a black desktop on pause/exit.
+    if is_near_black(jpeg) {
+        log::debug!("wallpaper-bg: live frame rejected (near-black), keeping previous");
         return false;
     }
     let out = bg_path();
@@ -97,7 +232,10 @@ pub fn install_live_frame(jpeg: &[u8], source: &str) -> bool {
         }
         *last = Some(hash);
     }
-    set_desktop_wallpaper(&out);
+    remember_original_wallpaper();
+    if !set_desktop_wallpaper(&out) {
+        return false;
+    }
     if lock_screen_follows() {
         set_lock_screen_wallpaper(&out);
     }
@@ -106,6 +244,36 @@ pub fn install_live_frame(jpeg: &[u8], source: &str) -> bool {
         jpeg.len() / 1024
     );
     true
+}
+
+/// Cheap luminance check: decode the JPEG and sample a sparse grid. A frame
+/// is "near-black" when >98% of samples are below RGB 12 (compression noise
+/// around pure black). Returns false on decode failure (don't punish a
+/// valid-but-unparseable frame for a sampling bug).
+fn is_near_black(jpeg: &[u8]) -> bool {
+    let Ok(img) = image::load_from_memory_with_format(jpeg, image::ImageFormat::Jpeg) else {
+        return false;
+    };
+    let (w, h) = (img.width(), img.height());
+    if w == 0 || h == 0 {
+        return true;
+    }
+    let img = img.to_rgb8();
+    let step_x = (w / 32).max(1);
+    let step_y = (h / 32).max(1);
+    let mut dark = 0u32;
+    let mut total = 0u32;
+    for y in (0..h).step_by(step_y as usize) {
+        for x in (0..w).step_by(step_x as usize) {
+            let px = img.get_pixel(x, y);
+            let lum = px[0].max(px[1]).max(px[2]);
+            if lum < 12 {
+                dark += 1;
+            }
+            total += 1;
+        }
+    }
+    total > 0 && dark * 100 >= total * 98
 }
 
 fn fnv_hash(bytes: &[u8]) -> u64 {
@@ -138,6 +306,18 @@ fn wallpaper_key(kind: WallpaperKind, source: &str, slideshow_folder: &str) -> S
     format!("{kind:?}:{source}:{slideshow_folder}")
 }
 
+/// Best-effort: make sure the static desktop background reflects the current
+/// wallpaper right before the app exits. Closing LumenDeck removes its
+/// wallpaper windows, so the OS background must show the same scene —
+/// otherwise the desktop turns black the instant the app quits. Cheap when
+/// the background is already current (`apply_bg` dedups by source key).
+pub fn ensure_installed_before_exit() {
+    let cfg = crate::config_store::get();
+    if cfg.general.wallpaper_enabled {
+        apply_bg(&cfg.wallpaper);
+    }
+}
+
 pub fn apply_bg(cfg: &WallpaperConfig) {
     let mut last = LAST_SOURCE.lock().expect("last_source poisoned");
     let key = wallpaper_key(cfg.kind, &cfg.source, &cfg.slideshow.folder);
@@ -161,10 +341,12 @@ pub fn apply_bg(cfg: &WallpaperConfig) {
     };
 
     if ok {
-        *last = key;
-        set_desktop_wallpaper(&out);
-        if lock_screen_follows() {
-            set_lock_screen_wallpaper(&out);
+        remember_original_wallpaper();
+        if set_desktop_wallpaper(&out) {
+            *last = key;
+            if lock_screen_follows() {
+                set_lock_screen_wallpaper(&out);
+            }
         }
     }
 }
@@ -258,11 +440,13 @@ fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), St
     use windows::core::{Interface, HSTRING};
     use windows::Win32::Foundation::SIZE;
     use windows::Win32::Graphics::Gdi::{
-        GetDC, GetDIBits, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HBITMAP,
+        GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER,
+        DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
     };
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
     use windows::Win32::UI::Shell::{
-        SHCreateItemFromParsingName, IShellItem, IShellItemImageFactory, SIIGBF_THUMBNAILONLY,
+        SHCreateItemFromParsingName, IShellItem, IShellItemImageFactory, SIIGBF_RESIZETOFIT,
+        SIIGBF_THUMBNAILONLY,
     };
 
     unsafe {
@@ -275,25 +459,48 @@ fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), St
         let factory: IShellItemImageFactory =
             item.cast().map_err(|e| format!("cast: {e}"))?;
 
+        // RESIZETOFIT first: it drives the full shell pipeline (decoding the
+        // video if needed) and populates the thumbnail cache. THUMBNAILONLY
+        // alone fails when no cached thumbnail exists yet — the common case
+        // right after a video is imported or Windows' cache is cleared —
+        // which left the desktop background black on pause/exit.
         let hbitmap: HBITMAP = factory
             .GetImage(
                 SIZE { cx: 1920, cy: 1080 },
-                SIIGBF_THUMBNAILONLY,
+                SIIGBF_RESIZETOFIT,
             )
+            .or_else(|_| {
+                factory.GetImage(
+                    SIZE { cx: 1920, cy: 1080 },
+                    SIIGBF_THUMBNAILONLY,
+                )
+            })
             .map_err(|e| format!("GetImage: {e}"))?;
 
-        let hdc = GetDC(None);
-        let mut bmi = BITMAPINFO::default();
-        bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = DIB_RGB_COLORS.0 as u32;
-        let _ = GetDIBits(hdc, hbitmap, 0, 0, None, &mut bmi, DIB_RGB_COLORS);
-        let (w, h) = (bmi.bmiHeader.biWidth, bmi.bmiHeader.biHeight.unsigned_abs());
+        // Dimensions come from GetObjectW — the null-buffer GetDIBits query
+        // is unreliable for shell-provided bitmaps (returns zero-sized headers
+        // and the "invalid bitmap dimensions" failure).
+        let mut bm = BITMAP::default();
+        if GetObjectW(
+            HGDIOBJ(hbitmap.0),
+            std::mem::size_of::<BITMAP>() as i32,
+            Some(&mut bm as *mut _ as _),
+        ) == 0
+        {
+            return Err("GetObjectW failed".into());
+        }
+        let (w, h) = (bm.bmWidth, bm.bmHeight.unsigned_abs());
         if w <= 0 || h == 0 {
             return Err("invalid bitmap dimensions".into());
         }
-        bmi.bmiHeader.biHeight = -(h as i32);
+        let hdc = GetDC(None);
+        let mut bmi = BITMAPINFO::default();
+        bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biWidth = w;
+        bmi.bmiHeader.biHeight = -(h as i32); // top-down rows
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = DIB_RGB_COLORS.0 as u32;
 
         let buf_len = (w as usize) * (h as usize) * 4;
         let mut pixels = vec![0u8; buf_len];
@@ -326,7 +533,7 @@ fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), St
     }
 }
 
-fn set_desktop_wallpaper(path: &PathBuf) {
+pub(crate) fn set_desktop_wallpaper(path: &PathBuf) -> bool {
     use windows::core::HSTRING;
     use windows::Win32::UI::WindowsAndMessaging::{
         SystemParametersInfoW, SPIF_UPDATEINIFILE, SPI_SETDESKWALLPAPER, SPIF_SENDCHANGE,
@@ -342,8 +549,10 @@ fn set_desktop_wallpaper(path: &PathBuf) {
         );
         if result.is_ok() {
             log::info!("wallpaper-bg: desktop wallpaper set");
+            true
         } else {
             log::warn!("wallpaper-bg: SystemParametersInfoW failed: {result:?}");
+            false
         }
     }
 }

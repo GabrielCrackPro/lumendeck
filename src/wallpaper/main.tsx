@@ -815,6 +815,22 @@ function VideoCanvas({
       const settleWait =
         pushState.lastFramePush !== 0 && now < pushState.lastFramePush + 4_000;
       if ((sourceChanged && !settleWait) || dueForRefresh) {
+        // Skip the push when the frame is essentially black: a video stuck in
+        // a decode-error loop still "blits" fine but carries no imagery, and
+        // a black capture would overwrite the good shell-extracted poster.
+        const sample = ctx.getImageData(0, 0, Math.min(pw, 64), Math.min(ph, 36));
+        let dark = 0;
+        const total = sample.data.length / 4;
+        for (let i = 0; i < sample.data.length; i += 4) {
+          const r = sample.data[i] ?? 0;
+          const g = sample.data[i + 1] ?? 0;
+          const b = sample.data[i + 2] ?? 0;
+          if (Math.max(r, g, b) < 12) dark++;
+        }
+        if (dark / total > 0.9) {
+          pushState.lastFramePush = 0; // retry on a later, hopefully-rendered frame
+          return;
+        }
         pushState.pushedForSource = src;
         pushState.lastFramePush = now;
         canvas.toBlob(

@@ -1146,6 +1146,9 @@ pub fn monitors() -> Vec<crate::win32::MonitorRect> {
 
 #[tauri::command]
 pub fn quit(app: AppHandle) -> Result<(), String> {
+    // The wallpaper windows die with the process: leave the OS desktop
+    // showing the current scene's static frame, not a black void.
+    crate::wallpaper_bg::ensure_installed_before_exit();
     // Destroy webview windows before the process dies, so WebView2's DLL
     // unregisters its window classes cleanly instead of racing live windows
     // (Chrome_WidgetWin_0 unregister error 1412 in the console).

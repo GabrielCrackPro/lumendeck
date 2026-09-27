@@ -388,6 +388,8 @@ pub fn run() {
             tray_builder
                 .on_menu_event(|app, ev| match ev.id.as_ref() {
                     "quit" => {
+                        // Leave the OS desktop showing the current scene.
+                        crate::wallpaper_bg::ensure_installed_before_exit();
                         crate::mouse_hook::disarm();
                         app.cleanup_before_exit();
                         app.exit(0);

@@ -16,6 +16,7 @@ pub const ID_PAUSE: &str = "pause";
 pub const ID_EDIT: &str = "edit";
 pub const ID_MODE: &str = "mode-";
 pub const ID_PROFILE: &str = "profile-";
+pub const ID_RESTORE_WP: &str = "restore-wallpaper";
 pub const ID_QUIT: &str = "quit";
 
 /// Rebuild the tray menu from current config/pause state.
@@ -125,7 +126,8 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     if let Some(sub) = &profile_sub {
         items.push(sub);
     }
-    items.extend_from_slice(&[&edit, &sep3, &quit]);
+    let restore_wp = MenuItem::with_id(app, ID_RESTORE_WP, "Restore my wallpaper", true, None::<&str>)?;
+    items.extend_from_slice(&[&edit, &sep3, &restore_wp, &quit]);
     Menu::with_items(app, &items)
 }
 
@@ -163,6 +165,19 @@ pub fn handle(app: &tauri::AppHandle, id: &str) -> bool {
             let idx = all.iter().position(|m| *m == cfg.rgb.mode).unwrap_or(0);
             set_mode(app, all[(idx + 1) % all.len()]);
             true
+        }
+        ID_RESTORE_WP => {
+            let restored = crate::wallpaper_bg::restore_original_wallpaper();
+            if restored {
+                // Stop the engine so the live wallpaper doesn't immediately
+                // paint over the restored background. Reload-safe: the user
+                // can re-enable from the dashboard or tray pause toggle.
+                let _ = crate::config_store::update(|c| c.general.wallpaper_enabled = false);
+                if let Some(a) = crate::app_handle() {
+                    crate::wallpaper::remove(&a);
+                }
+            }
+            restored
         }
         _ => false,
     }
