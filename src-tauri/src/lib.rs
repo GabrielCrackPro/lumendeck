@@ -20,6 +20,7 @@ pub mod rgb;
 pub mod stickers;
 pub mod sys_theme;
 pub mod sticker_windows;
+pub mod taskbar_thumbnail;
 pub mod thumbs;
 pub mod tray;
 pub mod wallpaper;
@@ -441,7 +442,7 @@ pub fn run() {
             // Main dashboard window — frameless: the UI draws its own
             // titlebar (drag region + window controls) matching the glass
             // design. Resizing stays native via WM_NCHITTEST handled by tao.
-            tauri::WebviewWindowBuilder::new(
+            let mut main_window_builder = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
                 tauri::WebviewUrl::App("main-app.html".into()),
@@ -451,7 +452,15 @@ pub fn run() {
             .min_inner_size(900.0, 640.0)
             .resizable(true)
             .decorations(false)
-            .build()?;
+            .visible(false);
+            if let Some(icon) = app.default_window_icon() {
+                main_window_builder = main_window_builder.icon(icon.clone())?;
+            }
+            let main_window = main_window_builder.build()?;
+            if let Err(e) = taskbar_thumbnail::attach(&main_window) {
+                log::warn!("taskbar thumbnail buttons unavailable: {e}");
+            }
+            main_window.show()?;
 
             // Close-to-tray: the dashboard X hides the window (wallpapers and
             // RGB keep running); the tray's "Quit LumenDeck" is the real exit.
