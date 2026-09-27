@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
-import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section } from "../ui";
+import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section, chipStyle } from "../ui";
 import { IconImage, IconLayers, IconGlobe, IconPlus, IconTrash, IconPencil, IconPlay, IconFolder } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
 import type { GalleryEntry, WallpaperKind, ZoneDef } from "@shared/types";
@@ -279,11 +279,7 @@ export default function WallpaperTab() {
           <div className="mb-4 flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => setActiveCollection("all")}
-              className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${
-                activeCollection === "all"
-                  ? "glow-tint border border-[rgb(var(--glow)/0.4)] text-[rgb(var(--glow))]"
-                  : "border border-[var(--line)] text-[var(--text-dim)] hover:text-[var(--text)]"
-              }`}
+              className={`rounded-full px-3 py-1 text-xs ${chipStyle(activeCollection === "all")}`}
             >
               All · {cfg.gallery.length}
             </button>
@@ -298,11 +294,7 @@ export default function WallpaperTab() {
                         .collectionRename(c.id, name.trim())
                         .catch((e) => toast("error", `Rename failed: ${truncateError(e)}`));
                   }}
-                  className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${
-                    activeCollection === c.id
-                      ? "glow-tint border border-[rgb(var(--glow)/0.4)] text-[rgb(var(--glow))]"
-                      : "border border-[var(--line)] text-[var(--text-dim)] hover:text-[var(--text)]"
-                  }`}
+                  className={`rounded-full px-3 py-1 text-xs ${chipStyle(activeCollection === c.id)}`}
                 >
                   {c.name} · {c.entryIds.length}
                 </button>
@@ -778,11 +770,7 @@ export default function WallpaperTab() {
                             )
                             .catch((e) => toast("error", `Failed: ${truncateError(e)}`))
                         }
-                        className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
-                          pl.enabled
-                            ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.15)] text-[rgb(var(--glow))]"
-                            : "border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)] hover:text-[var(--text)]"
-                        }`}
+                        className={`rounded-lg px-3 py-1.5 text-xs ${chipStyle(pl.enabled)}`}
                       >
                         {pl.enabled ? "Stop" : "Start"}
                       </button>
@@ -818,11 +806,7 @@ export default function WallpaperTab() {
                                   .playlistSave({ ...pl, source: "all" })
                                   .catch(() => {})
                               }
-                              className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
-                                pl.source === "all"
-                                  ? "border-[rgb(var(--glow)/0.4)] text-[rgb(var(--glow))]"
-                                  : "border-[var(--line)] text-[var(--text-dim)] hover:text-[var(--text)]"
-                              }`}
+                              className={`rounded-xl px-3 py-1.5 text-xs ${chipStyle(pl.source === "all")}`}
                             >
                               Whole vault
                             </button>
@@ -837,11 +821,7 @@ export default function WallpaperTab() {
                                     })
                                     .catch(() => {})
                                 }
-                                className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
-                                  pl.source === `collection:${c.id}`
-                                    ? "border-[rgb(var(--glow)/0.4)] text-[rgb(var(--glow))]"
-                                    : "border-[var(--line)] text-[var(--text-dim)] hover:text-[var(--text)]"
-                                }`}
+                                className={`rounded-xl px-3 py-1.5 text-xs ${chipStyle(pl.source === `collection:${c.id}`)}`}
                               >
                                 {c.name}
                               </button>
@@ -1213,11 +1193,7 @@ export default function WallpaperTab() {
                                 : [...z.deviceIds, d.id],
                             })
                           }
-                          className={`rounded-full border px-2.5 py-1 font-mono text-[11px] font-medium transition-all ${
-                            on
-                              ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.18)] text-[rgb(var(--glow))] shadow-[0_0_12px_-2px_rgb(var(--glow)/0.5)]"
-                              : "border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)] hover:text-[var(--text)]"
-                          }`}
+                          className={`rounded-full px-2.5 py-1 font-mono text-[11px] font-medium ${chipStyle(on)} ${on ? "shadow-[0_0_12px_-2px_rgb(var(--glow)/0.5)]" : ""}`}
                         >
                           {on && <span className="mr-1 inline-block h-1 w-1 rounded-full bg-[rgb(var(--glow))]" />}
                           {d.name || `Device ${d.id}`}

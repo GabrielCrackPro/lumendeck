@@ -347,6 +347,78 @@ export function Btn({
   );
 }
 
+// ---------- Chip & Segmented (shared selection-button language) ----------
+
+/**
+ * Visual language shared by every selectable chip / segmented control so the
+ * app has one "selected" look instead of ad-hoc variants per screen.
+ */
+const CHIP_BASE =
+  "select-none border font-semibold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40";
+const CHIP_ON =
+  "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]";
+const CHIP_OFF =
+  "border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)] hover:border-[var(--line-strong)] hover:text-[var(--text)]";
+
+export function chipStyle(on: boolean): string {
+  return `${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`;
+}
+
+/** Pill-shaped selectable chip (collections, devices, playlists, tags). */
+export function SelectChip({
+  children,
+  onClick,
+  active,
+  disabled,
+  title,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  active: boolean;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`rounded-full px-3 py-1 text-xs ${chipStyle(active)}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Segmented control: a row of mutually exclusive options. */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  className = "",
+}: {
+  options: { id: T; label: ReactNode }[];
+  value: T;
+  onChange: (v: T) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`flex gap-2 ${className}`}>
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          className={`flex-1 rounded-xl px-3 py-2 text-xs ${chipStyle(value === o.id)}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ---------- RGB <-> HSV helpers (internal to the picker) ----------
 
 function rgbToHsv(r: number, g: number, b: number): [number, number, number] {

@@ -173,8 +173,13 @@ export default function GeneralTab() {
       <Card
         title="About & updates"
         right={
-          <span className="font-mono text-[10px] text-[var(--text-faint)]">
+          <span className="flex items-center gap-1.5 font-mono text-[10px] text-[var(--text-faint)]">
             v{__APP_VERSION__}
+            {__APP_BUILD_MODE__ === "dev" && (
+              <span className="rounded-sm bg-amber-500/20 px-1 font-mono text-[8.5px] tracking-[0.15em] text-amber-400">
+                DEV
+              </span>
+            )}
           </span>
         }
       >

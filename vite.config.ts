@@ -11,11 +11,14 @@ const host = process.env.TAURI_DEV_HOST;
 const appVersion = JSON.parse(
   readFileSync(r("./src-tauri/tauri.conf.json"), "utf8"),
 ).version;
+// "dev" during `pnpm dev` / `pnpm app:dev`, "release" for bundled builds.
+const buildMode = process.env.TAURI_ENV_DEBUG ? "dev" : "release";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
+    __APP_BUILD_MODE__: JSON.stringify(buildMode),
   },
   resolve: {
     alias: {

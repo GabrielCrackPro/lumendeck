@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../../store";
-import { Card, Toggle, Slider, Btn, ColorInput, Dropdown, Section } from "../ui";
+import { Card, Toggle, Slider, Btn, ColorInput, Dropdown, Section, Segmented } from "../ui";
 import { IconRefresh, IconZap, IconWave, IconDevice, IconPlus, IconTrash } from "../icons";
 import { RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import { rgbToHex } from "../../utilities";
@@ -1037,10 +1037,10 @@ export default function RgbTab() {
                   return (
                     <div
                       key={p.name}
-                      className={`group flex items-center gap-2 rounded-xl border py-1.5 pl-1.5 pr-2 transition-all ${
+                      className={`group flex items-center gap-2 rounded-xl py-1.5 pl-1.5 pr-2 ${
                         activeNow
-                          ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.1)]"
-                          : "border-[var(--line)] bg-[var(--panel-strong)] hover:border-[var(--line-strong)]"
+                          ? "border border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.12)]"
+                          : "border border-[var(--line)] bg-[var(--panel-strong)] hover:border-[var(--line-strong)]"
                       }`
                     }
                     >
@@ -1109,42 +1109,28 @@ export default function RgbTab() {
               {rgbCfg.mode === "wave" && (
                 <div className="py-2.5">
                   <div className="kicker mb-2">Direction</div>
-                  <div className="flex gap-2">
-                    {([1, -1] as const).map((dir) => (
-                      <button
-                        key={dir}
-                        onClick={() => save((c) => { c.rgb.waveDirection = dir; })}
-                        className={`flex-1 rounded-xl border px-3 py-2.5 text-xs font-semibold transition-all ${
-                          rgbCfg.waveDirection === dir
-                            ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]"
-                            : "border-[var(--line)] bg-[var(--panel-strong)] text-[var(--text-dim)] hover:border-[var(--line-strong)]"
-                        }`}
-                      >
-                        {dir === 1 ? "Forward" : "Reverse"}
-                      </button>
-                    ))}
-                  </div>
+                  <Segmented
+                    options={[
+                      { id: "1", label: "Forward" },
+                      { id: "-1", label: "Reverse" },
+                    ]}
+                    value={String(rgbCfg.waveDirection)}
+                    onChange={(v) => save((c) => { c.rgb.waveDirection = Number(v) as 1 | -1; })}
+                  />
                 </div>
               )}
               {rgbCfg.mode === "audioReactive" && (
                 <>
                   <div className="py-2.5">
-                    <div className="kicker mb-2">Audio source</div>
-                    <div className="flex gap-2">
-                      {(["system", "microphone"] as const).map((src) => (
-                        <button
-                          key={src}
-                          onClick={() => save((c) => { c.rgb.audioSource = src; })}
-                          className={`flex-1 rounded-xl border px-3 py-2.5 text-xs font-semibold transition-all ${
-                            rgbCfg.audioSource === src
-                              ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]"
-                              : "border-[var(--line)] bg-[var(--panel-strong)] text-[var(--text-dim)] hover:border-[var(--line-strong)]"
-                          }`}
-                        >
-                          {src === "system" ? "System audio" : "Microphone"}
-                        </button>
-                      ))}
-                    </div>
+                  <div className="kicker mb-2">Audio source</div>
+                  <Segmented
+                    options={[
+                      { id: "system", label: "System audio" },
+                      { id: "microphone", label: "Microphone" },
+                    ]}
+                    value={rgbCfg.audioSource}
+                    onChange={(v) => save((c) => { c.rgb.audioSource = v; })}
+                  />
                   </div>
                   <div className="py-2.5">
                     <div className="kicker mb-2">Audio level</div>
