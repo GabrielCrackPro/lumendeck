@@ -334,6 +334,7 @@ pub fn run() {
             ipc::check_for_update,
             ipc::set_live_frame,
             ipc::monitors,
+            ipc::open_url,
             ipc::quit,
             ipc::factory_reset,
             ipc::collection_create,

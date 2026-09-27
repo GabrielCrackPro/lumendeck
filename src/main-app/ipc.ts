@@ -88,7 +88,12 @@ export const api = {
       { device: string; x: number; y: number; w: number; h: number; primary: boolean }[]
     >("monitors"),
 
-  checkForUpdate: () => invoke<string | null>("check_for_update"),
+  checkForUpdate: () =>
+    invoke<
+      | { status: "update"; version: string; url?: string; notes?: string }
+      | { status: "up_to_date" }
+      | { status: "unknown"; reason: string }
+    >("check_for_update"),
   quit: () => invoke<void>("quit"),
   factoryReset: () => invoke<void>("factory_reset"),
 };

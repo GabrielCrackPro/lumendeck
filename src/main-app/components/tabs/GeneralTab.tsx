@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { Card, Toggle, Select, Btn, DisplaysCard } from "../ui";
 import { api } from "../../ipc";
@@ -8,6 +9,7 @@ import type { ThemeMode } from "@shared/types";
 export default function GeneralTab() {
   const { cfg, save, wallpaperPaused } = useStore();
   const [confirmWipe, setConfirmWipe] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   if (!cfg) return null;
 
@@ -168,22 +170,36 @@ export default function GeneralTab() {
             </div>
             <Btn
               size="sm"
+              disabled={checking}
               onClick={async () => {
+                setChecking(true);
                 try {
-                  const newer = await api.checkForUpdate();
-                  if (newer) {
+                  const res = await api.checkForUpdate();
+                  if (res.status === "update") {
+                    const notes = res.notes ? ` — ${res.notes}` : "";
+                    if (res.url) {
+                      void invoke("open_url", { url: res.url }).catch(() => {});
+                    }
                     useStore
                       .getState()
-                      .toast("info", `Update available: v${newer} — grab it from GitHub.`);
+                      .toast("info", `Update available: v${res.version}${notes}`);
+                  } else if (res.status === "up_to_date") {
+                    useStore
+                      .getState()
+                      .toast("ok", `You're up to date (v${__APP_VERSION__}).`);
                   } else {
-                    useStore.getState().toast("ok", "You're up to date.");
+                    useStore
+                      .getState()
+                      .toast("error", `Update check failed: ${res.reason}`);
                   }
                 } catch {
                   useStore.getState().toast("error", "Couldn't check for updates.");
+                } finally {
+                  setChecking(false);
                 }
               }}
             >
-              Check for updates
+              {checking ? "Checking…" : "Check for updates"}
             </Btn>
           </div>
         </Card>
