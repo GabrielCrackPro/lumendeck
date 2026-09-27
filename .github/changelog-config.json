@@ -5,7 +5,10 @@
       "labels": [],
       "exhaustive": false,
       "rules": [
-        { "pattern": "fix", "on_property": "headlinetype" }
+        {
+          "pattern": "fix",
+          "on_property": "headlinetype"
+        }
       ]
     },
     {
@@ -13,9 +16,18 @@
       "labels": [],
       "exhaustive": false,
       "rules": [
-        { "pattern": "feat", "on_property": "headlinetype" },
-        { "pattern": "perf", "on_property": "headlinetype" },
-        { "pattern": "refactor", "on_property": "headlinetype" }
+        {
+          "pattern": "feat",
+          "on_property": "headlinetype"
+        },
+        {
+          "pattern": "perf",
+          "on_property": "headlinetype"
+        },
+        {
+          "pattern": "refactor",
+          "on_property": "headlinetype"
+        }
       ]
     },
     {
@@ -23,7 +35,10 @@
       "labels": [],
       "exhaustive": false,
       "rules": [
-        { "pattern": "docs", "on_property": "headlinetype" }
+        {
+          "pattern": "docs",
+          "on_property": "headlinetype"
+        }
       ]
     },
     {
@@ -31,8 +46,14 @@
       "labels": [],
       "exhaustive": false,
       "rules": [
-        { "pattern": "build", "on_property": "headlinetype" },
-        { "pattern": "ci", "on_property": "headlinetype" }
+        {
+          "pattern": "build",
+          "on_property": "headlinetype"
+        },
+        {
+          "pattern": "ci",
+          "on_property": "headlinetype"
+        }
       ]
     },
     {
@@ -40,8 +61,14 @@
       "labels": [],
       "exhaustive": false,
       "rules": [
-        { "pattern": "chore", "on_property": "headlinetype" },
-        { "pattern": "test", "on_property": "headlinetype" }
+        {
+          "pattern": "chore",
+          "on_property": "headlinetype"
+        },
+        {
+          "pattern": "test",
+          "on_property": "headlinetype"
+        }
       ]
     },
     {
@@ -49,7 +76,10 @@
       "labels": [],
       "exhaustive": false,
       "rules": [
-        { "pattern": ".*", "on_property": "headlinetype" }
+        {
+          "pattern": ".*",
+          "on_property": "headlinetype"
+        }
       ]
     }
   ],
@@ -65,11 +95,15 @@
   "max_pull_requests": 500,
   "max_backtrack_time_shown": 1000,
   "exclude": {
-    "authors": ["github-actions", "dependabot"],
+    "authors": [
+      "github-actions",
+      "dependabot"
+    ],
     "types": []
   },
   "tag_prefix": "v",
   "template": "#{{CHANGELOG}}\n\n**Full changelog:** https://github.com/GabrielCrackPro/lumendeck/compare/#{{FROM_TAG}}...#{{TO_TAG}}",
   "pr_template": "- #{{TITLE}} (#{{MERGED_AT}})",
-  "empty_template": "- No notable changes."
+  "empty_template": "- No notable changes.",
+  "mode": "COMMIT"
 }
