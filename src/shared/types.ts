@@ -160,6 +160,8 @@ export interface GeneralConfig {
   showDashboardOnLogin: boolean;
   /** Internal: the one-time tray balloon for a quiet login start was shown. */
   startupHintShown: boolean;
+  /** Internal: last version whose release notes were read in the dashboard. */
+  changelogSeenVersion: string;
 }
 
 export interface GalleryEntry {

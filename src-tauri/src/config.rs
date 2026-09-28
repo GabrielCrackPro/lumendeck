@@ -78,6 +78,9 @@ pub struct GeneralConfig {
     /// Internal: the one-time "running in the background" tray balloon has
     /// been shown, so a quiet login start is explained exactly once.
     pub startup_hint_shown: bool,
+    /// Internal: the last version whose release notes were opened in the
+    /// dashboard. Empty = never read. Drives the "what's new" marker.
+    pub changelog_seen_version: String,
 }
 
 impl Default for GeneralConfig {
@@ -103,6 +106,7 @@ impl Default for GeneralConfig {
             minimize_to_tray: true,
             show_dashboard_on_login: false,
             startup_hint_shown: false,
+            changelog_seen_version: String::new(),
         }
     }
 }

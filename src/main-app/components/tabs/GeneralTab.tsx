@@ -6,6 +6,7 @@ import { api } from "../../ipc";
 import { truncateError } from "../../utilities";
 import { checkForAppUpdate, installAppUpdate, announceUpdate } from "../../updater";
 import type { ThemeMode } from "@shared/types";
+import WhatsNewCard from "../WhatsNewCard";
 
 export default function GeneralTab() {
   const { cfg, save, wallpaperPaused, updateAvailable, setUpdateAvailable } =
@@ -58,6 +59,8 @@ export default function GeneralTab() {
           </div>
         )}
       </Card>
+
+      <WhatsNewCard />
 
       <Card title="Appearance">
         <Select<ThemeMode>
