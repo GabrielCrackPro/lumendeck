@@ -1144,6 +1144,24 @@ pub fn monitors() -> Vec<crate::win32::MonitorRect> {
     crate::win32::monitors()
 }
 
+/// The titlebar minimize button. The destination is a user preference, so it
+/// is resolved here (against the live config) rather than in the frontend:
+/// `general.minimize_to_tray` sends the dashboard to the notification area,
+/// anything else parks it on the taskbar.
+#[tauri::command]
+pub fn minimize_window(app: AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let window = app
+        .get_webview_window("main")
+        .ok_or("main window is gone")?;
+    if crate::config_store::get().general.minimize_to_tray {
+        let _ = window.hide();
+    } else {
+        window.minimize().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn quit(app: AppHandle) -> Result<(), String> {
     // The wallpaper windows die with the process: leave the OS desktop

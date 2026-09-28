@@ -154,6 +154,8 @@ export interface GeneralConfig {
   onboarded: boolean;
   /** True-black surfaces in dark theme (saves power on OLED panels). */
   amoled: boolean;
+  /** The minimize button hides the dashboard to the tray instead of the taskbar. */
+  minimizeToTray: boolean;
 }
 
 export interface GalleryEntry {

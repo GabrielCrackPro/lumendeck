@@ -72,6 +72,12 @@ export const api = {
   /** Manual pause toggle (same as the tray control). Returns the new state. */
   togglePause: () => invoke<boolean>("toggle_pause"),
 
+  /**
+   * Titlebar minimize. Goes to the tray or the taskbar depending on
+   * `general.minimizeToTray` — the backend owns that decision.
+   */
+  minimizeWindow: () => invoke<void>("minimize_window"),
+
   /** Arms the desktop click-capture; resolves with the created sticker. */
   beginStickerPlacement: (name: string, url: string, kind: string) =>
     invoke<StickerDef>("begin_sticker_placement", { name, url, kind }),

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore } from "../../store";
-import { Card, Toggle, Select, Btn, DisplaysCard } from "../ui";
+import { Card, Toggle, Select, Btn, DisplaysCard, Segmented } from "../ui";
 import { api } from "../../ipc";
 import { truncateError } from "../../utilities";
 import { checkForAppUpdate, installAppUpdate } from "../../updater";
@@ -54,10 +54,27 @@ export default function GeneralTab() {
       <Card title="Startup & power">
         <Toggle
           label="Launch at startup"
-          description="Start LumenDeck with Windows so your lights follow your screen from the boot."
+          description="Start LumenDeck with Windows so your lights follow your screen from the boot. Starts in the notification area — open the dashboard from the tray icon."
           checked={cfg.general.autostart}
           onChange={(v) => save((c) => (c.general.autostart = v))}
         />
+        <div className="py-2.5">
+          <div className="kicker mb-2">Minimize button</div>
+          <Segmented
+            options={[
+              { id: "tray", label: "Minimize to tray" },
+              { id: "taskbar", label: "Minimize to taskbar" },
+            ]}
+            value={cfg.general.minimizeToTray ?? true ? "tray" : "taskbar"}
+            onChange={(v) =>
+              save((c) => (c.general.minimizeToTray = v === "tray"))
+            }
+          />
+          <p className="mt-2 text-xs leading-relaxed text-[var(--text-faint)]">
+            Both keep the wallpaper and lighting running. Tray hides the
+            window entirely — reopen it with a left-click on the tray icon.
+          </p>
+        </div>
         <Toggle
           label="Pause wallpaper on battery"
           description="Stops wallpaper playback while the laptop is unplugged to save power."

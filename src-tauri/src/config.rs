@@ -65,6 +65,10 @@ pub struct GeneralConfig {
     /// AMOLED mode: true-black surfaces in dark theme (pixels fully off on
     /// OLED panels). Ignored in light theme.
     pub amoled: bool,
+    /// The titlebar minimize button hides the dashboard into the notification
+    /// area instead of parking it on the taskbar. Wallpapers and lighting
+    /// keep running either way; the tray icon brings the window back.
+    pub minimize_to_tray: bool,
 }
 
 impl Default for GeneralConfig {
@@ -85,6 +89,9 @@ impl Default for GeneralConfig {
             lock_screen_follows_wallpaper: false,
             onboarded: false,
             amoled: false,
+            // Tray, not taskbar: a taskbar button for a window that only
+            // shows a wallpaper would be the app's most visible feature.
+            minimize_to_tray: true,
         }
     }
 }

@@ -225,6 +225,19 @@ mod tests {
     }
 
     #[test]
+    fn minimize_to_tray_defaults_on_for_older_configs() {
+        // A config written before the field existed must not silently park
+        // the dashboard on the taskbar: the default hides it to the tray,
+        // matching the close button's long-standing behavior.
+        let json = serde_json::json!({
+            "version": crate::config::CONFIG_VERSION,
+            "general": {"autostart": true}
+        });
+        let cfg = parse_and_migrate(&json.to_string()).unwrap();
+        assert!(cfg.general.minimize_to_tray);
+    }
+
+    #[test]
     fn parse_and_migrate_preserves_user_fields() {
         let json = serde_json::json!({
             "version": crate::config::CONFIG_VERSION,

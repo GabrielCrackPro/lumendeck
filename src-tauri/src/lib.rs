@@ -32,6 +32,19 @@ pub mod workerw;
 #[cfg(not(windows))]
 compile_error!("LumenDeck currently targets Windows only.");
 
+/// Argument appended to the autostart registration. A boot launch should
+/// light up the wallpaper and lighting and then get out of the way: the tray
+/// icon is the only window the user needs to see, so setup() builds the
+/// dashboard but leaves it hidden until they ask for it.
+const START_HIDDEN_ARG: &str = "--minimized";
+
+/// True when this process was started by Windows at logon rather than by a
+/// double-click. Existing installs were registered without the flag, so
+/// setup() re-writes the Run key with it on the next launch.
+fn launched_at_autostart() -> bool {
+    std::env::args().any(|a| a == START_HIDDEN_ARG)
+}
+
 use std::sync::OnceLock;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -278,13 +291,19 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(main) = app.get_webview_window("main") {
+                // The first instance may be sitting in the tray (autostart,
+                // or a minimize-to-tray hide), so restore it properly.
+                let _ = main.unminimize();
                 let _ = main.show();
                 let _ = main.set_focus();
             }
         }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            // Windows runs the exe straight out of the Run key, so this flag
+            // is the only way setup() can tell a boot launch from a manual
+            // one. See START_HIDDEN_ARG below.
+            Some(vec![START_HIDDEN_ARG]),
         ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -335,6 +354,7 @@ pub fn run() {
             ipc::reorder_sticker,
             ipc::is_paused,
             ipc::toggle_pause,
+            ipc::minimize_window,
             ipc::set_live_frame,
             ipc::monitors,
             ipc::quit,
@@ -468,7 +488,16 @@ pub fn run() {
             if let Err(e) = taskbar_thumbnail::attach(&main_window) {
                 log::warn!("taskbar thumbnail buttons unavailable: {e}");
             }
-            main_window.show()?;
+            // Autostart launches come up in the tray only — the window is
+            // built (so the webview warms up and the taskbar thumbnail is
+            // ready) but never shown. The tray icon is built above, so the
+            // app is always one left-click away.
+            let start_hidden = launched_at_autostart();
+            if start_hidden {
+                log::info!("startup: autostart launch — starting in the tray");
+            } else {
+                main_window.show()?;
+            }
 
             // Close-to-tray: the dashboard X hides the window (wallpapers and
             // RGB keep running); the tray's "Quit LumenDeck" is the real exit.
@@ -477,11 +506,26 @@ pub fn run() {
             // wallpaper the user expects to keep.
             if let Some(win) = app.get_webview_window("main") {
                 let win_handle = win.clone();
-                win.on_window_event(move |ev| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
+                win.on_window_event(move |ev| match ev {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
                         let _ = win_handle.hide();
                     }
+                    // The titlebar's minimize button routes through the
+                    // `minimize_window` command, but Windows can minimize us
+                    // on its own (taskbar button, Win+D, snap layouts). Catch
+                    // those here so "minimize to tray" means what it says.
+                    // The resize event is the reliable signal; the reported
+                    // size is the *restored* rect, not 0x0, so ask the window
+                    // whether it is actually minimized. A hidden window is
+                    // never "minimized", which keeps this from re-firing.
+                    tauri::WindowEvent::Resized(_)
+                        if win_handle.is_minimized().unwrap_or(false)
+                            && config_store::get().general.minimize_to_tray =>
+                    {
+                        let _ = win_handle.hide();
+                    }
+                    _ => {}
                 });
             }
 

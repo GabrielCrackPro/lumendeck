@@ -3,6 +3,7 @@
 // native frame with the app's glass language.
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { api } from "../ipc";
 
 const win = getCurrentWindow();
 
@@ -32,7 +33,11 @@ function Controls() {
       <button
         title="Minimize"
         className={`${btn} hover:bg-[var(--panel-strong)] hover:text-[var(--text)]`}
-        onClick={() => win.minimize()}
+        // Tray or taskbar depending on general.minimizeToTray; the backend
+        // reads the live config so the button never disagrees with settings.
+        onClick={() => {
+          api.minimizeWindow().catch(() => {});
+        }}
       >
         <svg width="10" height="10" viewBox="0 0 10 10">
           <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
