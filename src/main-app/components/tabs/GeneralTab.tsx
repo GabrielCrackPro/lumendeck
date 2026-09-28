@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
 import { Card, Toggle, Select, Btn, DisplaysCard, Segmented } from "../ui";
 import { api } from "../../ipc";
@@ -8,8 +9,17 @@ import type { ThemeMode } from "@shared/types";
 
 export default function GeneralTab() {
   const { cfg, save, wallpaperPaused, updateAvailable, setUpdateAvailable } =
-    useStore();
+    useStore(
+      useShallow((s) => ({
+        cfg: s.cfg,
+        save: s.save,
+        wallpaperPaused: s.wallpaperPaused,
+        updateAvailable: s.updateAvailable,
+        setUpdateAvailable: s.setUpdateAvailable,
+      })),
+    );
   const [confirmWipe, setConfirmWipe] = useState(false);
+  const [confirmSetup, setConfirmSetup] = useState(false);
   const [checking, setChecking] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
@@ -18,6 +28,37 @@ export default function GeneralTab() {
 
   return (
     <div className="stagger space-y-6">
+      <Card title="Setup">
+        {confirmSetup ? (
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-sm text-[var(--text-dim)]">
+              The guide takes over the window. Your current setup stays exactly
+              as it is — you can walk away at any point.
+            </div>
+            <div className="flex shrink-0 gap-2.5">
+              <Btn onClick={() => setConfirmSetup(false)}>Cancel</Btn>
+              <Btn
+                variant="primary"
+                onClick={async () => {
+                  setConfirmSetup(false);
+                  await save((c) => (c.general.onboarded = false));
+                }}
+              >
+                Start the guide
+              </Btn>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-sm text-[var(--text-dim)]">
+              Replay the first-run guide — pick a wallpaper, import media, set
+              up lighting and autostart.
+            </div>
+            <Btn onClick={() => setConfirmSetup(true)}>Run setup again</Btn>
+          </div>
+        )}
+      </Card>
+
       <Card title="Appearance">
         <Select<ThemeMode>
           label="Theme"
@@ -69,6 +110,7 @@ export default function GeneralTab() {
         <div className="py-2.5">
           <div className="kicker mb-2">Minimize button</div>
           <Segmented
+            label="Minimize button"
             options={[
               { id: "tray", label: "Minimize to tray" },
               { id: "taskbar", label: "Minimize to taskbar" },
@@ -185,6 +227,14 @@ export default function GeneralTab() {
                     await api.sceneDelete(s.id).catch(() => {});
                     const fresh = await api.getConfig();
                     useStore.setState({ cfg: fresh });
+                    useStore
+                      .getState()
+                      .undoDelete(`Deleted scene "${s.name}"`, (next) => {
+                        // Pushed back verbatim: the scene carries its own
+                        // wallpaper + rgb snapshot, and keeping the id means
+                        // anything pointing at it still resolves.
+                        next.scenes.push(s);
+                      });
                   }}
                 >
                   Delete

@@ -384,6 +384,9 @@ export function SelectChip({
       onClick={onClick}
       disabled={disabled}
       title={title}
+      // The selected state is carried by color alone otherwise, which a
+      // screen reader (and a colorblind user) cannot see.
+      aria-pressed={active}
       className={`rounded-full px-3 py-1 text-xs ${chipStyle(active)}`}
     >
       {children}
@@ -397,19 +400,27 @@ export function Segmented<T extends string>({
   value,
   onChange,
   className = "",
+  label,
 }: {
   options: { id: T; label: ReactNode }[];
   value: T;
   onChange: (v: T) => void;
   className?: string;
+  /** Names the group; without it the buttons announce as bare options. */
+  label?: string;
 }) {
   return (
-    <div className={`flex gap-2 ${className}`}>
+    <div
+      className={`flex gap-2 ${className}`}
+      role="group"
+      aria-label={label}
+    >
       {options.map((o) => (
         <button
           key={o.id}
           type="button"
           onClick={() => onChange(o.id)}
+          aria-pressed={value === o.id}
           className={`flex-1 rounded-xl px-3 py-2 text-xs ${chipStyle(value === o.id)}`}
         >
           {o.label}

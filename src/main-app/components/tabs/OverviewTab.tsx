@@ -1,3 +1,4 @@
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
 import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, Btn } from "../ui";
 import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause } from "../icons";
@@ -108,7 +109,17 @@ function DeviceRow({
 }
 
 export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) => void }) {
-  const { cfg, rgb, wallpaperPaused, deviceColors, save } = useStore();
+  // deviceColors is the one field that changes at frame rate; scoping keeps
+  // this tab off every *other* store write (toasts, accent, config saves).
+  const { cfg, rgb, wallpaperPaused, deviceColors, save } = useStore(
+    useShallow((s) => ({
+      cfg: s.cfg,
+      rgb: s.rgb,
+      wallpaperPaused: s.wallpaperPaused,
+      deviceColors: s.deviceColors,
+      save: s.save,
+    })),
+  );
 
   if (!cfg) return null;
 

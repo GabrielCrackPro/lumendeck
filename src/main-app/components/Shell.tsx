@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { IconBulb, IconImage, IconSticker, IconGear, IconPause, IconZap, IconRailCollapse, IconSearch } from "./icons";
 import { DEFAULT_GLOW } from "@shared/constants";
@@ -118,11 +119,17 @@ function BootSplash() {
 
 /** Bottom-right transient notifications. */
 function Toasts() {
-  const { toasts, dismissToast } = useStore();
+  const { toasts, dismissToast } = useStore(
+    useShallow((s) => ({ toasts: s.toasts, dismissToast: s.dismissToast })),
+  );
   useEffect(() => {
     if (toasts.length === 0) return;
     const timers = toasts.map((t) =>
-      setTimeout(() => dismissToast(t.id), t.tone === "error" ? 7000 : 4000),
+      // An actionable toast needs room to actually be read and clicked.
+      setTimeout(
+        () => dismissToast(t.id),
+        t.action ? 12000 : t.tone === "error" ? 7000 : 4000,
+      ),
     );
     return () => timers.forEach(clearTimeout);
   }, [toasts, dismissToast]);
@@ -151,6 +158,17 @@ function Toasts() {
             }`}
           />
           <span className="min-w-0 flex-1 leading-relaxed">{t.msg}</span>
+          {t.action && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                t.action!.run();
+              }}
+              className="shrink-0 self-center rounded-md border border-[rgb(var(--glow)/0.45)] px-2 py-1 text-[11px] font-semibold text-[rgb(var(--glow))] transition-colors hover:bg-[rgb(var(--glow)/0.15)]"
+            >
+              {t.action.label}
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -172,6 +190,74 @@ function HeaderStatus() {
         }`}
       />
       {wallpaperPaused ? "paused" : "live"}
+    </div>
+  );
+}
+
+/** "?" overlay: the keyboard map, since the hints only show on hover. */
+function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const rows: { keys: string[]; what: string }[] = [
+    { keys: ["Ctrl", "K"], what: "Command palette" },
+    ...TABS.map((t, i) => ({
+      keys: ["Ctrl", String(i + 1)],
+      what: t.label,
+    })),
+    { keys: ["Ctrl", "5"], what: SETTINGS_TAB.label },
+    { keys: ["?"], what: "This list" },
+    { keys: ["Esc"], what: "Close / go back" },
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Keyboard shortcuts"
+        className="page-enter-header w-full max-w-sm overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] shadow-[0_30px_80px_-20px_rgb(0_0_0/0.8)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center justify-between border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4 py-2.5">
+          <h2 className="kicker !text-[var(--text-dim)]">Keyboard</h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="text-[var(--text-faint)] transition-colors hover:text-[var(--text)]"
+          >
+            ✕
+          </button>
+        </header>
+        <ul className="p-2">
+          {rows.map((r) => (
+            <li
+              key={r.what}
+              className="flex items-center justify-between gap-4 rounded-lg px-2.5 py-2"
+            >
+              <span className="text-sm text-[var(--text-dim)]">{r.what}</span>
+              <span className="flex shrink-0 gap-1">
+                {r.keys.map((k) => (
+                  <kbd
+                    key={k}
+                    className="rounded-[4px] border border-[var(--line-strong)] bg-[var(--panel-strong)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text)]"
+                  >
+                    {k}
+                  </kbd>
+                ))}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
@@ -252,6 +338,7 @@ function EnginePulse() {
 export default function Shell() {
   const [tab, setTab] = useState<TabId>("overview");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem("sidebar-collapsed") === "true";
@@ -259,7 +346,16 @@ export default function Shell() {
       return false;
     }
   });
-  const { wallpaperPaused, cfg, loaded, saving } = useStore();
+  // Scoped so the shell does not re-render on every RGB frame — only the
+  // children that actually read device colors need that rate.
+  const { wallpaperPaused, cfg, loaded, saving } = useStore(
+    useShallow((s) => ({
+      wallpaperPaused: s.wallpaperPaused,
+      cfg: s.cfg,
+      loaded: s.loaded,
+      saving: s.saving,
+    })),
+  );
   const glow = useGlow();
 
   useEffect(() => {
@@ -277,6 +373,23 @@ export default function Shell() {
   // makes the tray-open flow feel native.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // "?" lists the shortcuts — no modifier, and not while typing.
+      if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const el = e.target as HTMLElement | null;
+        const typing =
+          el?.tagName === "INPUT" ||
+          el?.tagName === "TEXTAREA" ||
+          el?.isContentEditable;
+        if (!typing) {
+          e.preventDefault();
+          setShortcutsOpen((v) => !v);
+        }
+        return;
+      }
+      if (e.key === "Escape" && shortcutsOpen) {
+        setShortcutsOpen(false);
+        return;
+      }
       if (!e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
       if (e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -290,7 +403,7 @@ export default function Shell() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [shortcutsOpen]);
 
   const current = TABS.find((t) => t.id === tab) ?? (tab === SETTINGS_TAB.id ? SETTINGS_TAB : TABS[0])!;
 
@@ -397,6 +510,15 @@ export default function Shell() {
                   engine live
                 </span>
               )}
+              {!collapsed && (
+                <button
+                  onClick={() => setShortcutsOpen(true)}
+                  title="Keyboard shortcuts (?)"
+                  className="ml-auto rounded px-1 font-mono text-[10px] text-[var(--text-faint)] transition-colors hover:text-[rgb(var(--glow))]"
+                >
+                  ?
+                </button>
+              )}
             </div>
             {collapsed && (
               <button
@@ -463,6 +585,8 @@ export default function Shell() {
           onNavigate={(t) => setTab(t as TabId)}
         />
       </Suspense>
+
+      {shortcutsOpen && <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
 
       <Toasts />
 

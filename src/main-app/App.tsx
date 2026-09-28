@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useStore, bindEvents } from "./store";
 import { checkForAppUpdate } from "./updater";
 import Shell from "./components/Shell";
@@ -27,7 +28,16 @@ const STAGE_LABEL: Record<Stage, string> = {
 };
 
 export default function App() {
-  const { cfg, loaded, loadError, load } = useStore();
+  // Scoped: a bare useStore() would re-render the whole app on every RGB
+  // frame (~12Hz) because the store hands out a new deviceColors object.
+  const { cfg, loaded, loadError, load } = useStore(
+    useShallow((s) => ({
+      cfg: s.cfg,
+      loaded: s.loaded,
+      loadError: s.loadError,
+      load: s.load,
+    })),
+  );
   const updateCheckStarted = useRef(false);
   // Splash holds until `ready`; `stage` drives the splash's progress copy.
   const [stage, setStage] = useState<Stage>(0);

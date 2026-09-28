@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
 import { Card, Toggle, Slider, Btn, ColorInput, Dropdown, Section, Segmented } from "../ui";
 import { IconRefresh, IconZap, IconWave, IconDevice, IconPlus, IconTrash } from "../icons";
@@ -45,7 +46,9 @@ const NUMPAD_ROWS: Key[][] = [
  * The shown device is auto-selected: first keyboard, else first device.
  */
 export function KeyboardPreview() {
-  const { rgb, deviceColors } = useStore();
+  const { rgb, deviceColors } = useStore(
+    useShallow((s) => ({ rgb: s.rgb, deviceColors: s.deviceColors })),
+  );
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [previewId, setPreviewId] = useState<number | null>(null);
 
@@ -557,7 +560,14 @@ function hslHue([r, g, b]: [number, number, number]): number {
 }
 
 export default function RgbTab() {
-  const { cfg, rgb, save, audioLevel } = useStore();
+  const { cfg, rgb, save, audioLevel } = useStore(
+    useShallow((s) => ({
+      cfg: s.cfg,
+      rgb: s.rgb,
+      save: s.save,
+      audioLevel: s.audioLevel,
+    })),
+  );
   const deviceColors = useStore((s) => s.deviceColors);
   const [profileNaming, setProfileNaming] = useState(false);
   const [profileNameVal, setProfileNameVal] = useState("");
@@ -1068,11 +1078,18 @@ export default function RgbTab() {
                       </button>
                       <button
                         aria-label={`Delete profile ${p.name}`}
-                        onClick={() =>
+                        onClick={() => {
                           save((c) => {
-                            c.rgb.profiles = c.rgb.profiles.filter((x) => x.name !== p.name);
-                          })
-                        }
+                            c.rgb.profiles = c.rgb.profiles.filter(
+                              (x) => x.name !== p.name,
+                            );
+                          });
+                          useStore
+                            .getState()
+                            .undoDelete(`Deleted lighting profile "${p.name}"`, (c) => {
+                              c.rgb.profiles.push(p);
+                            });
+                        }}
                         className="hidden text-[var(--text-faint)] transition-colors hover:text-red-400 group-hover:block"
                       >
                         <IconTrash className="h-3.5 w-3.5" />
@@ -1110,6 +1127,7 @@ export default function RgbTab() {
                 <div className="py-2.5">
                   <div className="kicker mb-2">Direction</div>
                   <Segmented
+                    label="Wave direction"
                     options={[
                       { id: "1", label: "Forward" },
                       { id: "-1", label: "Reverse" },
@@ -1124,6 +1142,7 @@ export default function RgbTab() {
                   <div className="py-2.5">
                   <div className="kicker mb-2">Audio source</div>
                   <Segmented
+                    label="Audio source"
                     options={[
                       { id: "system", label: "System audio" },
                       { id: "microphone", label: "Microphone" },

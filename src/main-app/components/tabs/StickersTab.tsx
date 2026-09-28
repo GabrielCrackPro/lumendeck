@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
 import { Card, Btn, Toggle, Slider, Select, NumberField, EmptyState, Section } from "../ui";
 import { IconPlus, IconTrash, IconSparkle } from "../icons";
@@ -49,7 +50,9 @@ function StickerPreview({ s }: { s: StickerDef }) {
 }
 
 export default function StickersTab() {
-  const { cfg, save } = useStore();
+  const { cfg, save } = useStore(
+    useShallow((s) => ({ cfg: s.cfg, save: s.save })),
+  );
   const [busy, setBusy] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -76,9 +79,19 @@ export default function StickersTab() {
       else if (e.key === "ArrowDown") move(0, step);
       else if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
+        const victim = useStore
+          .getState()
+          .cfg?.stickers.find((x) => x.id === selected);
+        if (!victim) return;
         api
           .removeSticker(selected)
-          .then(() => useStore.getState().toast("info", "Sticker removed"))
+          .then(() =>
+            useStore
+              .getState()
+              .undoDelete(`Removed "${victim.name}"`, (next) => {
+                next.stickers.push(victim);
+              }),
+          )
           .catch(console.error);
       }
     };
@@ -359,7 +372,11 @@ export default function StickersTab() {
                       api
                         .removeSticker(s.id)
                         .then(() =>
-                          useStore.getState().toast("info", `Removed "${s.name}"`),
+                          useStore
+                            .getState()
+                            .undoDelete(`Removed "${s.name}"`, (next) => {
+                              next.stickers.push(s);
+                            }),
                         )
                         .catch((e) =>
                           useStore

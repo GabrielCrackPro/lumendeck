@@ -12,6 +12,8 @@ export interface Toast {
   id: number;
   tone: "error" | "info" | "ok";
   msg: string;
+  /** Optional single action — currently only "Undo" on destructive deletes. */
+  action?: { label: string; run: () => void };
 }
 
 interface Store {
@@ -39,8 +41,14 @@ interface Store {
   setUpdateAvailable: (update: AvailableUpdate | null) => void;
   /** Transient notifications (auto-dismiss in Shell). */
   toasts: Toast[];
-  toast: (tone: Toast["tone"], msg: string) => void;
+  toast: (tone: Toast["tone"], msg: string, action?: Toast["action"]) => void;
   dismissToast: (id: number) => void;
+  /**
+   * Toast offering to put a just-deleted config entity back, verbatim.
+   * `restore` mutates the config the same way the delete removed it, so the
+   * original id (and anything pointing at it) survives.
+   */
+  undoDelete: (msg: string, restore: (cfg: Config) => void) => void;
 }
 
 /** Invoke with a timeout so a hung command becomes a visible error. */
@@ -110,12 +118,38 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   toasts: [],
-  toast: (tone, msg) =>
+  toast: (tone, msg, action) =>
     set((s) => ({
-      toasts: [...s.toasts, { id: Date.now() + Math.random(), tone, msg }],
+      toasts: [
+        ...s.toasts,
+        { id: Date.now() + Math.random(), tone, msg, action },
+      ],
     })),
   dismissToast: (id) =>
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  undoDelete: (msg, restore) => {
+    const id = Date.now() + Math.random();
+    set((s) => ({
+      toasts: [
+        ...s.toasts,
+        {
+          id,
+          tone: "info" as const,
+          msg,
+          action: {
+            label: "Undo",
+            run: () => {
+              get().dismissToast(id);
+              // save() reports its own failures; a rejected restore just
+              // re-syncs from the backend like any other failed write.
+              void get().save(restore);
+            },
+          },
+        },
+      ],
+    }));
+  },
 
   save: async (mutate) => {
     const current = get().cfg;

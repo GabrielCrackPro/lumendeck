@@ -6,6 +6,7 @@
 //  5. Configs — the toggles most people change (power, startup, visuals)
 // Skippable at any point; the app is fully usable without finishing.
 import { useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { api } from "../ipc";
 import { Btn, Toggle, Select } from "./ui";
@@ -16,7 +17,9 @@ import type { RgbMode, ThemeMode } from "@shared/types";
 const STEPS = ["Wallpaper", "Import", "Lighting", "Mood", "Config"] as const;
 
 export default function Onboarding({ onDone }: { onDone: () => void }) {
-  const { cfg, save, rgb } = useStore();
+  const { cfg, save, rgb } = useStore(
+    useShallow((s) => ({ cfg: s.cfg, save: s.save, rgb: s.rgb })),
+  );
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [urlMode, setUrlMode] = useState(false);

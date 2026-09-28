@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
 import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section, chipStyle } from "../ui";
 import { IconImage, IconLayers, IconGlobe, IconPlus, IconTrash, IconPencil, IconPlay, IconFolder } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
-import type { GalleryEntry, WallpaperKind, ZoneDef } from "@shared/types";
+import type { Config, GalleryEntry, WallpaperKind, ZoneDef } from "@shared/types";
 import { api } from "../../ipc";
 import { truncateError } from "../../utilities";
 
@@ -17,19 +18,53 @@ const KIND_META: Record<WallpaperKind, { label: string }> = {
   shader: { label: "Shader" },
 };
 
+/** How many gallery tiles are mounted at once. The vault is unbounded and
+ *  every tile is a real element, so the rest is revealed on demand. */
+const GALLERY_PAGE = 48;
+
+/**
+ * Reports when an element is close to the viewport. Video tiles mount a
+ * <video> that eagerly decodes a frame, so a vault of a few hundred
+ * wallpapers would otherwise open a few hundred decoders at once.
+ */
+function useNearViewport<T extends HTMLElement>(rootMargin = "240px") {
+  const ref = useRef<T | null>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || near) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setNear(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setNear(true);
+      },
+      { rootMargin },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [near, rootMargin]);
+  return { ref, near };
+}
+
 /** Thumbnail for a gallery entry: hover-playing video, image, or art tile. */
 function GalleryThumb({ entry }: { entry: GalleryEntry }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
-
   const [thumbLoaded, setThumbLoaded] = useState(false);
+  const { ref: nearRef, near } = useNearViewport<HTMLDivElement>();
 
   if (entry.kind === "video") {
     return (
-      <div className="relative h-full w-full bg-[var(--panel-strong)]">
+      <div ref={nearRef} className="relative h-full w-full bg-[var(--panel-strong)]">
         {!thumbLoaded && !playing && (
           <div className="absolute inset-0 animate-pulse bg-[linear-gradient(110deg,var(--panel-strong),var(--panel)_45%,var(--panel-strong))]" />
         )}
+        {/* Off-screen tiles keep just the still; the decoder waits for the
+            tile to come near the viewport. */}
+        {near && (
         <video
           ref={videoRef}
           // #t=1 makes the browser decode & paint a frame at 1s eagerly, so the
@@ -45,6 +80,7 @@ function GalleryThumb({ entry }: { entry: GalleryEntry }) {
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
         />
+        )}
         {entry.thumb && !playing && (
           <img
             src={entry.thumb}
@@ -94,7 +130,9 @@ function GalleryThumb({ entry }: { entry: GalleryEntry }) {
 type MonEntry = Awaited<ReturnType<typeof api.monitors>>[number];
 
 export default function WallpaperTab() {
-  const { cfg, rgb, save } = useStore();
+  const { cfg, rgb, save } = useStore(
+    useShallow((s) => ({ cfg: s.cfg, rgb: s.rgb, save: s.save })),
+  );
   const [busy, setBusy] = useState(false);
   const [urlOpen, setUrlOpen] = useState(false);
   const [dropActive, setDropActive] = useState(false);
@@ -104,6 +142,8 @@ export default function WallpaperTab() {
   const [mons, setMons] = useState<MonEntry[]>([]);
   const [assignFor, setAssignFor] = useState<string | null>(null); // gallery entry id
   const [activeCollection, setActiveCollection] = useState<string>("all"); // filter
+  const [query, setQuery] = useState(""); // vault search
+  const [limit, setLimit] = useState(GALLERY_PAGE);
   const [addToCol, setAddToCol] = useState<string | null>(null); // entry-picker target
   const [playlistFor, setPlaylistFor] = useState<string | null>(null); // open editor
   const [colNaming, setColNaming] = useState(false);
@@ -176,14 +216,21 @@ export default function WallpaperTab() {
   const collections = cfg.collections ?? [];
   const playlists = cfg.playlists ?? [];
   // Collection filter: "all" = whole vault, otherwise membership list.
-  const gallery =
+  const gallery = (
     activeCollection === "all"
       ? galleryAll
       : galleryAll.filter((g) =>
           collections
             .find((c) => c.id === activeCollection)
             ?.entryIds.includes(g.id),
-        );
+        )
+  ).filter((g) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return g.name.toLowerCase().includes(q);
+  });
+  // Only the first page of tiles is mounted; the rest waits for "show more".
+  const visibleGallery = gallery.slice(0, limit);
   const isActive = (g: GalleryEntry) => g.kind === wall.kind && g.source === wall.source;
   const inCollection = (g: GalleryEntry, colId: string) =>
     collections.find((c) => c.id === colId)?.entryIds.includes(g.id) ?? false;
@@ -216,6 +263,8 @@ export default function WallpaperTab() {
 
   const toast = (tone: "error" | "info" | "ok", msg: string) =>
     useStore.getState().toast(tone, msg);
+  const undoDelete = (msg: string, restore: (c: Config) => void) =>
+    useStore.getState().undoDelete(msg, restore);
 
   const addToGallery = async (kind: WallpaperKind, source: string, name: string) => {
     try {
@@ -277,8 +326,29 @@ export default function WallpaperTab() {
         >
           {/* collection tabs */}
           <div className="mb-4 flex flex-wrap items-center gap-1.5">
+            <div className="relative mr-1">
+              <input
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setLimit(GALLERY_PAGE);
+                }}
+                placeholder="Search vault"
+                aria-label="Search wallpapers by name"
+                className="w-40 rounded-full border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-1 pl-7 text-xs text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)]"
+              />
+              <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-faint)]">
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4">
+                  <circle cx="5" cy="5" r="3.5" />
+                  <path d="M7.5 7.5L11 11" strokeLinecap="round" />
+                </svg>
+              </span>
+            </div>
             <button
-              onClick={() => setActiveCollection("all")}
+              onClick={() => {
+                setActiveCollection("all");
+                setLimit(GALLERY_PAGE);
+              }}
               className={`rounded-full px-3 py-1 text-xs ${chipStyle(activeCollection === "all")}`}
             >
               All · {cfg.gallery.length}
@@ -286,7 +356,10 @@ export default function WallpaperTab() {
             {collections.map((c) => (
               <div key={c.id} className="group/col relative">
                 <button
-                  onClick={() => setActiveCollection(c.id)}
+                  onClick={() => {
+                    setActiveCollection(c.id);
+                    setLimit(GALLERY_PAGE);
+                  }}
                   onDoubleClick={() => {
                     const name = window.prompt("Rename collection", c.name);
                     if (name?.trim())
@@ -305,7 +378,13 @@ export default function WallpaperTab() {
                       .collectionDelete(c.id)
                       .then(() => {
                         if (activeCollection === c.id) setActiveCollection("all");
-                        toast("info", `Deleted collection "${c.name}" (vault items kept)`);
+                        undoDelete(
+                          `Deleted collection "${c.name}" (vault items kept)`,
+                          (next) => {
+                            next.collections.push(c);
+                            if (activeCollection === c.id) setActiveCollection(c.id);
+                          },
+                        );
                       })
                       .catch((e) => toast("error", `Delete failed: ${truncateError(e)}`));
                   }}
@@ -415,7 +494,7 @@ export default function WallpaperTab() {
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
 
-              {gallery.map((g) => (
+              {visibleGallery.map((g) => (
                 <div
                   key={g.id}
                   className={`group relative aspect-video cursor-pointer overflow-hidden rounded-xl border transition-all duration-300 hover:-translate-y-0.5 ${
@@ -632,7 +711,11 @@ export default function WallpaperTab() {
                       e.stopPropagation();
                       api
                         .galleryRemove(g.id)
-                        .then(() => toast("info", `Removed "${g.name}" from the vault`))
+                        .then(() =>
+                          undoDelete(`Removed "${g.name}" from the vault`, (next) => {
+                            next.gallery.push(g);
+                          }),
+                        )
                         .catch((e) => toast("error", `Remove failed: ${truncateError(e)}`));
                     }}
                     className="absolute right-2 top-2 hidden h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-black/60 text-white/70 backdrop-blur transition-colors hover:bg-red-500 hover:text-white group-hover:flex"
@@ -642,6 +725,20 @@ export default function WallpaperTab() {
                 </div>
               ))}
             </div>
+
+            {visibleGallery.length < gallery.length && (
+              <div className="mt-4 flex justify-center">
+                <button
+                  onClick={() => setLimit((n) => n + GALLERY_PAGE)}
+                  className="rounded-full border border-[var(--line-strong)] bg-[var(--panel-strong)] px-5 py-2 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+                >
+                  Show {Math.min(GALLERY_PAGE, gallery.length - visibleGallery.length)} more
+                  <span className="ml-1.5 font-mono text-[10px] text-[var(--text-faint)]">
+                    {visibleGallery.length} / {gallery.length}
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
 
           {gallery.length === 0 && (
@@ -649,10 +746,27 @@ export default function WallpaperTab() {
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--panel-strong)] text-[var(--text-faint)]">
                 <IconImage className="h-5 w-5" />
               </div>
-              <div className="text-sm font-semibold text-[var(--text)]">Vault is empty</div>
+              <div className="text-sm font-semibold text-[var(--text)]">
+                {query.trim() ? "No matches" : "Vault is empty"}
+              </div>
               <p className="max-w-sm text-xs leading-relaxed text-[var(--text-faint)]">
-                Add a video or image, or drop files and folders here — everything stays in
-                the vault and one click applies it to every display.
+                {query.trim() ? (
+                  <>
+                    Nothing in this view is called “{query.trim()}”.{" "}
+                    <button
+                      onClick={() => setQuery("")}
+                      className="text-[rgb(var(--glow))] underline underline-offset-2"
+                    >
+                      Clear the search
+                    </button>
+                    .
+                  </>
+                ) : (
+                  <>
+                    Add a video or image, or drop files and folders here — everything stays in
+                    the vault and one click applies it to every display.
+                  </>
+                )}
               </p>
             </div>
           )}
@@ -785,7 +899,11 @@ export default function WallpaperTab() {
                         onClick={() =>
                           api
                             .playlistDelete(pl.id)
-                            .then(() => toast("info", `Deleted "${pl.name}"`))
+                            .then(() =>
+                              undoDelete(`Deleted "${pl.name}"`, (next) => {
+                                next.playlists.push(pl);
+                              }),
+                            )
                             .catch((e) => toast("error", `Delete failed: ${truncateError(e)}`))
                         }
                         className="text-[var(--text-faint)] transition-colors hover:text-red-400"

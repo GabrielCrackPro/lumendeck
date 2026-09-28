@@ -3,6 +3,7 @@
 // beside games/media where the mouse is busy — this mirrors the Ctrl+1..5
 // tab flow with a searchable superset.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { api } from "../ipc";
 import { truncateError } from "../utilities";
@@ -133,7 +134,15 @@ export default function CommandPalette({
   onClose: () => void;
   onNavigate: (tab: string) => void;
 }) {
-  const { cfg, rgb, wallpaperPaused, save, toast } = useStore();
+  const { cfg, rgb, wallpaperPaused, save, toast } = useStore(
+    useShallow((s) => ({
+      cfg: s.cfg,
+      rgb: s.rgb,
+      wallpaperPaused: s.wallpaperPaused,
+      save: s.save,
+      toast: s.toast,
+    })),
+  );
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
   const [pinned, setPinned] = useState<string[]>(() => readIdList(PINNED_KEY));
@@ -142,6 +151,8 @@ export default function CommandPalette({
   const [sub, setSub] = useState<"wallpapers" | "scenes" | "rgb" | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
 
   const togglePin = (id: string) => {
     setPinned((prev) => {
@@ -164,9 +175,44 @@ export default function CommandPalette({
       setQuery("");
       setSel(0);
       setSub(null);
-      // Focus after the overlay mounts.
+      // Focus after the overlay mounts. Remember what had it first so the
+      // palette hands focus back instead of dropping it on <body>.
+      previousFocus.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
       requestAnimationFrame(() => inputRef.current?.focus());
+    } else {
+      previousFocus.current?.focus();
+      previousFocus.current = null;
     }
+  }, [open]);
+
+  // Tab cycles inside the palette: the overlay is modal, so focus must not
+  // wander into the dashboard behind it.
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const focusable = panel.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      const activeEl = document.activeElement;
+      if (e.shiftKey && (activeEl === first || !panel.contains(activeEl))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && activeEl === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [open]);
 
   const commands = useMemo<Command[]>(() => {
@@ -431,8 +477,12 @@ export default function CommandPalette({
       onClick={onClose}
     >
       <div
+        ref={panelRef}
         className="pal-panel w-full max-w-[600px] overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] shadow-[0_30px_80px_-20px_rgb(0_0_0/0.8)]"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
       >
         <div className="relative flex items-center border-b border-[var(--line)]">
           {/* breadcrumb: shown in submenus, click = back */}
