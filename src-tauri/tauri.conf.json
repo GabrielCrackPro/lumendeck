@@ -13,10 +13,6 @@
     "windows": [],
     "security": {
       "csp": "default-src 'self'; img-src 'self' http://media.localhost data: blob:; media-src 'self' http://media.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src http://* https://*; connect-src 'self' ipc: http://ipc.localhost"
-    },
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": false
     }
   },
   "bundle": {

@@ -14,7 +14,7 @@
 
 #![cfg(windows)]
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::HBRUSH;
@@ -24,9 +24,9 @@ use windows::Win32::UI::Shell::{
     NIIF_RESPECT_QUIET_TIME, NIM_ADD, NIM_DELETE, NIS_HIDDEN, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, LoadIconW, RegisterClassW,
-    TranslateMessage, HCURSOR, HICON, IDI_APPLICATION, MSG, WNDCLASSW, WNDCLASS_STYLES,
-    WINDOW_EX_STYLE, WINDOW_STYLE,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, KillTimer, LoadIconW,
+    RegisterClassW, SetTimer, TranslateMessage, HCURSOR, HICON, IDI_APPLICATION, MSG, WNDCLASSW,
+    WNDCLASS_STYLES, WINDOW_EX_STYLE, WINDOW_STYLE,
 };
 
 const CLASS_NAME: &str = "LumenDeckBalloon";
@@ -38,8 +38,12 @@ const CALLBACK_MESSAGE: u32 = 0_0400;
 const NIN_BALLOONUSERCLICK: u32 = CALLBACK_MESSAGE + 3;
 
 /// How long a balloon is given before we take the icon back, if the shell
-/// never reports back. Windows dismisses it on its own well before this.
+/// never reports back. Windows dismisses it on its own well before this —
+/// unless the user set notifications to "Never", in which case the balloon
+/// waits for a click and this is the only thing that ends it.
 const DEFAULT_LIFETIME: Duration = Duration::from_secs(20);
+const TIMER_ID: usize = 1;
+const WM_TIMER: u32 = 0_0113;
 
 /// Show a balloon titled `title` with `body`, on a background thread.
 ///
@@ -139,14 +143,13 @@ where
         }
         log::info!("tray balloon shown");
 
-        // Pump until the shell reports the balloon is done, or the lifetime
-        // runs out — whichever comes first.
-        let deadline = Instant::now() + lifetime;
+        // GetMessageW blocks until something happens, so the lifetime has to
+        // arrive as a message of its own or the pump would sit here forever
+        // on a machine that never dismisses the balloon.
+        SetTimer(Some(hwnd), TIMER_ID, lifetime.as_millis() as u32, None);
+
         let mut clicked = false;
         loop {
-            if Instant::now() >= deadline {
-                break;
-            }
             let mut msg = MSG::default();
             // GetMessageW is not a Result: it returns 0 for WM_QUIT and -1 on
             // error, both of which mean there is nothing left to pump.
@@ -156,6 +159,9 @@ where
             unsafe {
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
+            }
+            if msg.message == WM_TIMER && msg.wParam.0 as usize == TIMER_ID {
+                break;
             }
             if msg.message == CALLBACK_MESSAGE {
                 if msg.lParam.0 as u32 == NIN_BALLOONUSERCLICK {
@@ -167,6 +173,7 @@ where
             }
         }
 
+        let _ = KillTimer(Some(hwnd), TIMER_ID);
         let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
         if clicked {
             on_click();
