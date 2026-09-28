@@ -189,10 +189,20 @@ function Toasts() {
               onClick={() => dismissToast(t.id)}
               className="flex cursor-pointer items-start gap-3 px-3.5 py-3"
             >
-              <span
-                className={`mt-px flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${tone.chip}`}
-              >
-                <ToneIcon className="h-3.5 w-3.5" />
+              <span className="relative mt-px flex h-6 w-6 shrink-0 items-center justify-center rounded-lg">
+                <span
+                  className={`flex h-6 w-6 items-center justify-center rounded-lg ${tone.chip}`}
+                >
+                  <ToneIcon className="h-3.5 w-3.5" />
+                </span>
+                {(t.count ?? 1) > 1 && (
+                  <span
+                    title={`${t.count} times`}
+                    className="absolute -right-1.5 -top-1.5 min-w-[15px] rounded-full bg-[var(--panel-strong)] px-1 font-mono text-[9px] font-bold leading-[15px] text-[var(--text)] ring-1 ring-[var(--line-strong)]"
+                  >
+                    {t.count}
+                  </span>
+                )}
               </span>
               <div className="min-w-0 flex-1">
                 {t.title && (

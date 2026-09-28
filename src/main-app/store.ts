@@ -18,6 +18,14 @@ export interface Toast {
   progress?: number | null;
   /** Stay until dismissed — for things the user should not miss. */
   sticky?: boolean;
+  /**
+   * Collapses repeats: a new toast with the same key updates this one in
+   * place and bumps `count` instead of stacking. A device that reconnects
+   * every few seconds should read as "flapping", not as fifty cards.
+   */
+  key?: string;
+  /** How many times a keyed toast has fired. */
+  count?: number;
   /** Optional single action — "Undo" on deletes, "Install" on an update. */
   action?: { label: string; run: () => void; disabled?: boolean };
 }
@@ -50,7 +58,9 @@ interface Store {
   toast: (
     tone: Toast["tone"],
     msg: string,
-    opts?: Partial<Pick<Toast, "action" | "title" | "progress" | "sticky">>,
+    opts?: Partial<
+      Pick<Toast, "action" | "title" | "progress" | "sticky" | "key">
+    >,
   ) => void;
   /** Patch an existing toast in place (progress ticks, disabling its action). */
   patchToast: (id: number, patch: Partial<Omit<Toast, "id">>) => void;
@@ -131,9 +141,35 @@ export const useStore = create<Store>((set, get) => ({
 
   toasts: [],
   toast: (tone, msg, opts) =>
-    set((s) => ({
-      toasts: [...s.toasts, { id: Date.now() + Math.random(), tone, msg, ...opts }],
-    })),
+    set((s) => {
+      // A repeat with the same key updates the card already on screen: the
+      // newest state wins, the card keeps one identity, and the count says
+      // how noisy it has been. The dismiss timer restarts with it.
+      if (opts?.key) {
+        const i = s.toasts.findIndex((t) => t.key === opts.key);
+        if (i !== -1) {
+          const toasts = [...s.toasts];
+          const prev = toasts[i]!;
+          toasts[i] = {
+            ...prev,
+            tone,
+            msg,
+            title: opts.title,
+            action: opts.action,
+            progress: opts.progress,
+            sticky: opts.sticky,
+            count: (prev.count ?? 1) + 1,
+          };
+          return { toasts };
+        }
+      }
+      return {
+        toasts: [
+          ...s.toasts,
+          { id: Date.now() + Math.random(), tone, msg, ...opts },
+        ],
+      };
+    }),
   patchToast: (id, patch) =>
     set((s) => ({
       toasts: s.toasts.map((t) => (t.id === id ? { ...t, ...patch } : t)),
@@ -211,17 +247,27 @@ export async function bindEvents(): Promise<() => void> {
       const prev = lastDeviceIds;
       const next = e.payload.devices.map((d) => d.id);
       if (prev !== null && !e.payload.connected && prev.length > 0) {
-        useStore.getState().toast("info", "OpenRGB disconnected");
+        useStore
+          .getState()
+          .toast("info", "OpenRGB disconnected", { key: "openrgb" });
       } else if (prev !== null && e.payload.connected) {
         const added = next.filter((id) => !prev.includes(id));
         const removed = prev.filter((id) => !next.includes(id));
         const nameOf = (id: number) =>
           e.payload.devices.find((d) => d.id === id)?.name ?? `Device ${id}`;
+        // Keyed per device: a USB hub that drops and comes back produces one
+        // card that keeps count, not a new card on every transition.
         for (const id of added) {
-          useStore.getState().toast("ok", `${nameOf(id)} connected`);
+          useStore
+            .getState()
+            .toast("ok", `${nameOf(id)} connected`, { key: `device:${id}` });
         }
         for (const id of removed) {
-          useStore.getState().toast("info", `${nameOf(id)} disconnected`);
+          useStore
+            .getState()
+            .toast("info", `${nameOf(id)} disconnected`, {
+              key: `device:${id}`,
+            });
         }
       }
       lastDeviceIds = e.payload.connected ? next : [];
