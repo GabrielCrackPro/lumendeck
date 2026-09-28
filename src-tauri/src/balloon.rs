@@ -75,7 +75,7 @@ where
 {
     unsafe {
         let hinstance: HINSTANCE = GetModuleHandleW(None)
-            .map_err(|e| e.to_string())?
+            .map_err(crate::error::err_str)?
             .into();
         let mut class_name: Vec<u16> = CLASS_NAME.encode_utf16().collect();
         class_name.push(0);
@@ -113,12 +113,12 @@ where
             Some(hinstance),
             None,
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(crate::error::err_str)?;
 
         // MAKEINTRESOURCE(1) is how Tauri embeds the app icon in the exe.
         let icon = LoadIconW(Some(hinstance), PCWSTR(1 as *const u16))
             .or_else(|_| LoadIconW(Some(hinstance), IDI_APPLICATION))
-            .map_err(|e| e.to_string())?;
+            .map_err(crate::error::err_str)?;
 
         let mut nid = NOTIFYICONDATAW {
             cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,

@@ -3,7 +3,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section, chipStyle } from "../ui";
+import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section, InfoNote, chipStyle, ItemTitle } from "../ui";
 import { IconImage, IconLayers, IconGlobe, IconPlus, IconTrash, IconPencil, IconPlay, IconFolder } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
 import type { Config, GalleryEntry, WallpaperKind, ZoneDef } from "@shared/types";
@@ -319,7 +319,7 @@ export default function WallpaperTab() {
         <Card
           title="Vault"
           right={
-            <span className="font-mono text-[10px] tracking-wide text-[var(--text-faint)]">
+            <span className="hint">
               {gallery.length} item{gallery.length === 1 ? "" : "s"}
             </span>
           }
@@ -422,7 +422,7 @@ export default function WallpaperTab() {
                   setColNaming(true);
                   setColNameVal("");
                 }}
-                className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-[var(--line-strong)] text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+                className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-[var(--line-strong)] text-[var(--text-faint)] hover-glow"
                 title="New collection"
               >
                 <IconPlus className="h-3.5 w-3.5" />
@@ -468,7 +468,7 @@ export default function WallpaperTab() {
                 <IconGlobe className="h-4 w-4" />
                 From URL
               </Btn>
-              <span className="ml-auto hidden text-[11px] text-[var(--text-faint)] sm:block">
+              <span className="text-dim-sm ml-auto hidden sm:block">
                 …or drop files and folders anywhere in the vault
               </span>
               {urlOpen && (
@@ -730,10 +730,10 @@ export default function WallpaperTab() {
               <div className="mt-4 flex justify-center">
                 <button
                   onClick={() => setLimit((n) => n + GALLERY_PAGE)}
-                  className="rounded-full border border-[var(--line-strong)] bg-[var(--panel-strong)] px-5 py-2 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+                  className="rounded-full border border-[var(--line-strong)] bg-[var(--panel-strong)] px-5 py-2 text-xs font-semibold text-[var(--text-dim)] hover-glow"
                 >
                   Show {Math.min(GALLERY_PAGE, gallery.length - visibleGallery.length)} more
-                  <span className="ml-1.5 font-mono text-[10px] text-[var(--text-faint)]">
+                  <span className="hint ml-1.5">
                     {visibleGallery.length} / {gallery.length}
                   </span>
                 </button>
@@ -746,9 +746,9 @@ export default function WallpaperTab() {
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--panel-strong)] text-[var(--text-faint)]">
                 <IconImage className="h-5 w-5" />
               </div>
-              <div className="text-sm font-semibold text-[var(--text)]">
+              <ItemTitle>
                 {query.trim() ? "No matches" : "Vault is empty"}
-              </div>
+              </ItemTitle>
               <p className="max-w-sm text-xs leading-relaxed text-[var(--text-faint)]">
                 {query.trim() ? (
                   <>
@@ -854,16 +854,14 @@ export default function WallpaperTab() {
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-semibold text-[var(--text)]">
-                            {pl.name}
-                          </span>
+                          <ItemTitle className="truncate">{pl.name}</ItemTitle>
                           {pl.enabled && (
                             <span className="rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-bold text-[#06121f]">
                               RUNNING
                             </span>
                           )}
                         </div>
-                        <div className="mt-0.5 text-[11px] text-[var(--text-faint)]">
+                        <div className="text-dim-sm mt-0.5">
                           {pool.length} item{pool.length === 1 ? "" : "s"} ·{" "}
                           {pl.shuffleMin > 0 ? `every ${pl.shuffleMin} min` : "manual"}
                           {pl.rules.length > 0 && ` · ${pl.rules.length} time rule${pl.rules.length === 1 ? "" : "s"}`}
@@ -983,7 +981,7 @@ export default function WallpaperTab() {
                             Time-of-day rules (optional)
                           </div>
                           {pl.rules.length === 0 && (
-                            <div className="mb-2 text-[11px] text-[var(--text-faint)]">
+                            <div className="text-dim-sm mb-2">
                               Without rules the playlist shuffles one pool all day.
                             </div>
                           )}
@@ -1058,7 +1056,7 @@ export default function WallpaperTab() {
                                 })
                                 .catch(() => {})
                             }
-                            className="mt-2 flex items-center gap-1.5 rounded-lg border border-dashed border-[var(--line-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+                            className="mt-2 flex items-center gap-1.5 rounded-lg border border-dashed border-[var(--line-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-dim)] hover-glow"
                           >
                             <IconPlus className="h-3.5 w-3.5" />
                             Add rule
@@ -1223,7 +1221,7 @@ export default function WallpaperTab() {
               />
             )}
             {(wall.kind === "image" || wall.kind === "video") && (
-              <div className="truncate font-mono text-[11px] text-[var(--text-faint)]" title={wall.source}>
+              <div className="hint truncate" title={wall.source}>
                 {wall.source || "Nothing applied yet"}
               </div>
             )}
@@ -1239,11 +1237,11 @@ export default function WallpaperTab() {
         </div>
 
 
-        <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-4 text-xs leading-relaxed text-[var(--text-faint)]">
+        <InfoNote>
           Each display gets its own wallpaper window sized to its exact resolution.
           Hover a vault tile to apply it to <b className="text-[var(--text)]">all displays</b> or
           just one — tiles show which displays they're running on.
-        </div>
+        </InfoNote>
 
         <Card title="Zone → device mapping">
           <p className="mb-5 text-sm leading-relaxed text-[var(--text-dim)]">
@@ -1391,7 +1389,7 @@ function UrlImport({
           Cancel
         </Btn>
       </div>
-      <p className="mt-2 text-[11px] text-[var(--text-faint)]">
+      <p className="text-dim-sm mt-2">
         Direct link to an mp4/webm video or png/jpg/webp/gif image (max 200 MB). It is downloaded into your vault.
       </p>
     </div>

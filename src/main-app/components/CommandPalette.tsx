@@ -490,7 +490,7 @@ export default function CommandPalette({
             <button
               onClick={() => setSub(null)}
               title="Back to all commands"
-              className="ml-3 flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--line)] px-2 py-1 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+              className="ml-3 flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--line)] px-2 py-1 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] hover-glow"
             >
               <span className="text-[11px] leading-none">←</span>
               {SUB_META[sub].crumb}

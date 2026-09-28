@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { api } from "../ipc";
-import { Btn, Toggle, Select } from "./ui";
+import { Btn, Toggle, Select, ItemTitle } from "./ui";
 import { RGB_MODES } from "@shared/constants";
 import { basename, truncateError } from "../utilities";
 import type { RgbMode, ThemeMode } from "@shared/types";
@@ -171,11 +171,11 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
               </p>
               <div className="mt-5 space-y-2.5">
                 <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4">
-                  <div className="text-sm font-semibold text-[var(--text)]">
+                  <ItemTitle>
                     {cfg.gallery.length > 0
                       ? `${cfg.gallery.length} wallpapers in your vault`
                       : "Your vault is empty"}
-                  </div>
+                  </ItemTitle>
                   <div className="mt-1 text-xs text-[var(--text-faint)]">
                     {cfg.gallery.length > 0
                       ? "We'll apply your first one now — browse the vault after setup."
@@ -216,7 +216,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                           key={c.id}
                           onClick={() => applyChoice(c.id)}
                           disabled={busy}
-                          className="flex w-full items-center justify-between rounded-lg border border-[var(--line)] px-3 py-2 text-left text-sm text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))] disabled:opacity-50"
+                          className="flex w-full items-center justify-between rounded-lg border border-[var(--line)] px-3 py-2 text-left text-sm text-[var(--text-dim)] hover-glow disabled:opacity-50"
                         >
                           <span className="min-w-0 truncate">{c.name}</span>
                           <span className="ml-2 shrink-0 font-mono text-[10px] uppercase tracking-widest">
@@ -246,7 +246,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                         Cancel
                       </Btn>
                     </div>
-                    <p className="mt-2 text-[11px] text-[var(--text-faint)]">
+                    <p className="mt-2 text-dim-sm">
                       Direct link to an mp4/webm video or png/jpg/webp/gif image (max 200 MB).
                     </p>
                   </div>
@@ -258,7 +258,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       className="flex w-full items-center justify-between rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4 text-left transition-all hover:border-[rgb(var(--glow)/0.5)] disabled:opacity-50"
                     >
                       <span>
-                        <span className="block text-sm font-semibold text-[var(--text)]">Import a file</span>
+                        <ItemTitle as="span">Import a file</ItemTitle>
                         <span className="mt-0.5 block text-xs text-[var(--text-faint)]">A video or image from your PC</span>
                       </span>
                       <span className="font-mono text-[10px] uppercase tracking-widest text-[rgb(var(--glow))]">pick</span>
@@ -269,7 +269,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       className="flex w-full items-center justify-between rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4 text-left transition-all hover:border-[rgb(var(--glow)/0.5)] disabled:opacity-50"
                     >
                       <span>
-                        <span className="block text-sm font-semibold text-[var(--text)]">Import a folder</span>
+                        <ItemTitle as="span">Import a folder</ItemTitle>
                         <span className="mt-0.5 block text-xs text-[var(--text-faint)]">Every video and image inside, in one go</span>
                       </span>
                       <span className="font-mono text-[10px] uppercase tracking-widest text-[rgb(var(--glow))]">pick</span>
@@ -280,7 +280,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       className="flex w-full items-center justify-between rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4 text-left transition-all hover:border-[rgb(var(--glow)/0.5)] disabled:opacity-50"
                     >
                       <span>
-                        <span className="block text-sm font-semibold text-[var(--text)]">From a URL</span>
+                        <ItemTitle as="span">From a URL</ItemTitle>
                         <span className="mt-0.5 block text-xs text-[var(--text-faint)]">Download a wallpaper from a direct link</span>
                       </span>
                       <span className="font-mono text-[10px] uppercase tracking-widest text-[rgb(var(--glow))]">link</span>
@@ -309,9 +309,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
               <div className="mt-5 rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-[var(--text)]">
+                    <ItemTitle>
                       {rgb.connected ? `${rgb.devices.length} device${rgb.devices.length === 1 ? "" : "s"} detected` : "OpenRGB not detected"}
-                    </div>
+                    </ItemTitle>
                     <div className="mt-0.5 text-xs text-[var(--text-faint)]">
                       {rgb.connected
                         ? "You're set — devices will follow the modes on the next step."
@@ -368,13 +368,13 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       <button
                         key={m.id}
                         onClick={() => save((c) => (c.rgb.mode = m.id as RgbMode))}
-                        className={`rounded-xl border p-3.5 text-left transition-all ${
+                        className={`rounded-xl border p-3.5 text-left transition-all active:scale-[0.98] ${
                           active
                             ? "border-[rgb(var(--glow)/0.6)] bg-[rgb(var(--glow)/0.08)] ring-1 ring-[rgb(var(--glow)/0.3)]"
                             : "border-[var(--line)] hover:border-[var(--line-strong)]"
                         }`}
                       >
-                        <div className="text-sm font-semibold text-[var(--text)]">{m.label}</div>
+                        <ItemTitle>{m.label}</ItemTitle>
                         <div className="mt-0.5 text-[11px] leading-snug text-[var(--text-faint)]">
                           {m.hint}
                         </div>

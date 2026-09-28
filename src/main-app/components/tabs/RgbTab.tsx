@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Toggle, Slider, Btn, ColorInput, Dropdown, Section, Segmented } from "../ui";
+import { Card, Toggle, Slider, Btn, ColorInput, Dropdown, Section, Segmented, InfoNote, ItemTitle } from "../ui";
 import { IconRefresh, IconZap, IconWave, IconDevice, IconPlus, IconTrash } from "../icons";
 import { RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import { rgbToHex } from "../../utilities";
@@ -312,7 +312,7 @@ export function KeyboardPreview() {
   }, [kb, kbColors, isKeyboard, deviceColors]);
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel-strong)] p-3.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]">
+    <div className="relative overflow-hidden panel-inset p-3.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_50%_at_50%_0%,rgb(255_255_255/0.06),transparent_55%)]" />
       <div className="relative z-10 mx-auto w-full max-w-[760px]">
         <canvas ref={canvasRef} className="h-52 w-full" />
@@ -666,14 +666,16 @@ export default function RgbTab() {
 
       {/* `@container`: the mode cards below sit in a narrow column whose
           width has nothing to do with the viewport, so viewport breakpoints
-          squeezed them once the window was maximized. */}
-      <div className="@container grid gap-6 lg:grid-cols-[1fr_1.15fr]">
-      <div className="space-y-6">
+          squeezed them once the window was maximized. Left column: hardware
+          + automation (what the lights run ON). Right column: look (mode,
+          options, mixer, profiles). */}
+      <div className="@container grid gap-5 lg:grid-cols-[1fr_1.15fr]">
+      <div className="space-y-5">
         <Card
           title="Devices"
           right={
             rgb.connected ? (
-              <span className="font-mono text-[10px] tracking-wide text-[var(--text-faint)]">
+              <span className="hint">
                 {ledTotal.toLocaleString()} leds
               </span>
             ) : undefined
@@ -687,7 +689,7 @@ export default function RgbTab() {
                 return (
                   <li
                     key={d.id}
-                    className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--panel-strong)] px-3.5 py-3"
+                    className="flex items-center justify-between gap-3 panel-inset px-3.5 py-3 transition-colors duration-200 hover:border-[var(--line-strong)]"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <span
@@ -705,9 +707,7 @@ export default function RgbTab() {
                       </span>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-semibold text-[var(--text)]">
-                            {d.name || `Device ${d.id}`}
-                          </span>
+                          <ItemTitle className="truncate">{d.name || `Device ${d.id}`}</ItemTitle>
                         </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                           <span className="truncate text-[11px] capitalize text-[var(--text-faint)]">
@@ -720,7 +720,7 @@ export default function RgbTab() {
                           {d.zones.length > 0 && (
                             <>
                               <span className="h-0.5 w-0.5 rounded-full bg-[var(--line-strong)]" />
-                              <span className="truncate text-[11px] text-[var(--text-faint)]">
+                              <span className="truncate text-dim-sm">
                                 {d.zones.length} zone{d.zones.length === 1 ? "" : "s"}: {d.zones.slice(0, 2).join(", ")}
                                 {d.zones.length > 2 ? ` +${d.zones.length - 2}` : ""}
                               </span>
@@ -757,7 +757,7 @@ export default function RgbTab() {
                 );
               })}
               {rgb.devices.filter((d) => !rgbCfg.excludedDevices.includes(d.id)).length === 0 && (
-                <li className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--panel-strong)] px-3.5 py-3 text-sm text-[var(--text-faint)]">
+                <li className="flex items-center justify-between gap-3 panel-inset px-3.5 py-3 text-sm text-[var(--text-faint)]">
                   {rgb.devices.length > 0
                     ? "All devices excluded. Toggle them on from Settings."
                     : "Connected, but no devices reported yet."}
@@ -768,7 +768,7 @@ export default function RgbTab() {
                 </li>
               )}
               {rgb.devices.length === 0 && (
-                <li className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--panel-strong)] px-3.5 py-3 text-sm text-[var(--text-faint)]">
+                <li className="flex items-center justify-between gap-3 panel-inset px-3.5 py-3 text-sm text-[var(--text-faint)]">
                   Connected, but no devices reported yet.
                   <Btn onClick={() => useStore.getState().load()}>
                     <IconRefresh className="h-4 w-4" />
@@ -779,7 +779,7 @@ export default function RgbTab() {
             </ul>
           ) : (
             <div className="mt-5 space-y-3.5 text-sm text-[var(--text-dim)]">
-              <div className="flex items-start gap-3 rounded-2xl border border-[var(--line)] bg-[var(--panel-strong)] p-3.5">
+              <div className="flex items-start gap-3 panel-inset p-3.5">
                 <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-amber-500/25 bg-amber-500/10 text-amber-300">
                   <IconZap className="h-4 w-4" />
                 </span>
@@ -802,7 +802,10 @@ export default function RgbTab() {
               </Btn>
             </div>
           )}
+          {/* Everything that governs WHEN lights are on/off lives together:
+              idle, night window, track flash — behavior over look. */}
           <div className="mt-4 border-t border-[var(--line)] pt-4">
+            <div className="kicker mb-1">Automation</div>
             <Toggle
               label="Turn off lights when idle"
               description="Automatically turn off RGB after a period of no keyboard or mouse activity."
@@ -844,7 +847,7 @@ export default function RgbTab() {
               </>
             )}
 
-            <div className="mt-4 border-t border-[var(--line)] pt-4">
+            <div className="mt-3 border-t border-[var(--line)] pt-3">
               <Toggle
                 label="Night dimming"
                 description="Cap LED brightness during a daily window (e.g. 22:00 to 07:00) so the lights don't glare in the dark."
@@ -865,7 +868,7 @@ export default function RgbTab() {
               {!!rgbCfg.nightStart && !!rgbCfg.nightEnd && (
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <label className="block">
-                    <span className="mb-1 block text-[11px] text-[var(--text-faint)]">Starts</span>
+                    <span className="mb-1 block text-dim-sm">Starts</span>
                     <input
                       type="time"
                       value={rgbCfg.nightStart}
@@ -874,7 +877,7 @@ export default function RgbTab() {
                     />
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-[11px] text-[var(--text-faint)]">Ends</span>
+                    <span className="mb-1 block text-dim-sm">Ends</span>
                     <input
                       type="time"
                       value={rgbCfg.nightEnd}
@@ -944,10 +947,15 @@ export default function RgbTab() {
             </span>
           }
         >
-          {(["reactive", "animation"] as const).map((group) => (
-            <div key={group}>
-              <div className="kicker mb-2 mt-5 first:mt-0">
-                {group === "reactive" ? "Reactive to wallpaper" : "Animated"}
+          {(["reactive", "animation"] as const).map((group, gi) => (
+            <div key={group} className={gi > 0 ? "mt-5 border-t border-[var(--line)] pt-4" : ""}>
+              <div className="mb-2.5 flex items-baseline justify-between gap-3">
+                <span className="kicker">
+                  {group === "reactive" ? "Reactive to wallpaper" : "Animated"}
+                </span>
+                <span className="font-mono text-[9.5px] text-[var(--text-faint)]">
+                  {group === "reactive" ? "color follows the screen" : "self-driven motion"}
+                </span>
               </div>
               <div className="grid grid-cols-1 gap-3 @[22rem]:grid-cols-2 @[38rem]:grid-cols-4">
                 {RGB_MODES.filter((m) => m.group === group).map((m) => {
@@ -956,49 +964,57 @@ export default function RgbTab() {
                     <button
                       key={m.id}
                       onClick={() => save((c) => (c.rgb.mode = m.id as RgbMode))}
-                      className={`group relative flex aspect-[16/10] w-full flex-col overflow-hidden rounded-xl border transition-all duration-200 ${
+                      title={m.hint}
+                      className={`group flex w-full flex-col overflow-hidden rounded-xl border text-left transition-all duration-200 active:scale-[0.98] ${
                         active
                           ? "border-[rgb(var(--glow)/0.6)] shadow-[0_8px_28px_-10px_rgb(var(--glow)/0.55)] ring-2 ring-[rgb(var(--glow)/0.25)]"
-                          : "border-[var(--line)] hover:border-[var(--line-strong)] hover:brightness-110"
+                          : "border-[var(--line)] hover:border-[var(--line-strong)] hover:shadow-[0_4px_16px_-8px_rgb(var(--glow)/0.35)]"
                       }`}
                     >
-                      {/* full-bleed live per-LED strip preview */}
-                      <ModePreview
-                        mode={m.id as RgbMode}
-                        staticColor={rgbCfg.staticColor}
-                        liveColor={liveWallpaperColor}
-                        speed={rgbCfg.animationSpeed}
-                        brightness={rgbCfg.mixer.brightness}
-                        saturation={rgbCfg.mixer.saturation}
-                        active={active}
-                        audioVolume={audioLevel.volume}
-                        cycleSpread={rgbCfg.cycleSpread}
-                        waveDirection={rgbCfg.waveDirection}
-                      />
-                      <span className="absolute inset-0 bg-[linear-gradient(180deg,rgb(0_0_0/0.45)_0%,transparent_30%,transparent_45%,rgb(0_0_0/0.78)_100%)]" />
-                      {/* top row: icon + active pill */}
-                      <span className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2.5">
-                        <ModeIcon
+                      {/* Live strip preview as a fixed band — in normal flow,
+                          so the text below can never overlap it. */}
+                      <span className="relative block h-12 w-full shrink-0">
+                        <ModePreview
                           mode={m.id as RgbMode}
-                          className={`h-4 w-4 shrink-0 drop-shadow ${active ? "text-[rgb(var(--glow))]" : "text-white/70"}`}
+                          staticColor={rgbCfg.staticColor}
+                          liveColor={liveWallpaperColor}
+                          speed={rgbCfg.animationSpeed}
+                          brightness={rgbCfg.mixer.brightness}
+                          saturation={rgbCfg.mixer.saturation}
+                          active={active}
+                          audioVolume={audioLevel.volume}
+                          cycleSpread={rgbCfg.cycleSpread}
+                          waveDirection={rgbCfg.waveDirection}
                         />
+                        <span className="pointer-events-none absolute inset-0 rounded-t-xl ring-1 ring-inset ring-[rgb(255_255_255/0.06)]" />
                         {active && (
-                          <span className="rounded-md bg-[rgb(var(--glow))] px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-wider text-black/85">
-                            active
+                          <span className="absolute right-1.5 top-1.5 rounded-md bg-[rgb(var(--glow))] px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-wider text-black/85">
+                            on
                           </span>
                         )}
                       </span>
-                      {/* bottom: name + hint, always visible */}
-                      <span className="absolute inset-x-0 bottom-0 p-2.5">
-                        <span
-                          className={`block text-[13px] font-semibold leading-tight ${
-                            active ? "text-[rgb(var(--glow))]" : "text-white"
+                      {/* Text row: icon + label + hint, normal flow, one line. */}
+                      <span
+                        className={`flex w-full items-center gap-2 border-t px-2.5 py-2 transition-colors ${
+                          active
+                            ? "border-[rgb(var(--glow)/0.3)] bg-[rgb(var(--glow)/0.08)]"
+                            : "border-transparent bg-[var(--panel-strong)] group-hover:bg-[var(--panel)]"
+                        }`}
+                      >
+                        <ModeIcon
+                          mode={m.id as RgbMode}
+                          className={`h-4 w-4 shrink-0 ${
+                            active ? "text-[rgb(var(--glow))]" : "text-[var(--text-faint)] group-hover:text-[var(--text-dim)]"
                           }`}
-                        >
-                          {m.label}
-                        </span>
-                        <span className="mt-0.5 block truncate text-[10px] leading-snug text-white/55">
-                          {m.hint}
+                        />
+                        <span className="min-w-0">
+                          <span
+                            className={`block truncate text-[12.5px] font-semibold leading-tight ${
+                              active ? "text-[rgb(var(--glow))]" : "text-[var(--text)]"
+                            }`}
+                          >
+                            {m.label}
+                          </span>
                         </span>
                       </span>
                     </button>
@@ -1011,8 +1027,8 @@ export default function RgbTab() {
           <div className="mt-6 border-t border-[var(--line)] pt-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <div className="text-[13px] font-semibold text-[var(--text)]">Profiles</div>
-                <div className="mt-0.5 text-[11px] text-[var(--text-faint)]">
+                <ItemTitle>Profiles</ItemTitle>
+                <div className="mt-0.5 text-dim-sm">
                   Save the current mode, color and speed as a snapshot — switchable from
                   the tray menu.
                 </div>
@@ -1125,25 +1141,36 @@ export default function RgbTab() {
               </div>
             )}
           </div>
-          {/* ---- mode-specific options + mixer: two-column disposition ---- */}
-          {(rgbCfg.mode === "static" || rgbCfg.mode === "breathe") && (
-            <ColorInput
-              label={rgbCfg.mode === "static" ? "Static color" : "Breath color"}
-              value={rgbCfg.staticColor}
-              onChange={(v) => save((c) => (c.rgb.staticColor = v))}
-            />
-          )}
-          {rgbCfg.mode === "audioReactive" && (
-            <div className="rounded-xl border border-[rgb(var(--glow)/0.25)] bg-[rgb(var(--glow)/0.07)] px-3 py-2.5 text-xs leading-relaxed text-[var(--text-dim)]">
-              Colors follow the <b className="text-[var(--text)]">wallpaper accent</b> — the
-              dominant on-screen tone — so the lights match what you're watching.
-              Volume drives brightness; beats pulse the strip.
-            </div>
-          )}
+          {/* ---- mode-specific options + mixer: everything keyed to the
+              active mode lives under one header, in one place ---- */}
           <div className="space-y-1">
-            {/* mode options */}
-            <Section title="Mode options" defaultOpen>
+            <Section title={activeMode ? `${activeMode.label} options` : "Mode options"} defaultOpen>
             <div className="space-y-1">
+              {(rgbCfg.mode === "static" || rgbCfg.mode === "breathe") && (
+                <div className="pb-2">
+                  <ColorInput
+                    label={rgbCfg.mode === "static" ? "Static color" : "Breath color"}
+                    value={rgbCfg.staticColor}
+                    onChange={(v) => save((c) => (c.rgb.staticColor = v))}
+                  />
+                </div>
+              )}
+              {rgbCfg.mode === "audioReactive" && (
+                <div className="mb-2">
+                  <InfoNote>
+                    Colors follow the <b className="text-[var(--text)]">wallpaper accent</b> — the
+                    dominant on-screen tone — so the lights match what you're watching.
+                    Volume drives brightness; beats pulse the strip.
+                  </InfoNote>
+                </div>
+              )}
+              {rgbCfg.mode === "zone" && (
+                <div className="mb-2">
+                  <InfoNote>
+                    Draw zones on the Wallpaper tab — each zone can be mapped to devices there.
+                  </InfoNote>
+                </div>
+              )}
               {rgbCfg.mode === "cycle" && (
                 <Slider
                   label="Rainbow spread"
@@ -1232,11 +1259,6 @@ export default function RgbTab() {
                     onChange={(v) => save((c) => (c.rgb.audioSmoothing = v))}
                   />
                 </>
-              )}
-              {rgbCfg.mode === "zone" && (
-                <p className="my-2 rounded-xl border border-[rgb(var(--glow)/0.25)] bg-[rgb(var(--glow)/0.07)] px-3 py-2 text-xs leading-relaxed text-[var(--text-dim)]">
-                  Draw zones on the Wallpaper tab — each zone can be mapped to devices there.
-                </p>
               )}
               {isAnimated && (
                 <Slider

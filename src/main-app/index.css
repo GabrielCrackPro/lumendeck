@@ -176,6 +176,56 @@ body {
   border-color: var(--line-strong);
 }
 
+/* ---------- utilities ----------
+   Tailwind @utility definitions for the class patterns that repeat across
+   every tab. Each replaces a multi-class blob that previously drifted
+   (same idea, slightly different values per file). Use these instead of
+   re-spelling borders/typography inline. */
+
+/* Inset tile: a card-inside-a-card row (device rows, profile chips). */
+@utility panel-inset {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+}
+
+/* Hint text: the small dimmed annotations under labels and rows. */
+@utility hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+/* Secondary text: 11px dimmed, truncates by default inside flex rows. */
+@utility text-dim-sm {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+
+/* Glow-hover affordance for quiet buttons: border and text warm on hover. */
+@utility hover-glow {
+  transition-property: color, border-color;
+  transition-duration: 150ms;
+
+  &:hover {
+    border-color: rgb(var(--glow) / 0.5);
+    color: rgb(var(--glow));
+  }
+}
+
+/* Callout note: glow-tinted inline explanation box (pairs with InfoNote). */
+@utility note-box {
+  border-radius: calc(var(--radius-lg) - 4px);
+  border: 1px solid rgb(var(--glow) / 0.25);
+  background: rgb(var(--glow) / 0.07);
+  padding: 0.625rem 0.75rem;
+  font-size: 12px;
+  line-height: 1.625;
+  color: var(--text-dim);
+}
+
 /* kicker: technical section label */
 .kicker {
   font-family: var(--font-mono);
@@ -457,6 +507,49 @@ input[type="color"]::-webkit-color-swatch {
   transform: scale(0.985);
 }
 
+@keyframes trackSwap {
+  /* flash the row bg with the accent, then fade it out */
+  from {
+    background-color: rgb(var(--glow) / 0.14);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes trackSlide {
+  /* new title slides in from the right while fading up */
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}.track-swap {
+  animation: trackSwap 0.9s ease-out;
+}
+
+.track-slide {
+  animation: trackSlide 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes transportPulse {
+  /* expanding glow ring, like a press ripple radiating from the button */
+  from {
+    box-shadow: 0 0 0 0 rgb(var(--glow) / 0.45);
+    border-color: rgb(var(--glow) / 0.6);
+  }
+  to {
+    box-shadow: 0 0 0 12px rgb(var(--glow) / 0);
+  }
+}
+
+.transport-pulse {
+  animation: transportPulse 0.6s ease-out both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;
@@ -469,7 +562,10 @@ input[type="color"]::-webkit-color-swatch {
   .pal-overlay,
   .pal-panel,
   .pal-swap,
-  .pal-row {
+  .pal-row,
+  .track-swap,
+  .track-slide,
+  .transport-pulse {
     animation: none !important;
   }
 }

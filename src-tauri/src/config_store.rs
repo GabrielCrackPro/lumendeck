@@ -172,13 +172,13 @@ fn parse_and_migrate(text: &str) -> Result<Config, String> {
 fn persist(cfg: &Config) -> Result<(), String> {
     let path = config_path();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        fs::create_dir_all(parent).map_err(crate::error::err_str)?;
     }
-    let json = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(cfg).map_err(crate::error::err_str)?;
     // Write-then-rename for atomicity.
     let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, json).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    fs::write(&tmp, json).map_err(crate::error::err_str)?;
+    fs::rename(&tmp, &path).map_err(crate::error::err_str)?;
     mark_persisted();
     Ok(())
 }

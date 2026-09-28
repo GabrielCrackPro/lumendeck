@@ -11,10 +11,8 @@
 //! checks the payload and only emits when something changed — near-zero cost
 //! while nothing plays.
 //!
-//! Album art is deliberately not shipped: it requires reading a WinRT
-//! stream into bytes (DataReader/Buffer plumbing) and would put ~500 KB
-//! data URIs on the event bus for a 176 px thumbnail. The card renders a
-//! placeholder instead.
+//! Album art is normalized to PNG through the image crate and downscaled
+//! before being sent as a data URI, so even monster covers stay cheap.
 //!
 //! Consumers:
 //! - `media-session` event → dashboard Now playing card (metadata + transport)

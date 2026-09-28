@@ -82,7 +82,7 @@ fn detect_format(bytes: &[u8], src: &Path) -> Result<ImageFormat, String> {
     }
     image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
-        .map_err(|e| e.to_string())?
+        .map_err(crate::error::err_str)?
         .format()
         .ok_or_else(|| format!("unsupported image: {}", src.display()))
 }
@@ -202,7 +202,7 @@ fn composite_and_encode(frames: Vec<image::Frame>, out_path: &Path) -> Result<us
     let mut enc = png::Encoder::new(file, first.width(), first.height());
     enc.set_color(png::ColorType::Rgba);
     enc.set_depth(png::BitDepth::Eight);
-    enc.set_animated(out.len() as u32, 0).map_err(|e| e.to_string())?;
+    enc.set_animated(out.len() as u32, 0).map_err(crate::error::err_str)?;
     let mut writer = enc.write_header().map_err(|e| format!("apng header: {e}"))?;
     for (img, ms) in &out {
         writer
@@ -211,7 +211,7 @@ fn composite_and_encode(frames: Vec<image::Frame>, out_path: &Path) -> Result<us
             .map_err(|e| format!("apng delay: {e}"))?;
         writer
             .set_dispose_op(png::DisposeOp::Background)
-            .map_err(|e| e.to_string())?;
+            .map_err(crate::error::err_str)?;
         writer
             .write_image_data(img.as_raw())
             .map_err(|e| format!("apng frame: {e}"))?;

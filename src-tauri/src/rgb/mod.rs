@@ -226,6 +226,41 @@ fn hsl_to_rgb(h: f32) -> [u8; 3] {
     [c(5.0), c(3.0), c(1.0)]
 }
 
+/// The color an on/off or device-exclusion sweep plays in: static-family
+/// modes use the chosen color, reactive modes the latest wallpaper sample,
+/// and animation modes a mid-rainbow hue.
+fn sweep_base(cfg: &RgbConfig, latest: &[ZoneSample]) -> [u8; 3] {
+    match cfg.mode {
+        RgbMode::Static | RgbMode::Breathe | RgbMode::AudioReactive => cfg.static_color,
+        RgbMode::Cycle | RgbMode::Wave => hsl_to_rgb(0.55),
+        _ => latest.last().map(|s| s.rgb).unwrap_or([56, 189, 248]),
+    }
+}
+
+/// Build one device's sweep: a brightness wave across `led_count` LEDs in
+/// `base`, with `direction` mapping strip position (0..1) to brightness so
+/// callers express on/off/exclude as a one-line closure.
+fn sweep_colors(
+    base: [u8; 3],
+    led_count: usize,
+    direction: impl Fn(f32) -> f32,
+) -> Vec<Color> {
+    (0..led_count)
+        .map(|i| {
+            let f = i as f32 / (led_count as f32 - 1.0).max(1.0);
+            // Triangle window: 0 at the edges, 1 in the middle, so the wave
+            // reads as traveling rather than fading.
+            let w = ((f * 2.0 - 1.0).abs() * 3.0 - 1.0).clamp(0.0, 1.0);
+            let v = direction(w);
+            Color {
+                r: (base[0] as f32 * v) as u8,
+                g: (base[1] as f32 * v) as u8,
+                b: (base[2] as f32 * v) as u8,
+            }
+        })
+        .collect()
+}
+
 pub fn animation_frame(
     cfg: &RgbConfig,
     led_count: usize,
@@ -468,28 +503,14 @@ async fn engine_loop(
         };
         last_enabled = Some(cfg.enabled);
         if let Some(turning_on) = global_flip {
-            let base: [u8; 3] = match cfg.mode {
-                RgbMode::Static | RgbMode::Breathe | RgbMode::AudioReactive => cfg.static_color,
-                RgbMode::Cycle | RgbMode::Wave => hsl_to_rgb(0.55),
-                _ => latest.last().map(|s| s.rgb).unwrap_or([56, 189, 248]),
-            };
             for dev in &client.status().devices {
                 let n = dev.leds as usize;
                 if n == 0 {
                     continue;
                 }
-                let sweep: Vec<Color> = (0..n)
-                    .map(|i| {
-                        let f = i as f32 / (n as f32 - 1.0).max(1.0);
-                        let w = ((f * 2.0 - 1.0).abs() * 3.0 - 1.0).clamp(0.0, 1.0);
-                        let v = if turning_on { w } else { 1.0 - w };
-                        Color {
-                            r: (base[0] as f32 * v) as u8,
-                            g: (base[1] as f32 * v) as u8,
-                            b: (base[2] as f32 * v) as u8,
-                        }
-                    })
-                    .collect();
+                let sweep = sweep_colors(sweep_base(&cfg, &latest), n, |f| {
+                    if turning_on { f } else { 1.0 - f }
+                });
                 client.push_device_colors(dev.id, sweep).await;
                 // The sequencing is the show: each device lights as the
                 // previous one finishes its wave.
@@ -498,36 +519,15 @@ async fn engine_loop(
         }
 
         if !transitions.is_empty() {
-            // Sweep in the mode's own color: static/breathe use the chosen
-            // color; reactive modes use the latest wallpaper sample; fallback
-            // is a pleasant blue. Animation modes get a mid-rainbow hue.
-            let base: [u8; 3] = match cfg.mode {
-                RgbMode::Static | RgbMode::Breathe | RgbMode::AudioReactive => cfg.static_color,
-                RgbMode::Cycle | RgbMode::Wave => hsl_to_rgb(0.55),
-                _ => latest
-                    .last()
-                    .map(|s| s.rgb)
-                    .unwrap_or([56, 189, 248]),
-            };
             for (dev_id, excluded) in transitions {
                 let n = status_len(&client, dev_id);
                 if n == 0 {
                     continue;
                 }
-                let sweep: Vec<Color> = (0..n)
-                    .map(|i| {
-                        let f = i as f32 / (n as f32 - 1.0).max(1.0);
-                        // Off: a brightness wave draining left-to-right. On:
-                        // the same wave rising, ending in the mode's color.
-                        let w = ((f * 2.0 - 1.0).abs() * 3.0 - 1.0).clamp(0.0, 1.0);
-                        let v = if excluded { 1.0 - w } else { w };
-                        Color {
-                            r: (base[0] as f32 * v) as u8,
-                            g: (base[1] as f32 * v) as u8,
-                            b: (base[2] as f32 * v) as u8,
-                        }
-                    })
-                    .collect();
+                // Off: the wave drains left-to-right; on: it rises.
+                let sweep = sweep_colors(sweep_base(&cfg, &latest), n, |f| {
+                    if excluded { 1.0 - f } else { f }
+                });
                 client.push_device_colors(dev_id, sweep).await;
                 tokio::time::sleep(std::time::Duration::from_millis(40)).await;
             }
@@ -596,8 +596,15 @@ async fn engine_loop(
             } else if is_anim {
                 // Accent for the frame: the primary display's live wallpaper
                 // color, so audio-reactive rides the screen's mood instead of
-                // the user-picked static color.
-                let accent = target_color_for_device(dev.id, &cfg, &latest);
+                // the user-picked static color. Computed directly —
+                // target_color_for_device() returns None for animation modes,
+                // which is exactly the mode we're in here.
+                let accent = latest
+                    .iter()
+                    .find(|s| s.id == "all" && s.primary)
+                    .or_else(|| latest.iter().find(|s| s.id == "all"))
+                    .map(|s| s.rgb)
+                    .or_else(|| palette::dominant_over_samples(&latest));
                 match animation_frame(&cfg, n, t, accent) {
                     Some(f) => f,
                     None => continue,

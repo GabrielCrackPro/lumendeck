@@ -708,7 +708,7 @@ pub async fn gallery_add_from_url(
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("LumenDeck")
         .join("media");
-    std::fs::create_dir_all(&media_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&media_dir).map_err(crate::error::err_str)?;
     let mut target = media_dir.join(format!("{stem}.{ext}"));
     let mut n = 1u32;
     while target.exists() && std::fs::read(&target).map(|b| b.as_slice() != bytes.as_ref()).unwrap_or(true) {
@@ -751,7 +751,7 @@ pub async fn pick_media_file() -> Result<Option<String>, String> {
         .pick_file(move |path| {
             let _ = tx.send(path.map(|p| p.to_string()));
         });
-    rx.await.map_err(|e| e.to_string())
+    rx.await.map_err(crate::error::err_str)
 }
 
 #[tauri::command]
@@ -764,7 +764,7 @@ pub async fn pick_media_folder() -> Result<Option<String>, String> {
     app.dialog().file().pick_folder(move |path| {
         let _ = tx.send(path.map(|p| p.to_string()));
     });
-    rx.await.map_err(|e| e.to_string())
+    rx.await.map_err(crate::error::err_str)
 }
 
 /// List image files in a folder (for slideshows), sorted.
@@ -1157,7 +1157,7 @@ pub fn minimize_window(app: AppHandle) -> Result<(), String> {
     if crate::config_store::get().general.minimize_to_tray {
         let _ = window.hide();
     } else {
-        window.minimize().map_err(|e| e.to_string())?;
+        window.minimize().map_err(crate::error::err_str)?;
     }
     Ok(())
 }

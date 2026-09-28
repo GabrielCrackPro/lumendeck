@@ -99,6 +99,39 @@ export function Chip({
   );
 }
 
+/** Visual-only switch: the pill + knob + ripple, without any label row. */
+export function SwitchBtn({
+  checked,
+  onChange,
+  title,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  title?: string;
+}) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      title={title}
+      onClick={() => onChange(!checked)}
+      className={`switch-btn relative h-[22px] w-[38px] shrink-0 rounded-md border transition-all duration-200 ${
+        checked
+          ? "border-transparent bg-[rgb(var(--glow))]"
+          : "border-[var(--line-strong)] bg-[var(--panel-sunken)]"
+      }`}
+    >
+      {/* ripple burst on toggle */}
+      <span key={String(checked)} className="switch-ripple absolute inset-0 rounded-md" />
+      <span
+        className={`absolute top-[3px] h-[14px] w-[16px] rounded-[3px] bg-white shadow transition-all duration-200 ${
+          checked ? "left-[19px]" : "left-[3px]"
+        }`}
+      />
+    </button>
+  );
+}
+
 export function Toggle({
   checked,
   onChange,
@@ -120,24 +153,7 @@ export function Toggle({
           </span>
         )}
       </span>
-      <button
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className={`switch-btn relative h-[22px] w-[38px] shrink-0 rounded-md border transition-all duration-200 ${
-          checked
-            ? "border-transparent bg-[rgb(var(--glow))]"
-            : "border-[var(--line-strong)] bg-[var(--panel-sunken)]"
-        }`}
-      >
-        {/* ripple burst on toggle */}
-        <span key={String(checked)} className="switch-ripple absolute inset-0 rounded-md" />
-        <span
-          className={`absolute top-[3px] h-[14px] w-[16px] rounded-[3px] bg-white shadow transition-all duration-200 ${
-            checked ? "left-[19px]" : "left-[3px]"
-          }`}
-        />
-      </button>
+      <SwitchBtn checked={checked} onChange={onChange} />
     </label>
   );
 }
@@ -329,7 +345,7 @@ export function Btn({
 }) {
   const styles = {
     default:
-      "border border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text)] hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]",
+      "border border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text)] hover-glow",
     primary: "glow-fill border-transparent",
     danger:
       "border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20",
@@ -782,6 +798,88 @@ export function StatTile({
   );
 }
 
+/**
+ * Label/value row inside a Card: text left, control right, wrapping safely
+ * on narrow windows. The workhorse of settings lists.
+ */
+export function Row({
+  label,
+  hint,
+  children,
+  stacked,
+}: {
+  label: ReactNode;
+  hint?: ReactNode;
+  children?: ReactNode;
+  /** Stack label above the control instead of a two-column row. */
+  stacked?: boolean;
+}) {
+  if (stacked) {
+    return (
+      <div className="py-2">
+        <div className="kicker mb-2">{label}</div>
+        {children}
+        {hint && <p className="mt-1.5 text-dim-sm">{hint}</p>}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 py-2">
+      <div className="min-w-0">
+        <div className="text-[13px] font-medium text-[var(--text)]">{label}</div>
+        {hint && <div className="mt-0.5 text-[11px] leading-snug text-[var(--text-faint)]">{hint}</div>}
+      </div>
+      {children && <div className="shrink-0">{children}</div>}
+    </div>
+  );
+}
+
+/**
+ * Inline note: glow-tinted explanation used for mode hints, pointers to
+ * other tabs, and non-error callouts. `tone="warn"` for cautions.
+ */
+export function InfoNote({
+  children,
+  tone = "info",
+}: {
+  children: ReactNode;
+  tone?: "info" | "warn";
+}) {
+  const cls =
+    tone === "warn"
+      ? "border-amber-500/25 bg-amber-500/[0.07]"
+      : "border-[rgb(var(--glow)/0.25)] bg-[rgb(var(--glow)/0.07)]";
+  return (
+    <div className={`rounded-xl border ${cls} px-3 py-2.5 text-xs leading-relaxed text-[var(--text-dim)]`}>
+      {children}
+    </div>
+  );
+}
+
+/** Small inline stat: tiny uppercase label over a mono value. */
+export function Stat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: ReactNode;
+  accent?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="kicker">{label}</div>
+      <div
+        className={`lednum mt-1 truncate text-[15px] leading-tight ${
+          accent ? "text-[rgb(var(--glow))]" : "text-[var(--text)]"
+        }`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
 /** Empty-state panel with dashed border, icon, title, and optional action. */
 export function EmptyState({
   icon,
@@ -800,7 +898,7 @@ export function EmptyState({
         {icon}
       </div>
       <div>
-        <div className="text-sm font-semibold text-[var(--text)]">{title}</div>
+        <ItemTitle>{title}</ItemTitle>
         {description && (
           <p className="mt-1 text-xs text-[var(--text-faint)]">{description}</p>
         )}
@@ -839,6 +937,27 @@ export function IconBox({
     >
       <span className={iconSize}>{children}</span>
     </span>
+  );
+}
+
+/**
+ * Title line of a list item, card, or empty state: semibold primary text.
+ * Optional `as` for inline use inside a flex row.
+ */
+export function ItemTitle({
+  children,
+  as = "div",
+  className,
+}: {
+  children: ReactNode;
+  as?: "div" | "span";
+  className?: string;
+}) {
+  const cls = `text-sm font-semibold text-[var(--text)] ${className ?? ""}`;
+  return as === "span" ? (
+    <span className={`block ${cls}`}>{children}</span>
+  ) : (
+    <div className={cls}>{children}</div>
   );
 }
 

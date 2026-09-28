@@ -1,10 +1,10 @@
 import { useShallow } from "zustand/react/shallow";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, type CSSProperties, type ReactNode } from "react";
 import { useStore } from "../../store";
-import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, Btn } from "../ui";
-import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause, IconNext, IconPrevious } from "../icons";
+import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, Btn, Stat, ItemTitle, SwitchBtn } from "../ui";
+import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause, IconNext, IconPrevious, IconWave } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
-import type { Config, MediaInfo } from "@shared/types";
+import type { Config, MediaInfo, RgbDeviceInfo, DeviceColor } from "@shared/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { basename } from "../../utilities";
 import { api } from "../../ipc";
@@ -14,14 +14,17 @@ function WallpaperThumb({
   kind,
   source,
   paused,
+  bare = false,
 }: {
   kind: string;
   source: string;
   paused: boolean;
+  /** Borderless, full-bleed — for layering inside the MediaStage frame. */
+  bare?: boolean;
 }) {
   const mediaUrl = convertFileSrc(source, "media");
   return (
-    <div className="relative h-full min-h-32 w-full overflow-hidden rounded-lg border border-[var(--line)] bg-black">
+    <div className={`relative h-full w-full overflow-hidden bg-black ${bare ? "" : "min-h-32 rounded-lg border border-[var(--line)]"}`}>
       {kind === "video" && source ? (
         <video
           key={mediaUrl}
@@ -58,73 +61,139 @@ function WallpaperThumb({
 }
 
 /**
- * The Now playing thumbnail. When the media slideshow is enabled (Settings)
- * and a track with album art is playing, it crossfades between the wallpaper
- * preview and the album art; otherwise it's just the wallpaper thumb.
+ * Wraps the Now playing stage with a subtle audio-reactive glow. Reads the
+ * frame-rate audio level from the store inside a rAF loop and drives two CSS
+ * variables (`--al` volume, `--beat` decaying beat flash) directly on the DOM
+ * node, so nothing up the tree ever re-renders at frame rate.
  */
-function MediaSlideshow({
+function AudioPulse({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    let raf = 0;
+    let beat = 0;
+    const tick = () => {
+      const { volume, beat: hit } = useStore.getState().audioLevel;
+      beat = Math.max(beat * 0.88, hit ? 1 : 0);
+      const el = ref.current;
+      if (el) {
+        el.style.setProperty("--al", volume.toFixed(3));
+        el.style.setProperty("--beat", beat.toFixed(3));
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return (
+    <div ref={ref} className="relative" style={{ "--al": 0, "--beat": 0 } as CSSProperties}>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Top stage of the Now playing card: the live wallpaper, full-bleed, with its
+ * name chip pinned top-left. Media lives in its own row below — no art
+ * crossfade here.
+ */
+function WallpaperStage({
   cfg,
-  media,
   paused,
+  wallpaperName,
 }: {
   cfg: Config;
-  media: MediaInfo | null;
   paused: boolean;
+  wallpaperName: string;
 }) {
-  const [slide, setSlide] = useState(0);
-  const showArt =
-    cfg.general.mediaSlideshow && !!media?.art;
-  const intervalSec = Math.min(30, Math.max(2, cfg.general.mediaSlideshowSec || 5));
-
-  useEffect(() => {
-    if (!showArt) {
-      setSlide(0);
-      return;
-    }
-    const id = setInterval(() => setSlide((s) => s + 1), intervalSec * 1000);
-    return () => clearInterval(id);
-  }, [showArt, intervalSec]);
-
-  const showMediaArt = showArt && slide % 2 === 1;
   return (
-    <div className="relative h-full min-h-32 w-full">
-      <div className={`absolute inset-0 transition-opacity duration-700 ${showMediaArt ? "opacity-0" : "opacity-100"}`}>
-        <WallpaperThumb
-          kind={cfg.wallpaper.kind}
-          source={cfg.wallpaper.source}
-          paused={paused}
-        />
+    <div
+      className="relative h-44 w-full overflow-hidden rounded-xl border border-[var(--line)] bg-black"
+      style={{
+        // Audio-reactive halo: volume widens and brightens a glow ring around
+        // the stage; a detected beat adds a short bright flash on top.
+        boxShadow:
+          "0 0 calc(6px + var(--al, 0) * 34px) rgb(var(--glow) / calc(0.05 + var(--al, 0) * 0.26 + var(--beat, 0) * 0.2))",
+      }}
+    >
+      <WallpaperThumb kind={cfg.wallpaper.kind} source={cfg.wallpaper.source} paused={paused} bare />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(0_0_0/0.3),transparent_35%)]" />
+
+      <div className="absolute left-3 top-3 flex max-w-[calc(100%-1.5rem)] items-center gap-2 rounded-lg bg-black/45 px-2.5 py-1.5 backdrop-blur-sm">
+        <IconImage className="h-3.5 w-3.5 shrink-0 text-white/75" />
+        <span className="truncate font-mono text-[10px] text-white/90" title={wallpaperName}>
+          {wallpaperName}
+        </span>
       </div>
-      {showArt && (
-        <div className={`absolute inset-0 overflow-hidden rounded-lg border border-[var(--line)] bg-black transition-opacity duration-700 ${showMediaArt ? "opacity-100" : "opacity-0"}`}>
-          {media?.art ? (
-            <img src={media.art} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-[var(--text-faint)]">
-              <IconImage className="h-6 w-6" />
-            </div>
-          )}
-          {/* Slide dots — subtle, only when the slideshow is actually cycling. */}
-          <div className="absolute bottom-1.5 left-1/2 flex -translate-x-1/2 gap-1">
-            {[0, 1].map((i) => (
-              <span
-                key={i}
-                className={`h-1 w-3 rounded-full ${slide % 2 === i ? "bg-white/85" : "bg-white/30"}`}
-              />
-            ))}
-          </div>
-        </div>
+    </div>
+  );
+}
+
+/**
+ * Track identity for the media row. Keyed by title+artist, so a track change
+ * remounts the block and replays the swap animation: the row flashes with the
+ * accent while the new title slides in.
+ */
+function TrackIdentity({
+  media,
+  beatScale,
+}: {
+  media: MediaInfo;
+  beatScale: string;
+}) {
+  return (
+    <div key={`${media.title}—${media.artist}`} className="track-swap flex min-w-0 flex-1 items-center gap-3 rounded-lg">
+      {media.art && (
+        <img
+          src={media.art}
+          alt=""
+          className="track-slide h-12 w-12 shrink-0 rounded-lg border border-[var(--line-strong)] object-cover"
+          style={{ transform: beatScale }}
+        />
       )}
+      <div className="track-slide min-w-0">
+        <div
+          className="truncate text-[14px] font-semibold leading-tight text-[var(--text)]"
+          title={`${media.title} — ${media.artist}`}
+        >
+          {media.title}
+        </div>
+        <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[10.5px] text-[var(--text-faint)]">
+          {media.appIcon && (
+            <img src={media.appIcon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-[3px]" />
+          )}
+          <span className="truncate">
+            {media.artist || "Unknown artist"}
+            {media.appId && ` · ${media.appId}`}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
 
 /**
  * Play/prev/next that drive the OS media session (SMTC) — Spotify, browsers,
- * whatever is playing. Hidden entirely when no session exists.
+ * whatever is playing. Hidden entirely when no session exists. When `trackKey`
+ * changes (auto-advance, or any transport action that lands a new track), the
+ * buttons replay a staggered press-ripple so the handoff reads as intentional.
  */
-function TransportButtons({ playing }: { playing: boolean }) {
+function TransportButtons({
+  playing,
+  trackKey,
+}: {
+  playing: boolean;
+  trackKey: string;
+}) {
   const [busy, setBusy] = useState(false);
+  const [pulseId, setPulseId] = useState(0);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    setPulseId((n) => n + 1);
+  }, [trackKey]);
   const send = async (action: "toggle" | "next" | "previous") => {
     if (busy) return;
     setBusy(true);
@@ -135,79 +204,172 @@ function TransportButtons({ playing }: { playing: boolean }) {
     }
   };
   const btn =
-    "flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))] disabled:opacity-40";
+    "flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text-dim)] hover-glow disabled:opacity-40";
+  // Remounting the row (key=pulseId) replays the ripple on every track
+  // change; the ring starts at the button, so no fill-mode is wanted.
+  const ripple = (delayMs: number) =>
+    pulseId > 0 ? { className: `${btn} transport-pulse`, style: { animationDelay: `${delayMs}ms` } } : { className: btn };
   return (
-    <div className="mt-3 flex items-center gap-1.5">
-      <button aria-label="Previous track" className={btn} disabled={busy} onClick={() => send("previous")}>
+    <div key={pulseId} className="flex items-center gap-1.5">
+      <button aria-label="Previous track" disabled={busy} onClick={() => send("previous")} {...ripple(90)}>
         <IconPrevious className="h-4 w-4" />
       </button>
       <button
         aria-label={playing ? "Pause" : "Play"}
-        className={`${btn} !border-[rgb(var(--glow)/0.4)] !text-[rgb(var(--glow))]`}
+        className={`${btn} !border-[rgb(var(--glow)/0.4)] !text-[rgb(var(--glow))] ${pulseId > 0 ? "transport-pulse" : ""}`}
         disabled={busy}
         onClick={() => send("toggle")}
       >
         {playing ? <IconPause className="h-4 w-4" /> : <IconPlay className="h-4 w-4" />}
       </button>
-      <button aria-label="Next track" className={btn} disabled={busy} onClick={() => send("next")}>
+      <button aria-label="Next track" disabled={busy} onClick={() => send("next")} {...ripple(180)}>
         <IconNext className="h-4 w-4" />
       </button>
     </div>
   );
 }
 
-/** Technical readout: tiny uppercase label over a mono value. */
-function Metric({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="min-w-0">
-      <div className="kicker">{label}</div>
-      <div
-        className={`lednum mt-1 truncate text-[15px] leading-tight ${
-          accent ? "text-[rgb(var(--glow))]" : "text-[var(--text)]"
-        }`}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
-
-/** One row in the engine's device table: live color + name + LED count. */
+/**
+ * One row in the engine's device list: a live color lane that draws the
+ * device's actual per-LED colors (falling back to its average), the name,
+ * and a bar showing its share of the total LED budget.
+ */
 function DeviceRow({
   name,
   typeName,
   leds,
+  totalLeds,
   color,
   excluded,
 }: {
   name: string;
   typeName: string;
   leds: number;
-  color?: [number, number, number];
+  totalLeds: number;
+  color?: DeviceColor;
   excluded: boolean;
 }) {
-  const c = color;
+  const rgb = color?.rgb ?? null;
+  const ledColors = color?.ledColors ?? null;
   return (
     <div className="flex items-center gap-3 border-t border-[var(--line)] py-2 first:border-t-0">
+      {/* live color lane */}
       <span
-        className="h-6 w-6 shrink-0 rounded-md border border-[var(--line-strong)] transition-colors duration-500"
-        style={{
-          background: c && !excluded ? `rgb(${c[0]} ${c[1]} ${c[2]})` : "var(--panel-sunken)",
-          boxShadow:
-            c && !excluded ? `inset 0 0 8px -2px rgb(${c[0]} ${c[1]} ${c[2]})` : undefined,
-        }}
-      />
+        className={`h-6 w-16 shrink-0 overflow-hidden rounded-md border transition-opacity duration-500 ${
+          excluded ? "border-[var(--line)] opacity-40" : "border-[var(--line-strong)]"
+        }`}
+      >
+        {rgb && !excluded ? (
+          <LedLane ledColors={ledColors} fallback={rgb} />
+        ) : (
+          <span className="block h-full w-full bg-[var(--panel)]" />
+        )}
+      </span>
       <div className="min-w-0 flex-1">
         <div className={`truncate text-[13px] font-medium ${excluded ? "text-[var(--text-faint)] line-through" : "text-[var(--text)]"}`}>
           {name}
         </div>
         <div className="font-mono text-[10px] text-[var(--text-faint)]">{typeName}</div>
       </div>
+      <span className="hidden w-24 shrink-0 sm:block">
+        <span className="block h-1 overflow-hidden rounded-full bg-[var(--panel)]">
+          <span
+            className="block h-full rounded-full transition-[width] duration-500"
+            style={{
+              width: totalLeds ? `${Math.max(3, Math.round((leds / totalLeds) * 100))}%` : "0%",
+              background: rgb && !excluded ? `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]})` : "var(--text-faint)",
+            }}
+          />
+        </span>
+      </span>
       <span className="shrink-0 font-mono text-[11px] tabular-nums text-[var(--text-dim)]">
         {leds.toLocaleString()} LED{leds === 1 ? "" : "s"}
       </span>
     </div>
   );
+}
+
+/** Tiny horizontal gradient strip showing one device's per-LED colors. */
+function LedLane({
+  ledColors,
+  fallback,
+}: {
+  ledColors: [number, number, number][] | null;
+  fallback: [number, number, number] | null;
+}) {
+  if (!ledColors || ledColors.length === 0) {
+    return (
+      <span
+        className="block h-full w-full"
+        style={{
+          background: fallback ? `rgb(${fallback[0]} ${fallback[1]} ${fallback[2]})` : "var(--panel)",
+        }}
+      />
+    );
+  }
+  const stops = ledColors
+    .map(([r, g, b]) => `rgb(${r} ${g} ${b})`)
+    .join(", ");
+  return (
+    <span
+      className="block h-full w-full"
+      style={{ background: `linear-gradient(90deg, ${stops})` }}
+    />
+  );
+}
+
+/**
+ * Full-width live LED band: each device's LEDs are drawn to scale, side by
+ * side, using the exact per-LED colors the engine is streaming. Animated
+ * modes render as moving gradients. Off/missing devices render dark.
+ */
+function LedBand({
+  devices,
+  colors,
+  excluded,
+}: {
+  devices: RgbDeviceInfo[];
+  colors: Record<number, DeviceColor>;
+  excluded: Set<number>;
+}) {
+  const total = devices.reduce((n, d) => n + d.leds, 0);
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    let raf = 0;
+    const draw = () => {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const W = (canvas.width = canvas.offsetWidth * dpr);
+      const H = (canvas.height = canvas.offsetHeight * dpr);
+      ctx.clearRect(0, 0, W, H);
+      let x = 0;
+      for (const d of devices) {
+        const w = total > 0 ? (d.leds / total) * W : 0;
+        const dc = colors[d.id];
+        const off = excluded.has(d.id) || !dc;
+        const leds = dc?.ledColors;
+        const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+        if (off || !leds || leds.length === 0) {
+          grad.addColorStop(0, "rgb(28 30 34)");
+          grad.addColorStop(1, "rgb(22 24 28)");
+        } else {
+          leds.forEach(([r, g, b], i) =>
+            grad.addColorStop(i / (leds.length - 1), `rgb(${r} ${g} ${b})`),
+          );
+        }
+        ctx.fillStyle = grad;
+        ctx.fillRect(x, 0, w, H);
+        x += w;
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [devices, colors, excluded, total]);
+  return <canvas ref={ref} className="h-full w-full" />;
 }
 
 export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) => void }) {
@@ -254,97 +416,77 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
     <div className="stagger space-y-5">
       {/* ===== row 1: now playing + engine ===== */}
       <div className="grid gap-5 xl:grid-cols-12">
-        {/* Now playing — spans 5. Layout follows content: media playing gets
-            art + transport; otherwise it's a wallpaper status card. The
-            thumbnail is a full-height panel shared by both states. */}
+        {/* Now playing — spans 5. Wallpaper stage on top, media + transport
+            below, wallpaper context strip last. */}
         <Card title="Now playing" className="xl:col-span-5" right={
           <Chip tone={paused ? "warn" : "ok"} pulse={!paused}>
             {paused ? "paused" : "live"}
           </Chip>
         }>
-          {media ? (
-            <div className="flex gap-4">
-              <div className="w-40 shrink-0 self-stretch">
-                <MediaSlideshow cfg={cfg} media={media} paused={paused} />
+          <AudioPulse>
+            <WallpaperStage cfg={cfg} paused={paused} wallpaperName={wallpaperName} />
+
+            {/* Media row: track identity left, transport right. */}
+            <div className="mt-3.5 flex flex-wrap items-center gap-3">
+              {media ? (
+                <TrackIdentity
+                  media={media}
+                  beatScale="scale(calc(1 + var(--beat, 0) * 0.045))"
+                />
+              ) : (
+                <div className="flex min-w-0 flex-1 items-center gap-2 font-mono text-[10.5px] text-[var(--text-faint)]">
+                  <IconWave className="h-3.5 w-3.5 shrink-0" />
+                  no media playing
+                </div>
+              )}
+              <TransportButtons
+                playing={media?.playing ?? false}
+                trackKey={`${media?.title ?? ""}—${media?.artist ?? ""}`}
+              />
+            </div>
+
+            {/* Wallpaper context strip: the card is "now playing" for the
+                whole desktop — what's on the wallpaper matters too. */}
+            <div className="mt-3.5 flex flex-wrap items-center gap-2.5 border-t border-[var(--line)] pt-3">
+            <div className="h-7 w-11 shrink-0 overflow-hidden rounded-[5px] border border-[var(--line)]">
+              <WallpaperThumb kind={cfg.wallpaper.kind} source={cfg.wallpaper.source} paused={paused} bare />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-[11px] font-medium text-[var(--text-dim)]" title={wallpaperName}>
+                {wallpaperName}
               </div>
-              <div className="flex min-w-0 flex-1 flex-col">
-                <div
-                  className="lednum truncate text-base text-[var(--text)]"
-                  title={`${media.title} — ${media.artist}`}
-                >
-                  {media.title}
-                </div>
-                <div className="mt-1 flex items-center gap-1.5 font-mono text-[10.5px] text-[var(--text-faint)]">
-                  {media.appIcon && (
-                    <img src={media.appIcon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-[3px]" />
-                  )}
-                  <span className="truncate">
-                    {media.artist || "Unknown artist"}
-                    {media.appId && ` · ${media.appId}`}
-                  </span>
-                </div>
-                {/* Wallpaper context strip: the card is "now playing" for the
-                    whole desktop — what's on the wallpaper matters too. */}
-                <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] px-2.5 py-1.5">
-                  <div className="h-6 w-9 shrink-0 overflow-hidden rounded-[4px]">
-                    <WallpaperThumb kind={cfg.wallpaper.kind} source={cfg.wallpaper.source} paused={paused} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-[11px] font-medium text-[var(--text-dim)]" title={wallpaperName}>
-                      {wallpaperName}
-                    </div>
-                    <div className="font-mono text-[9.5px] text-[var(--text-faint)]">
-                      wallpaper
-                      {playlistOn && " · playlist rotating"}
-                      {pmCount > 0 && ` · ${pmCount} override${pmCount === 1 ? "" : "s"}`}
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-auto pt-3">
-                  <TransportButtons playing={media.playing} />
-                </div>
+              <div className="font-mono text-[9.5px] text-[var(--text-faint)]">
+                wallpaper
+                {playlistOn && " · playlist rotating"}
+                {pmCount > 0 && ` · ${pmCount} override${pmCount === 1 ? "" : "s"}`}
               </div>
             </div>
-          ) : (
-            <div className="flex gap-4">
-              <div className="w-44 shrink-0 self-stretch">
-                <MediaSlideshow cfg={cfg} media={media} paused={paused} />
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col">
-                <div className="lednum truncate text-base text-[var(--text)]">{wallpaperName}</div>
-                <div className="mt-1 font-mono text-[10.5px] capitalize text-[var(--text-faint)]">
-                  {cfg.wallpaper.kind}
-                  {playlistOn && " · playlist rotating"}
-                  {pmCount > 0 && ` · ${pmCount} override${pmCount === 1 ? "" : "s"}`}
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
-                  <Metric label="vault" value={`${cfg.gallery.length}`} />
-                  <Metric label="playlist" value={playlistOn ? "rotating" : "off"} />
-                </div>
-                <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
-                  <Btn size="sm" variant="primary" onClick={() => onNavigate("wallpaper")}>
-                    Change
-                  </Btn>
-                  <Btn size="sm" onClick={togglePause}>
-                    {paused ? (
-                      <>
-                        <IconPlay className="h-3.5 w-3.5" />
-                        Resume
-                      </>
-                    ) : (
-                      <>
-                        <IconPause className="h-3.5 w-3.5" />
-                        Pause
-                      </>
-                    )}
-                  </Btn>
-                </div>
-              </div>
+            <div className="ml-auto flex shrink-0 items-center gap-x-4">
+              <Stat label="vault" value={`${cfg.gallery.length}`} />
+              <Stat label="playlist" value={playlistOn ? "rotating" : "off"} />
+              <Btn size="sm" variant="primary" onClick={() => onNavigate("wallpaper")}>
+                Change
+              </Btn>
+              <Btn size="sm" onClick={togglePause}>
+                {paused ? (
+                  <>
+                    <IconPlay className="h-3.5 w-3.5" />
+                    Resume
+                  </>
+                ) : (
+                  <>
+                    <IconPause className="h-3.5 w-3.5" />
+                    Pause
+                  </>
+                )}
+              </Btn>
             </div>
-          )}
+            </div>
+          </AudioPulse>
         </Card>
 
-        {/* Engine — spans 7: mode header, device table, live spectrum */}
+        {/* Engine — spans 7. Master switch, live per-LED canvas strip fed
+            by real engine frames, mode headline, LED-lane device rows. */}
         <Card
           title="Lighting engine"
           className="xl:col-span-7"
@@ -353,28 +495,31 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               <Chip tone={rgb.connected ? "ok" : "danger"} pulse={rgb.connected}>
                 {rgb.connected ? "connected" : "offline"}
               </Chip>
+              <SwitchBtn
+                checked={cfg.rgb.enabled}
+                onChange={(v) => save((c) => (c.rgb.enabled = v))}
+                title="Master lighting switch"
+              />
               <button
                 onClick={() => onNavigate("rgb")}
-                className="rounded-md border border-[var(--line-strong)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+                className="rounded-md border border-[var(--line-strong)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--text-dim)] hover-glow"
               >
                 configure
               </button>
             </div>
           }
         >
-          {/* mode headline */}
-          <div className="flex items-baseline justify-between gap-3">
-            <div className="flex items-baseline gap-2.5">
-              <span className="lednum text-lg capitalize text-[var(--text)]">
-                {cfg.rgb.enabled ? cfg.rgb.mode : "off"}
-              </span>
-              {cfg.rgb.enabled && rgb.connected && (
-                <span className="font-mono text-[10px] text-[var(--text-faint)]">
-                  {Math.round(cfg.rgb.mixer.brightness * 100)}% bright
-                </span>
-              )}
-            </div>
-            <div className="flex gap-1.5">
+          {/* live per-LED strip: the actual frames the engine sends, not a mock */}
+          <div className="relative h-16 w-full overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel-sunken)]">
+            {rgb.connected && rgb.devices.length > 0 ? (
+              <LedBand devices={rgb.devices} colors={deviceColors} excluded={excluded} />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-[var(--text-faint)]">
+                <IconBulb className="h-5 w-5" />
+              </div>
+            )}
+            {/* status flags over the band */}
+            <div className="absolute left-2.5 top-2.5 flex gap-1.5">
               {nightOn && (
                 <Chip tone="accent">
                   night {cfg.rgb.nightStart}–{cfg.rgb.nightEnd}
@@ -382,9 +527,30 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               )}
               {idleOn && <Chip tone="idle">idle {cfg.rgb.idleTimeoutSec}s</Chip>}
             </div>
+            {!cfg.rgb.enabled && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[2px]">
+                <span className="flex items-center gap-1.5 rounded-md bg-black/60 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-amber-300">
+                  lighting off
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* device table */}
+          {/* mode headline */}
+          <div className="mt-3.5 flex items-baseline justify-between gap-3">
+            <div className="flex items-baseline gap-2.5">
+              <span className="lednum text-lg capitalize text-[var(--text)]">
+                {cfg.rgb.enabled ? cfg.rgb.mode : "off"}
+              </span>
+              {cfg.rgb.enabled && rgb.connected && (
+                <span className="font-mono text-[10px] text-[var(--text-faint)]">
+                  {Math.round(cfg.rgb.mixer.brightness * 100)}% bright · {Math.round(cfg.rgb.mixer.saturation * 100)}% sat
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* device rows: live color lane + name + LED share bar */}
           <div className="mt-3 max-h-[172px] overflow-y-auto rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] px-3 py-1">
             {rgb.devices.length === 0 ? (
               <div className="py-6 text-center text-xs text-[var(--text-faint)]">
@@ -397,43 +563,24 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                   name={d.name}
                   typeName={d.typeName}
                   leds={d.leds}
-                  color={deviceColors[d.id]?.rgb}
+                  totalLeds={ledTotal}
+                  color={deviceColors[d.id]}
                   excluded={excluded.has(d.id)}
                 />
               ))
             )}
           </div>
 
-          {/* footer metrics + activity spectrum */}
+          {/* footer metrics */}
           <div className="mt-3 flex items-end justify-between gap-4">
             <div className="grid flex-1 grid-cols-3 gap-x-4">
-              <Metric
+              <Stat
                 label="devices"
                 value={rgb.connected ? `${activeDevices.length}/${rgb.devices.length}` : "—"}
               />
-              <Metric label="leds live" value={ledActive.toLocaleString()} accent />
-              <Metric label="of total" value={ledTotal.toLocaleString()} />
+              <Stat label="leds live" value={ledActive.toLocaleString()} accent />
+              <Stat label="of total" value={ledTotal.toLocaleString()} />
             </div>
-            {/* live spectrum strip: one cell per device, fills by share of LEDs */}
-            {rgb.connected && rgb.devices.length > 0 && (
-              <div className="flex h-9 w-40 shrink-0 items-end gap-[3px]">
-                {rgb.devices.map((d) => {
-                  const c = deviceColors[d.id]?.rgb;
-                  const share = ledTotal ? Math.max(6, Math.round((d.leds / ledTotal) * 100)) : 10;
-                  return (
-                    <span
-                      key={d.id}
-                      title={`${d.name} · ${d.leds} LEDs`}
-                      className="min-w-0 flex-1 rounded-[3px] border border-[var(--line)] transition-all duration-500"
-                      style={{
-                        height: `${excluded.has(d.id) ? 20 : share}%`,
-                        background: c && !excluded.has(d.id) ? `rgb(${c[0]} ${c[1]} ${c[2]})` : "var(--panel-sunken)",
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            )}
           </div>
         </Card>
       </div>
@@ -454,7 +601,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             {stickers.length === 0 ? (
               <button
                 onClick={() => onNavigate("stickers")}
-                className="flex w-full flex-col items-center gap-1.5 rounded-lg border border-dashed border-[var(--line-strong)] py-6 text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+                className="flex w-full flex-col items-center gap-1.5 rounded-lg border border-dashed border-[var(--line-strong)] py-6 text-[var(--text-faint)] hover-glow"
               >
                 <IconSticker className="h-5 w-5" />
                 <span className="text-xs font-semibold">Place your first sticker</span>
@@ -506,7 +653,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
           <Card title="Scenes" className="xl:col-span-7" right={
             <button
               onClick={() => onNavigate("general")}
-              className="rounded-md border border-[var(--line-strong)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+              className="rounded-md border border-[var(--line-strong)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--text-dim)] hover-glow"
             >
               manage
             </button>
@@ -524,7 +671,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                       useStore.getState().toast("error", "Apply failed");
                     }
                   }}
-                  className="rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-1.5 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+                  className="rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-1.5 text-xs font-semibold text-[var(--text-dim)] hover-glow"
                 >
                   {s.name}
                 </button>
@@ -551,7 +698,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             </div>
             <button
               onClick={() => window.dispatchEvent(new Event("lumendeck:open-shortcuts"))}
-              className="mt-4 rounded-lg border border-dashed border-[var(--line-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+              className="mt-4 rounded-lg border border-dashed border-[var(--line-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-dim)] hover-glow"
             >
               View all shortcuts
             </button>
@@ -596,14 +743,14 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               <Icon className="h-5 w-5 text-[rgb(var(--glow))]" />
             </IconBox>
             <span className="min-w-0">
-              <span className="block text-sm font-semibold text-[var(--text)]">{label}</span>
-              <span className="block truncate text-[11px] text-[var(--text-faint)]">{detail}</span>
+              <ItemTitle as="span">{label}</ItemTitle>
+              <span className="block truncate text-dim-sm">{detail}</span>
             </span>
           </button>
         ))}
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end border-t border-[var(--line)] pt-4">
         <RefreshBtn />
       </div>
     </div>

@@ -164,10 +164,6 @@ export interface GeneralConfig {
   startupHintShown: boolean;
   /** Internal: last version whose release notes were read in the dashboard. */
   changelogSeenVersion: string;
-  /** Overview "Now playing" card: alternate wallpaper preview and album art. */
-  mediaSlideshow: boolean;
-  /** Seconds per slide (2..30). */
-  mediaSlideshowSec: number;
 }
 
 export interface GalleryEntry {

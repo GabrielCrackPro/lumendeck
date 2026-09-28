@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Btn, Toggle, Slider, Select, NumberField, EmptyState, Section } from "../ui";
+import { Card, Btn, Toggle, Slider, Select, NumberField, EmptyState, Section, InfoNote } from "../ui";
 import { IconPlus, IconTrash, IconSparkle } from "../icons";
 import { api } from "../../ipc";
 import { truncateError, basename } from "../../utilities";
@@ -143,7 +143,7 @@ export default function StickersTab() {
         <Card
           title="Sticker deck"
           right={
-            <span className="font-mono text-[10px] tracking-wide text-[var(--text-faint)]">
+            <span className="hint">
               {cfg.stickers.length} sticker{cfg.stickers.length === 1 ? "" : "s"}
             </span>
           }
@@ -241,10 +241,10 @@ export default function StickersTab() {
                 })
               }
             />
-            <p className="mt-3 text-xs leading-relaxed text-[var(--text-faint)]">
+            <InfoNote>
               Alignment guides win over the grid: the grid applies only where no
               guide matched.
-            </p>
+            </InfoNote>
             <Toggle
               label="Remove background when applying"
               description="A flat background detected from the borders is made transparent. GIFs are reprocessed frame-by-frame as transparent APNGs; originals stay untouched."

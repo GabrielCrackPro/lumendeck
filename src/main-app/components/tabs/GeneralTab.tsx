@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Toggle, Select, Btn, DisplaysCard, Segmented, Slider } from "../ui";
+import { Card, Toggle, Select, Btn, DisplaysCard, Segmented, InfoNote, ItemTitle } from "../ui";
 import { api } from "../../ipc";
 import { truncateError } from "../../utilities";
 import { checkForAppUpdate, installAppUpdate, announceUpdate } from "../../updater";
@@ -98,28 +98,6 @@ export default function GeneralTab() {
         />
       </Card>
 
-      <Card title="Dashboard">
-        <Toggle
-          label="Alternate album art in Now playing"
-          description="When a track is playing, the Overview thumbnail crossfades between the wallpaper preview and the track's album art. Off shows the wallpaper preview only."
-          checked={cfg.general.mediaSlideshow ?? true}
-          onChange={(v) => save((c) => (c.general.mediaSlideshow = v))}
-        />
-        {(cfg.general.mediaSlideshow ?? true) && (
-          <div className="mt-3">
-            <Slider
-              label="Seconds per slide"
-              min={2}
-              max={30}
-              step={1}
-              value={cfg.general.mediaSlideshowSec ?? 5}
-              format={(v) => `${v}s`}
-              onChange={(v) => save((c) => (c.general.mediaSlideshowSec = v))}
-            />
-          </div>
-        )}
-      </Card>
-
       <Card title="Startup & power">
         <Toggle
           label="Launch at startup"
@@ -165,8 +143,8 @@ export default function GeneralTab() {
           onChange={(v) => save((c) => (c.general.pauseOnFullscreen = v))}
         />
         {wallpaperPaused && (
-          <div className="mt-3 text-sm text-amber-500">
-            Currently paused by the system.
+          <div className="mt-3">
+            <InfoNote tone="warn">Currently paused by the system.</InfoNote>
           </div>
         )}
       </Card>
@@ -222,12 +200,10 @@ export default function GeneralTab() {
             {(cfg.scenes ?? []).map((s) => (
               <div
                 key={s.id}
-                className="group flex items-center gap-2.5 rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2.5"
+                className="group flex items-center gap-2.5 panel-inset px-3 py-2.5"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold text-[var(--text)]">
-                    {s.name}
-                  </div>
+                  <ItemTitle className="truncate">{s.name}</ItemTitle>
                   <div className="font-mono text-[10px] text-[var(--text-faint)]">
                     {s.wallpaper.kind} · {s.rgb.mode}
                   </div>
