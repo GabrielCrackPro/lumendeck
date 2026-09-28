@@ -1,9 +1,9 @@
 name: CI
 
-# One workflow, two jobs: `checks` runs on every push and pull request;
-# `release` needs it and only fires for pushes to main (or a manual dispatch),
-# replacing the old release.yml and its workflow_run trigger chain — a `needs:`
-# edge does what "wait for CI to succeed" used to do by hand.
+# One workflow, three jobs: `frontend` and `backend` run in parallel on every
+# push and pull request; `release` needs both and only fires for pushes to
+# main (or a manual dispatch). The needs: edges do what "wait for CI to
+# succeed" used to do by hand back when this was two workflow files.
 
 on:
   push:
@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  checks:
+  frontend:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,12 +39,6 @@ jobs:
         with:
           node-version: 22
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
@@ -60,11 +54,22 @@ jobs:
       - name: Frontend tests
         run: pnpm test
 
+  backend:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
   release:
-    needs: checks
+    needs: [frontend, backend]
     # Runs only where a release makes sense: after checks pass for a push to
     # main, or a manual dispatch against main. Pull requests skip in seconds.
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
