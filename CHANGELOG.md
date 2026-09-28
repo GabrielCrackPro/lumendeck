@@ -7,4 +7,6 @@ and it lands under that release's heading.
 ## 0.2.7 — 2026-09-28
 
 ### Added
-- compose the dashboard for wide and narrow windows (`063fe42`)
+- show album art and app identity for the playing track (`c9ee397`)
+
+_1 internal._
