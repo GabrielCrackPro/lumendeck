@@ -15,7 +15,9 @@
     "tauri": "tauri",
     "app:dev": "tauri dev",
     "app:build": "tauri build",
-    "prepare": "node scripts/install-git-hooks.mjs"
+    "prepare": "node scripts/install-git-hooks.mjs",
+    "changelog": "node scripts/generate-changelog.mjs",
+    "changelog:check": "node scripts/generate-changelog.mjs --check"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.3.0",

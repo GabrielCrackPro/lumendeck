@@ -10,6 +10,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The changelog generator reads the tag list to find the previous
+          # release; a shallow clone would silently regenerate from one commit.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
@@ -30,6 +34,9 @@ jobs:
 
       - name: Validate app versions
         run: pnpm check:versions
+
+      - name: Validate changelog is current
+        run: pnpm changelog:check
 
       - name: TypeScript check
         run: pnpm exec tsc --noEmit

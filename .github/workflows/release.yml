@@ -139,19 +139,25 @@ jobs:
         if: steps.version.outputs.should_release == 'true'
         run: pnpm install --frozen-lockfile
 
-      # Generate release notes from commits since the previous release tag.
-      # Conventional-commit prefixes map to user-readable section labels
-      # (see .github/changelog-config.json).
+      # Release notes come from the same generator that writes CHANGELOG.md,
+      # so the GitHub release and the in-app changelog cannot disagree. It
+      # runs after the version bump, so the section is the version shipping.
       - name: Build changelog
         if: steps.version.outputs.should_release == 'true'
+        shell: bash
+        run: node scripts/generate-changelog.mjs
+
+      - name: Extract release notes
+        if: steps.version.outputs.should_release == 'true'
         id: changelog
-        uses: mikepenz/release-changelog-builder-action@v5
-        with:
-          configuration: ".github/changelog-config.json"
-          # This repo releases from direct pushes, not merged PRs.
-          commitMode: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          node scripts/generate-changelog.mjs --release-notes > release-notes.md
+          {
+            echo 'notes<<CHANGELOG_EOF'
+            cat release-notes.md
+            echo CHANGELOG_EOF
+          } >> "$GITHUB_OUTPUT"
 
       - name: Validate updater signing configuration
         if: steps.version.outputs.should_release == 'true'
@@ -181,7 +187,7 @@ jobs:
         with:
           tagName: v${{ steps.version.outputs.version }}
           releaseName: "LumenDeck v${{ steps.version.outputs.version }}"
-          releaseBody: ${{ steps.changelog.outputs.changelog }}
+          releaseBody: ${{ steps.changelog.outputs.notes }}
           releaseDraft: false
           prerelease: false
           # bundle.targets is already ["nsis"] in tauri.conf.json; no args needed.
