@@ -1,9 +1,25 @@
 name: CI
 
+# One workflow, two jobs: `checks` runs on every push and pull request;
+# `release` needs it and only fires for pushes to main (or a manual dispatch),
+# replacing the old release.yml and its workflow_run trigger chain — a `needs:`
+# edge does what "wait for CI to succeed" used to do by hand.
+
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Per-ref: pushes to main (checks + release together) queue so two rapid
+  # pushes cannot race to publish; the stale-commit guard skips the queued
+  # loser in seconds. PR branches cancel their own superseded runs instead.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   checks:
@@ -46,3 +62,180 @@ jobs:
 
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  release:
+    needs: checks
+    # Runs only where a release makes sense: after checks pass for a push to
+    # main, or a manual dispatch against main. Pull requests skip in seconds.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+      actions: read
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check whether this version needs a release
+        id: version
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_HEAD_SHA: ${{ github.sha }}
+          TRIGGER_EVENT: ${{ github.event_name }}
+        run: |
+          node scripts/check-versions.mjs
+          if ($LASTEXITCODE -ne 0) {
+            throw "App version manifests are not synchronized."
+          }
+          $mainHead = gh api "repos/$env:GITHUB_REPOSITORY/commits/main" --jq .sha
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not determine the current main commit."
+          }
+          if ($mainHead -ne $env:CI_HEAD_SHA) {
+            Write-Host "Checks ran for a stale main commit; the latest main commit will handle the release."
+            "should_release=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          if ($env:TRIGGER_EVENT -eq 'workflow_dispatch') {
+            $ciResponse = gh run list --workflow ci.yml --commit $env:CI_HEAD_SHA --limit 20 --json headSha,event,conclusion,status | Out-String
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not verify CI for the selected commit."
+            }
+            $ciRuns = ConvertFrom-Json -InputObject $ciResponse
+            $hasSuccessfulCi = @($ciRuns | Where-Object {
+              $_.headSha -eq $env:CI_HEAD_SHA -and
+              $_.event -eq 'push' -and
+              $_.status -eq 'completed' -and
+              $_.conclusion -eq 'success'
+            }).Count -gt 0
+            if (-not $hasSuccessfulCi) {
+              throw "Manual releases require a successful CI run for the current main commit."
+            }
+          }
+          $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $appVersion = [version]$config.version
+          $releaseJson = gh release list --limit 100 --json tagName,isDraft,isPrerelease | Out-String
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not query published GitHub releases."
+          }
+          $releases = ConvertFrom-Json -InputObject $releaseJson
+          $latest = $releases |
+            Where-Object { -not $_.isDraft -and -not $_.isPrerelease } |
+            Sort-Object { [version]($_.tagName.TrimStart('v')) } -Descending |
+            Select-Object -First 1
+          $releaseVersion = $appVersion
+          if ($latest) {
+            $latestVersion = [version]($latest.tagName.TrimStart('v'))
+            $latestCommit = gh api "repos/$env:GITHUB_REPOSITORY/commits/$($latest.tagName)" --jq .sha
+            if ($LASTEXITCODE -eq 0 -and $latestCommit -eq $env:CI_HEAD_SHA) {
+              Write-Host "Commit $env:CI_HEAD_SHA is already released as $($latest.tagName); skipping duplicate release."
+              "should_release=false" >> $env:GITHUB_OUTPUT
+              exit 0
+            }
+            if ($releaseVersion -le $latestVersion) {
+              $releaseVersion = [version]::new($latestVersion.Major, $latestVersion.Minor, $latestVersion.Build + 1)
+            }
+          }
+          $releaseVersion = $releaseVersion.ToString(3)
+          node scripts/set-release-version.mjs $releaseVersion
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not prepare release version $releaseVersion."
+          }
+          "version=$releaseVersion" >> $env:GITHUB_OUTPUT
+          "should_release=true" >> $env:GITHUB_OUTPUT
+          Write-Host "Preparing release v$releaseVersion from $env:CI_HEAD_SHA."
+
+      # Cache the pnpm store via its own dir; setup-node's cache: pnpm fails
+      # on a fresh checkout because `pnpm store path` errors before install.
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        if: steps.version.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          STORE_DIR="$(pnpm store path 2>/dev/null | tail -n 1)"
+          echo "dir=$STORE_DIR" >> "$GITHUB_OUTPUT"
+          echo "store dir: $STORE_DIR"
+
+      - uses: actions/cache@v4
+        if: steps.version.outputs.should_release == 'true'
+        with:
+          path: ${{ steps.pnpm-cache.outputs.dir }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.version.outputs.should_release == 'true'
+
+      - uses: swatinem/rust-cache@v2
+        if: steps.version.outputs.should_release == 'true'
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        if: steps.version.outputs.should_release == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Release notes come from the same generator that writes CHANGELOG.md,
+      # so the GitHub release and the in-app changelog cannot disagree. It
+      # runs after the version bump, so the section is the version shipping.
+      - name: Build changelog
+        if: steps.version.outputs.should_release == 'true'
+        shell: bash
+        run: node scripts/generate-changelog.mjs
+
+      - name: Extract release notes
+        if: steps.version.outputs.should_release == 'true'
+        id: changelog
+        shell: bash
+        run: |
+          node scripts/generate-changelog.mjs --release-notes > release-notes.md
+          {
+            echo 'notes<<CHANGELOG_EOF'
+            cat release-notes.md
+            echo CHANGELOG_EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate updater signing configuration
+        if: steps.version.outputs.should_release == 'true'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            throw "Set the TAURI_SIGNING_PRIVATE_KEY GitHub Actions secret before publishing."
+          }
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
+            throw "Set the TAURI_SIGNING_PRIVATE_KEY_PASSWORD GitHub Actions secret before publishing."
+          }
+          $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          if (-not $config.plugins.updater.pubkey) {
+            throw "Set plugins.updater.pubkey in src-tauri/tauri.conf.json before publishing."
+          }
+
+      - name: Build Tauri app (NSIS)
+        if: steps.version.outputs.should_release == 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v${{ steps.version.outputs.version }}
+          releaseName: "LumenDeck v${{ steps.version.outputs.version }}"
+          releaseBody: ${{ steps.changelog.outputs.notes }}
+          releaseDraft: false
+          prerelease: false
+          # bundle.targets is already ["nsis"] in tauri.conf.json; no args needed.
+          # The action uploads src-tauri/target/release/bundle/nsis/*.exe to the release.
