@@ -18,7 +18,8 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
-const CHANGELOG = `${ROOT}CHANGELOG.md`;
+const CHANGELOG_NAME = "CHANGELOG.md";
+const CHANGELOG = `${ROOT}${CHANGELOG_NAME}`;
 const NOTES_DIR = `${ROOT}.github/changelog-notes`;
 
 // Conventional-commit types, split by whether a user would care. Internal
@@ -62,6 +63,27 @@ function readCommits(from) {
     });
 }
 
+/**
+ * Commits in the range that touched `path`. Asked separately because
+ * `git log --name-only` interleaves the file list with the next record's
+ * fields, which is not worth parsing.
+ */
+function commitsTouching(path, from) {
+  const range = from ? [`${from}..HEAD`] : [];
+  let out = "";
+  try {
+    out = git(["log", ...range, "--format=%H", "--", path]);
+  } catch {
+    return new Set();
+  }
+  return new Set(
+    out
+      .split("\n")
+      .map((h) => h.trim())
+      .filter(Boolean),
+  );
+}
+
 /** `fix(tray): show one icon` -> { type: "fix", scope: "tray", text: "..." } */
 function parseSubject(subject) {
   const match = /^(\w+)(?:\(([^)]+)\))?(!)?:\s*(.+)$/.exec(subject.trim());
@@ -91,6 +113,42 @@ function tagsDescending() {
 
 function shortHash(hash) {
   return hash.slice(0, 7);
+}
+
+/** True when a commit type earns a line in the notes a user reads. */
+function isUserFacing(type) {
+  return SECTIONS.find((s) => s.types.includes(type))?.user === true;
+}
+
+/**
+ * The date a release earns: when its commits landed, not when the script
+ * happened to run. Wall-clock time would rewrite the file on every run and
+ * make `--check` fail on CI every day after the commit.
+ */
+function releaseDate() {
+  try {
+    const committed = git(["log", "-1", "--format=%cI"]).trim();
+    if (committed) return committed.slice(0, 10);
+  } catch {
+    // fall through to the wall clock
+  }
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Normalize line endings. CI checks out on windows-latest with autocrlf, so
+ * the file on disk arrives CRLF while the generator emits LF — comparing
+ * them raw would report a correct changelog as stale on every run.
+ */
+function normalize(text) {
+  return text.replace(/\r\n?/g, "\n");
+}
+
+/** Commit hashes the file already lists. */
+function listedHashes(document) {
+  return new Set(
+    [...document.matchAll(/\(`([0-9a-f]{7,})`\)/g)].map((m) => m[1]),
+  );
 }
 
 /** Extra prose a human wrote for a version, if any. */
@@ -169,7 +227,7 @@ function build() {
       return false;
     });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = releaseDate();
   const header = [
     "# Changelog",
     "",
@@ -182,7 +240,9 @@ function build() {
   // Rebuild the file: the current version's section is regenerated, older
   // sections are carried over untouched, so running this with no new commits
   // is a no-op and no release note is ever silently dropped.
-  const existing = existsSync(CHANGELOG) ? readFileSync(CHANGELOG, "utf8") : "";
+  const existing = existsSync(CHANGELOG)
+    ? normalize(readFileSync(CHANGELOG, "utf8"))
+    : "";
   const head = `## ${version} — `;
   const [oldHeader, ...oldSections] = existing.split(/\n(?=## )/);
   const kept = oldSections.filter((s) => !s.startsWith(head));
@@ -208,11 +268,36 @@ function build() {
     return;
   }
   if (check) {
-    if (existsSync(CHANGELOG) && readFileSync(CHANGELOG, "utf8") === document) {
-      console.log("CHANGELOG.md is up to date.");
-      return;
+    // The rule: every *user-facing* commit since the last release is listed
+    // in the file, except commits that are themselves changelog bookkeeping.
+    // A commit that edits CHANGELOG.md can never appear in its own contents,
+    // so demanding it would make the check unpassable the moment it is fixed.
+    // Internal types are excluded too: they collapse into a count, so there
+    // is no entry line to carry their hash.
+    //
+    // Hashes are compared rather than the whole document, so a differently
+    // stamped date, a CRLF checkout, or a reworded summary line cannot turn
+    // a correct changelog into a red build.
+    if (!existsSync(CHANGELOG)) {
+      fail("CHANGELOG.md is missing — run: node scripts/generate-changelog.mjs");
     }
-    fail("CHANGELOG.md is stale — run: node scripts/generate-changelog.mjs");
+    const present = listedHashes(normalize(readFileSync(CHANGELOG, "utf8")));
+    const bookkeeping = commitsTouching(CHANGELOG_NAME, from);
+    const missing = entries
+      .filter((e) => isUserFacing(e.parsed.type) && !bookkeeping.has(e.hash))
+      .map((e) => shortHash(e.hash))
+      .filter((hash) => !present.has(hash));
+    if (missing.length > 0) {
+      console.error(
+        `generate-changelog: CHANGELOG.md is missing ${missing.length} commit(s):`,
+      );
+      for (const hash of missing) console.error(`  ${hash}`);
+      fail("run: node scripts/generate-changelog.mjs");
+    }
+    console.log(
+      `CHANGELOG.md is up to date (${entries.length} commit(s) since ${from ?? "the beginning"}).`,
+    );
+    return;
   }
 
   writeFileSync(CHANGELOG, document);

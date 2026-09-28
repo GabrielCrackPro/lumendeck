@@ -7,6 +7,7 @@ and it lands under that release's heading.
 ## 0.2.7 — 2026-09-28
 
 ### Added
+- show the release notes inside the app (`823bae3`)
 - collapse repeated toasts into one card with a count (`1229a2f`)
 - redesign toasts and let an update install from the toast (`6be18d4`)
 - explain a quiet login start with a one-time tray balloon (`8b3326b`)
@@ -30,4 +31,4 @@ and it lands under that release's heading.
 ### Performance
 - stop the dashboard re-rendering at the RGB frame rate (`4f7a23d`)
 
-_1 internal._
+_2 internal._
