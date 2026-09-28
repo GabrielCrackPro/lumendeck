@@ -226,7 +226,12 @@ fn hsl_to_rgb(h: f32) -> [u8; 3] {
     [c(5.0), c(3.0), c(1.0)]
 }
 
-pub fn animation_frame(cfg: &RgbConfig, led_count: usize, t: f64) -> Option<([u8; 3], Vec<[u8; 3]>)> {
+pub fn animation_frame(
+    cfg: &RgbConfig,
+    led_count: usize,
+    t: f64,
+    accent: Option<[u8; 3]>,
+) -> Option<([u8; 3], Vec<[u8; 3]>)> {
     if led_count == 0 || !cfg.mode.is_animation() {
         return None;
     }
@@ -297,7 +302,13 @@ pub fn animation_frame(cfg: &RgbConfig, led_count: usize, t: f64) -> Option<([u8
 
             let vol = audio::volume();
             let is_beat = audio::beat();
-            let (h, s, _) = palette::rgb_to_hsv(cfg.static_color);
+            // The accent is the color the rest of the interface already
+            // associates with "right now" — the wallpaper's dominant tone —
+            // so the audio visualization matches the screen instead of a
+            // color the user picked for a different mode. Fall back to the
+            // static color only when no wallpaper sample has arrived yet.
+            let base = accent.unwrap_or(cfg.static_color);
+            let (h, s, _) = palette::rgb_to_hsv(base);
             let smooth = cfg.audio_smoothing;
 
             let beat_boost = if is_beat { 1.0 } else { 0.0 };
@@ -583,7 +594,11 @@ async fn engine_loop(
                 let flash = palette::apply_mixer([235, 235, 235], cfg.mixer.brightness, cfg.mixer.saturation, cfg.mixer.gamma);
                 (flash, vec![flash; n])
             } else if is_anim {
-                match animation_frame(&cfg, n, t) {
+                // Accent for the frame: the primary display's live wallpaper
+                // color, so audio-reactive rides the screen's mood instead of
+                // the user-picked static color.
+                let accent = target_color_for_device(dev.id, &cfg, &latest);
+                match animation_frame(&cfg, n, t, accent) {
                     Some(f) => f,
                     None => continue,
                 }
@@ -846,8 +861,8 @@ mod tests {
             },
             ..Default::default()
         };
-        let (_, fa) = animation_frame(&cfg, 12, 0.0).unwrap();
-        let (_, fb) = animation_frame(&cfg, 12, 1.0).unwrap();
+        let (_, fa) = animation_frame(&cfg, 12, 0.0, None).unwrap();
+        let (_, fb) = animation_frame(&cfg, 12, 1.0, None).unwrap();
         // Cycle now spreads the spectrum across the strip, sliding with time.
         assert_ne!(fa[0], fa[11], "rainbow must span the strip");
         assert_ne!(fa[0], fb[0], "cycle should march in time");
@@ -865,8 +880,8 @@ mod tests {
             animation_speed: 1.0,
             ..Default::default()
         };
-        let (_, a) = animation_frame(&cfg, 12, 0.0).unwrap();
-        let (_, b) = animation_frame(&cfg, 12, 0.5).unwrap();
+        let (_, a) = animation_frame(&cfg, 12, 0.0, None).unwrap();
+        let (_, b) = animation_frame(&cfg, 12, 0.5, None).unwrap();
         assert_eq!(a.len(), 12);
         assert_ne!(a[0], a[11], "gradient must span the strip");
         assert_ne!(a[0], b[0], "wave should march forward in time");
@@ -884,8 +899,8 @@ mod tests {
             },
             ..Default::default()
         };
-        let (dim, fd) = animation_frame(&cfg, 8, 0.0).unwrap();
-        let (bright, fb) = animation_frame(&cfg, 8, 1.0).unwrap();
+        let (dim, fd) = animation_frame(&cfg, 8, 0.0, None).unwrap();
+        let (bright, fb) = animation_frame(&cfg, 8, 1.0, None).unwrap();
         assert!(fd.iter().all(|c| *c == dim));
         assert!(fb.iter().all(|c| *c == bright));
         assert!(bright[0] > dim[0], "should get brighter over the breath");

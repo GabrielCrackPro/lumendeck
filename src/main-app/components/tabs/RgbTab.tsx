@@ -469,8 +469,11 @@ function ModePreview({ mode, staticColor, liveColor, speed, brightness, saturati
           }
           case "audioReactive": {
             // Engine: volume-floored brightness + spectral hue tilt across the strip.
+            // Base color is the live wallpaper accent (engine mirrors this),
+            // falling back to the static color before the first sample.
             const vol = Math.max(audioVolume ?? 0.3, 0.3);
-            leds.push(hsl((hslHue(staticColor) + 40 * f * vol) % 360).map((v) => Math.round(v * vol)) as [number, number, number]);
+            const audioBase = liveColor ?? staticColor;
+            leds.push(hsl((hslHue(audioBase) + 40 * f * vol) % 360).map((v) => Math.round(v * vol)) as [number, number, number]);
             break;
           }
         }
@@ -1123,12 +1126,19 @@ export default function RgbTab() {
             )}
           </div>
           {/* ---- mode-specific options + mixer: two-column disposition ---- */}
-          {(rgbCfg.mode === "static" || rgbCfg.mode === "breathe" || rgbCfg.mode === "audioReactive") && (
+          {(rgbCfg.mode === "static" || rgbCfg.mode === "breathe") && (
             <ColorInput
-              label={rgbCfg.mode === "static" ? "Static color" : rgbCfg.mode === "breathe" ? "Breath color" : "Base color"}
+              label={rgbCfg.mode === "static" ? "Static color" : "Breath color"}
               value={rgbCfg.staticColor}
               onChange={(v) => save((c) => (c.rgb.staticColor = v))}
             />
+          )}
+          {rgbCfg.mode === "audioReactive" && (
+            <div className="rounded-xl border border-[rgb(var(--glow)/0.25)] bg-[rgb(var(--glow)/0.07)] px-3 py-2.5 text-xs leading-relaxed text-[var(--text-dim)]">
+              Colors follow the <b className="text-[var(--text)]">wallpaper accent</b> — the
+              dominant on-screen tone — so the lights match what you're watching.
+              Volume drives brightness; beats pulse the strip.
+            </div>
           )}
           <div className="space-y-1">
             {/* mode options */}

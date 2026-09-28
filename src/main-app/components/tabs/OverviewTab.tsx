@@ -254,73 +254,94 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
     <div className="stagger space-y-5">
       {/* ===== row 1: now playing + engine ===== */}
       <div className="grid gap-5 xl:grid-cols-12">
-        {/* Now playing — spans 5 */}
+        {/* Now playing — spans 5. Layout follows content: media playing gets
+            art + transport; otherwise it's a wallpaper status card. The
+            thumbnail is a full-height panel shared by both states. */}
         <Card title="Now playing" className="xl:col-span-5" right={
           <Chip tone={paused ? "warn" : "ok"} pulse={!paused}>
             {paused ? "paused" : "live"}
           </Chip>
         }>
-          <div className="flex gap-4">
-            <div className="w-44 shrink-0 self-stretch">
-              <MediaSlideshow
-                cfg={cfg}
-                media={media}
-                paused={paused}
-              />
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col">
-              {media ? (
-                <>
-                  <div
-                    className="lednum truncate text-base text-[var(--text)]"
-                    title={`${media.title} — ${media.artist}`}
-                  >
-                    {media.title}
-                  </div>
-                  <div className="mt-1 flex items-center gap-1.5 font-mono text-[10.5px] text-[var(--text-faint)]">
-                    {media.appIcon && (
-                      <img src={media.appIcon} alt="" className="h-3.5 w-3.5 rounded-[3px]" />
-                    )}
-                    <span className="truncate">
-                      {media.artist || "Unknown artist"}
-                      {media.appId && ` · ${media.appId}`}
-                    </span>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="lednum truncate text-base text-[var(--text)]">{wallpaperName}</div>
-                  <div className="mt-1 font-mono text-[10.5px] capitalize text-[var(--text-faint)]">
-                    {cfg.wallpaper.kind}
-                    {pmCount > 0 && ` · ${pmCount} override${pmCount === 1 ? "" : "s"}`}
-                  </div>
-                </>
-              )}
-              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
-                <Metric label="vault" value={`${cfg.gallery.length}`} />
-                <Metric label="playlist" value={playlistOn ? "rotating" : "off"} />
+          {media ? (
+            <div className="flex gap-4">
+              <div className="w-40 shrink-0 self-stretch">
+                <MediaSlideshow cfg={cfg} media={media} paused={paused} />
               </div>
-              {media && <TransportButtons playing={media.playing} />}
-              <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
-                <Btn size="sm" variant="primary" onClick={() => onNavigate("wallpaper")}>
-                  Change
-                </Btn>
-                <Btn size="sm" onClick={togglePause}>
-                  {paused ? (
-                    <>
-                      <IconPlay className="h-3.5 w-3.5" />
-                      Resume
-                    </>
-                  ) : (
-                    <>
-                      <IconPause className="h-3.5 w-3.5" />
-                      Pause
-                    </>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <div
+                  className="lednum truncate text-base text-[var(--text)]"
+                  title={`${media.title} — ${media.artist}`}
+                >
+                  {media.title}
+                </div>
+                <div className="mt-1 flex items-center gap-1.5 font-mono text-[10.5px] text-[var(--text-faint)]">
+                  {media.appIcon && (
+                    <img src={media.appIcon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-[3px]" />
                   )}
-                </Btn>
+                  <span className="truncate">
+                    {media.artist || "Unknown artist"}
+                    {media.appId && ` · ${media.appId}`}
+                  </span>
+                </div>
+                {/* Wallpaper context strip: the card is "now playing" for the
+                    whole desktop — what's on the wallpaper matters too. */}
+                <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] px-2.5 py-1.5">
+                  <div className="h-6 w-9 shrink-0 overflow-hidden rounded-[4px]">
+                    <WallpaperThumb kind={cfg.wallpaper.kind} source={cfg.wallpaper.source} paused={paused} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-[11px] font-medium text-[var(--text-dim)]" title={wallpaperName}>
+                      {wallpaperName}
+                    </div>
+                    <div className="font-mono text-[9.5px] text-[var(--text-faint)]">
+                      wallpaper
+                      {playlistOn && " · playlist rotating"}
+                      {pmCount > 0 && ` · ${pmCount} override${pmCount === 1 ? "" : "s"}`}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-auto pt-3">
+                  <TransportButtons playing={media.playing} />
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex gap-4">
+              <div className="w-44 shrink-0 self-stretch">
+                <MediaSlideshow cfg={cfg} media={media} paused={paused} />
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <div className="lednum truncate text-base text-[var(--text)]">{wallpaperName}</div>
+                <div className="mt-1 font-mono text-[10.5px] capitalize text-[var(--text-faint)]">
+                  {cfg.wallpaper.kind}
+                  {playlistOn && " · playlist rotating"}
+                  {pmCount > 0 && ` · ${pmCount} override${pmCount === 1 ? "" : "s"}`}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
+                  <Metric label="vault" value={`${cfg.gallery.length}`} />
+                  <Metric label="playlist" value={playlistOn ? "rotating" : "off"} />
+                </div>
+                <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
+                  <Btn size="sm" variant="primary" onClick={() => onNavigate("wallpaper")}>
+                    Change
+                  </Btn>
+                  <Btn size="sm" onClick={togglePause}>
+                    {paused ? (
+                      <>
+                        <IconPlay className="h-3.5 w-3.5" />
+                        Resume
+                      </>
+                    ) : (
+                      <>
+                        <IconPause className="h-3.5 w-3.5" />
+                        Pause
+                      </>
+                    )}
+                  </Btn>
+                </div>
+              </div>
+            </div>
+          )}
         </Card>
 
         {/* Engine — spans 7: mode header, device table, live spectrum */}
