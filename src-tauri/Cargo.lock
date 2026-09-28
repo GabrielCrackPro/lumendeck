@@ -2367,6 +2367,7 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 name = "lumendeck"
 version = "0.2.7"
 dependencies = [
+ "base64 0.22.1",
  "dirs 6.0.0",
  "env_logger",
  "image",
@@ -2388,6 +2389,7 @@ dependencies = [
  "url",
  "wasapi",
  "windows 0.62.2",
+ "windows-future",
 ]
 
 [[package]]

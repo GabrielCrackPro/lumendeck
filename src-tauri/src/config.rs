@@ -81,6 +81,18 @@ pub struct GeneralConfig {
     /// Internal: the last version whose release notes were opened in the
     /// dashboard. Empty = never read. Drives the "what's new" marker.
     pub changelog_seen_version: String,
+    /// Overview "Now playing" card: alternate between the wallpaper preview
+    /// and the album art of the OS media session (SMTC). Off = wallpaper
+    /// thumb only, media shown as text.
+    #[serde(default)]
+    pub media_slideshow: bool,
+    /// Seconds per slide when the media slideshow is on (2..30).
+    #[serde(default = "default_media_slideshow_sec")]
+    pub media_slideshow_sec: u64,
+}
+
+fn default_media_slideshow_sec() -> u64 {
+    5
 }
 
 impl Default for GeneralConfig {
@@ -107,6 +119,8 @@ impl Default for GeneralConfig {
             show_dashboard_on_login: false,
             startup_hint_shown: false,
             changelog_seen_version: String::new(),
+            media_slideshow: true,
+            media_slideshow_sec: 5,
         }
     }
 }
@@ -298,6 +312,11 @@ pub struct RgbConfig {
     pub night_end: String,
     /// Brightness cap during the night window (0..1).
     pub night_brightness: f64,
+    /// Flash all devices white-ish for a beat when the OS media session's
+    /// track changes (SMTC). 0 = disabled; otherwise the flash duration in
+    /// milliseconds (150..1000).
+    #[serde(default)]
+    pub track_flash_ms: u64,
 }
 
 /// A named lighting profile bundling the most-tweaked RGB knobs.
@@ -335,6 +354,7 @@ impl Default for RgbConfig {
             night_start: String::new(),
             night_end: String::new(),
             night_brightness: 0.3,
+            track_flash_ms: 0,
         }
     }
 }

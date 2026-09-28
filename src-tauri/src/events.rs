@@ -25,6 +25,9 @@ pub const DISPLAY_CHANGED: &str = "display-changed";
 pub const RGB_FRAME: &str = "rgb-frame";
 /// Emitted with audio level data; payload: { volume: f32, beat: bool }.
 pub const AUDIO_LEVEL: &str = "audio-level";
+/// Emitted when the OS media session (SMTC) changes; payload: MediaInfo or
+/// null when nothing is playing. At most once per track/state change.
+pub const MEDIA_SESSION: &str = "media-session";
 
 /// Final preview size chosen with the wheel during the last placement.
 static PLACEMENT_SIZE: std::sync::Mutex<Option<i32>> = std::sync::Mutex::new(None);

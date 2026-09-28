@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Config,
   GalleryEntry,
+  MediaInfo,
   RgbStatus,
   SceneProfile,
   StickerDef,
@@ -62,6 +63,11 @@ export const api = {
 
   sceneSave: (name: string) => invoke<SceneProfile>("scene_save", { name }),
   sceneApply: (id: string) => invoke<void>("scene_apply", { id }),
+
+  // Media session (SMTC): transport + initial snapshot.
+  mediaTransport: (action: "play" | "pause" | "toggle" | "next" | "previous") =>
+    invoke<void>("media_transport", { action }),
+  mediaCurrent: () => invoke<MediaInfo | null>("media_current"),
   sceneDelete: (id: string) => invoke<void>("scene_delete", { id }),
   sceneRename: (id: string, name: string) =>
     invoke<void>("scene_rename", { id, name }),

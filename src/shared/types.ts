@@ -98,6 +98,8 @@ export interface RgbConfig {
   nightEnd: string;
   /** Brightness cap during the night window (0..1). */
   nightBrightness: number;
+  /** Flash on SMTC track change: duration in ms, 0 = disabled. */
+  trackFlashMs: number;
 }
 
 export interface RgbProfile {
@@ -162,6 +164,10 @@ export interface GeneralConfig {
   startupHintShown: boolean;
   /** Internal: last version whose release notes were read in the dashboard. */
   changelogSeenVersion: string;
+  /** Overview "Now playing" card: alternate wallpaper preview and album art. */
+  mediaSlideshow: boolean;
+  /** Seconds per slide (2..30). */
+  mediaSlideshowSec: number;
 }
 
 export interface GalleryEntry {
@@ -290,4 +296,18 @@ export interface AudioLevel {
   beat: boolean;
   /** WASAPI device name currently being captured (e.g. "Speakers (Realtek Audio)"). */
   deviceName: string;
+}
+
+/** What the OS media session (SMTC) says is playing, right now. */
+export interface MediaInfo {
+  title: string;
+  artist: string;
+  album: string;
+  /** Source app display name, e.g. "Spotify" — no .exe, no package suffix. */
+  appId: string;
+  playing: boolean;
+  /** Album art as a data URI. Empty = render a placeholder. */
+  art: string;
+  /** Source app icon as a PNG data URI. Empty = generic glyph. */
+  appIcon: string;
 }

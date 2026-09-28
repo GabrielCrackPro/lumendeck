@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Toggle, Select, Btn, DisplaysCard, Segmented } from "../ui";
+import { Card, Toggle, Select, Btn, DisplaysCard, Segmented, Slider } from "../ui";
 import { api } from "../../ipc";
 import { truncateError } from "../../utilities";
 import { checkForAppUpdate, installAppUpdate, announceUpdate } from "../../updater";
@@ -96,6 +96,28 @@ export default function GeneralTab() {
             save((c) => (c.general.lockScreenFollowsWallpaper = v))
           }
         />
+      </Card>
+
+      <Card title="Dashboard">
+        <Toggle
+          label="Alternate album art in Now playing"
+          description="When a track is playing, the Overview thumbnail crossfades between the wallpaper preview and the track's album art. Off shows the wallpaper preview only."
+          checked={cfg.general.mediaSlideshow ?? true}
+          onChange={(v) => save((c) => (c.general.mediaSlideshow = v))}
+        />
+        {(cfg.general.mediaSlideshow ?? true) && (
+          <div className="mt-3">
+            <Slider
+              label="Seconds per slide"
+              min={2}
+              max={30}
+              step={1}
+              value={cfg.general.mediaSlideshowSec ?? 5}
+              format={(v) => `${v}s`}
+              onChange={(v) => save((c) => (c.general.mediaSlideshowSec = v))}
+            />
+          </div>
+        )}
       </Card>
 
       <Card title="Startup & power">

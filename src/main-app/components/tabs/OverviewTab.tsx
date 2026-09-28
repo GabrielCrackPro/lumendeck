@@ -1,10 +1,13 @@
 import { useShallow } from "zustand/react/shallow";
+import { useEffect, useState } from "react";
 import { useStore } from "../../store";
 import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, Btn } from "../ui";
-import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause } from "../icons";
+import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause, IconNext, IconPrevious } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
+import type { Config, MediaInfo } from "@shared/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { basename } from "../../utilities";
+import { api } from "../../ipc";
 
 /** Compact wallpaper thumb: video plays muted, image static, shader art. */
 function WallpaperThumb({
@@ -50,6 +53,105 @@ function WallpaperThumb({
           </span>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The Now playing thumbnail. When the media slideshow is enabled (Settings)
+ * and a track with album art is playing, it crossfades between the wallpaper
+ * preview and the album art; otherwise it's just the wallpaper thumb.
+ */
+function MediaSlideshow({
+  cfg,
+  media,
+  paused,
+}: {
+  cfg: Config;
+  media: MediaInfo | null;
+  paused: boolean;
+}) {
+  const [slide, setSlide] = useState(0);
+  const showArt =
+    cfg.general.mediaSlideshow && !!media?.art;
+  const intervalSec = Math.min(30, Math.max(2, cfg.general.mediaSlideshowSec || 5));
+
+  useEffect(() => {
+    if (!showArt) {
+      setSlide(0);
+      return;
+    }
+    const id = setInterval(() => setSlide((s) => s + 1), intervalSec * 1000);
+    return () => clearInterval(id);
+  }, [showArt, intervalSec]);
+
+  const showMediaArt = showArt && slide % 2 === 1;
+  return (
+    <div className="relative h-full min-h-32 w-full">
+      <div className={`absolute inset-0 transition-opacity duration-700 ${showMediaArt ? "opacity-0" : "opacity-100"}`}>
+        <WallpaperThumb
+          kind={cfg.wallpaper.kind}
+          source={cfg.wallpaper.source}
+          paused={paused}
+        />
+      </div>
+      {showArt && (
+        <div className={`absolute inset-0 overflow-hidden rounded-lg border border-[var(--line)] bg-black transition-opacity duration-700 ${showMediaArt ? "opacity-100" : "opacity-0"}`}>
+          {media?.art ? (
+            <img src={media.art} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-[var(--text-faint)]">
+              <IconImage className="h-6 w-6" />
+            </div>
+          )}
+          {/* Slide dots — subtle, only when the slideshow is actually cycling. */}
+          <div className="absolute bottom-1.5 left-1/2 flex -translate-x-1/2 gap-1">
+            {[0, 1].map((i) => (
+              <span
+                key={i}
+                className={`h-1 w-3 rounded-full ${slide % 2 === i ? "bg-white/85" : "bg-white/30"}`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Play/prev/next that drive the OS media session (SMTC) — Spotify, browsers,
+ * whatever is playing. Hidden entirely when no session exists.
+ */
+function TransportButtons({ playing }: { playing: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const send = async (action: "toggle" | "next" | "previous") => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api.mediaTransport(action);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const btn =
+    "flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))] disabled:opacity-40";
+  return (
+    <div className="mt-3 flex items-center gap-1.5">
+      <button aria-label="Previous track" className={btn} disabled={busy} onClick={() => send("previous")}>
+        <IconPrevious className="h-4 w-4" />
+      </button>
+      <button
+        aria-label={playing ? "Pause" : "Play"}
+        className={`${btn} !border-[rgb(var(--glow)/0.4)] !text-[rgb(var(--glow))]`}
+        disabled={busy}
+        onClick={() => send("toggle")}
+      >
+        {playing ? <IconPause className="h-4 w-4" /> : <IconPlay className="h-4 w-4" />}
+      </button>
+      <button aria-label="Next track" className={btn} disabled={busy} onClick={() => send("next")}>
+        <IconNext className="h-4 w-4" />
+      </button>
     </div>
   );
 }
@@ -111,13 +213,14 @@ function DeviceRow({
 export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) => void }) {
   // deviceColors is the one field that changes at frame rate; scoping keeps
   // this tab off every *other* store write (toasts, accent, config saves).
-  const { cfg, rgb, wallpaperPaused, deviceColors, save } = useStore(
+  const { cfg, rgb, wallpaperPaused, deviceColors, save, media } = useStore(
     useShallow((s) => ({
       cfg: s.cfg,
       rgb: s.rgb,
       wallpaperPaused: s.wallpaperPaused,
       deviceColors: s.deviceColors,
       save: s.save,
+      media: s.media,
     })),
   );
 
@@ -159,22 +262,45 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
         }>
           <div className="flex gap-4">
             <div className="w-44 shrink-0 self-stretch">
-              <WallpaperThumb
-                kind={cfg.wallpaper.kind}
-                source={cfg.wallpaper.source}
+              <MediaSlideshow
+                cfg={cfg}
+                media={media}
                 paused={paused}
               />
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
-              <div className="lednum truncate text-base text-[var(--text)]">{wallpaperName}</div>
-              <div className="mt-1 font-mono text-[10.5px] capitalize text-[var(--text-faint)]">
-                {cfg.wallpaper.kind}
-                {pmCount > 0 && ` · ${pmCount} override${pmCount === 1 ? "" : "s"}`}
-              </div>
+              {media ? (
+                <>
+                  <div
+                    className="lednum truncate text-base text-[var(--text)]"
+                    title={`${media.title} — ${media.artist}`}
+                  >
+                    {media.title}
+                  </div>
+                  <div className="mt-1 flex items-center gap-1.5 font-mono text-[10.5px] text-[var(--text-faint)]">
+                    {media.appIcon && (
+                      <img src={media.appIcon} alt="" className="h-3.5 w-3.5 rounded-[3px]" />
+                    )}
+                    <span className="truncate">
+                      {media.artist || "Unknown artist"}
+                      {media.appId && ` · ${media.appId}`}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="lednum truncate text-base text-[var(--text)]">{wallpaperName}</div>
+                  <div className="mt-1 font-mono text-[10.5px] capitalize text-[var(--text-faint)]">
+                    {cfg.wallpaper.kind}
+                    {pmCount > 0 && ` · ${pmCount} override${pmCount === 1 ? "" : "s"}`}
+                  </div>
+                </>
+              )}
               <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
                 <Metric label="vault" value={`${cfg.gallery.length}`} />
                 <Metric label="playlist" value={playlistOn ? "rotating" : "off"} />
               </div>
+              {media && <TransportButtons playing={media.playing} />}
               <div className="mt-auto flex flex-wrap items-center gap-2 pt-3">
                 <Btn size="sm" variant="primary" onClick={() => onNavigate("wallpaper")}>
                   Change

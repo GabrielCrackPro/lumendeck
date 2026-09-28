@@ -160,6 +160,18 @@ export const IconPause = (props: P) => (
   </svg>
 );
 
+export const IconNext = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M6 6l8 6-8 6zM17 6v12" />
+  </svg>
+);
+
+export const IconPrevious = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M18 6l-8 6 8 6zM7 6v12" />
+  </svg>
+);
+
 export const IconZones = (props: P) => (
   <svg {...base(props)}>
     <rect x="4" y="4" width="16" height="16" rx="2.5" />

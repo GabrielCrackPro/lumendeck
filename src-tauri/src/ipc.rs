@@ -1467,3 +1467,19 @@ fn nanoid_like() -> String {
         .unwrap_or(0);
     format!("{n:x}")
 }
+
+// ---------- Media session (SMTC) ----------
+
+/// Fire a transport action (play/pause/next/previous) at whatever the OS
+/// media session is currently playing — Spotify, a browser, any SMTC client.
+#[tauri::command]
+pub fn media_transport(action: String) -> Result<(), String> {
+    crate::media_session::transport(&action)
+}
+
+/// Current media session snapshot, for the dashboard's initial render before
+/// the first `media-session` event arrives (poller only emits on change).
+#[tauri::command]
+pub fn media_current() -> Option<crate::media_session::MediaInfo> {
+    crate::media_session::current()
+}

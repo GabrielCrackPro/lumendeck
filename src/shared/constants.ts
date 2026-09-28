@@ -17,6 +17,7 @@ export const EVENTS = {
   WALLPAPER_COLOR: "wallpaper-color",
   RGB_FRAME: "rgb-frame",
   AUDIO_LEVEL: "audio-level",
+  MEDIA_SESSION: "media-session",
   WALLPAUSE: "wallpaper-pause",
   DISPLAY_CHANGED: "display-changed",
 } as const;

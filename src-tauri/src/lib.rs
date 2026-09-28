@@ -13,6 +13,7 @@ pub mod events;
 pub mod idle;
 pub mod ipc;
 pub mod media;
+pub mod media_session;
 pub mod mouse_hook;
 pub mod pause;
 pub mod placement_overlay;
@@ -409,7 +410,9 @@ pub fn run() {
             ipc::scene_save,
             ipc::scene_apply,
             ipc::scene_delete,
-            ipc::scene_rename
+            ipc::scene_rename,
+            ipc::media_transport,
+            ipc::media_current
         ])
         .setup(|app| {
             let setup_at = std::time::Instant::now();

@@ -377,8 +377,13 @@ async fn engine_loop(
     let phase_start = std::time::Instant::now();
     let mut last_excluded: Vec<u32> = Vec::new();
     let mut last_enabled: Option<bool> = None;
-    // Ensure audio capture thread is spawned (idempotent, only starts once).
+    // Track-flash: when the SMTC track changes, override every device with a
+    // bright white-ish pulse for track_flash_ms. Instant::now() would panic
+    // before the epoch fix, but this loop only starts after boot time exists.
+    let mut flash_until: Option<std::time::Instant> = None;
+    // Ensure audio capture + SMTC poller threads are spawned (idempotent).
     audio::ensure_started();
+    crate::media_session::ensure_started();
 
     loop {
         tokio::select! {
@@ -399,6 +404,14 @@ async fn engine_loop(
         // here so every mode (reactive + animation) is affected uniformly.
         if let Some(cap) = night_cap(&cfg) {
             cfg.mixer.brightness = cfg.mixer.brightness.min(cap);
+        }
+
+        // Track flash: arm on a fresh SMTC track change, disarm when expired.
+        if crate::media_session::take_track_change() && cfg.track_flash_ms > 0 {
+            flash_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(cfg.track_flash_ms.clamp(150, 1000)));
+        }
+        if flash_until.is_some_and(|until| std::time::Instant::now() >= until) {
+            flash_until = None;
         }
 
         // Expire samples from displays that stopped pushing (3s of silence).
@@ -564,6 +577,11 @@ async fn engine_loop(
                 // Idle sleep: push black to turn off all LEDs.
                 let black = [0u8; 3];
                 (black, vec![black; n])
+            } else if flash_until.is_some() {
+                // Track change: one bright pulse, same tint for every LED.
+                // Mirrors the mixer so brightness/saturation prefs apply.
+                let flash = palette::apply_mixer([235, 235, 235], cfg.mixer.brightness, cfg.mixer.saturation, cfg.mixer.gamma);
+                (flash, vec![flash; n])
             } else if is_anim {
                 match animation_frame(&cfg, n, t) {
                     Some(f) => f,

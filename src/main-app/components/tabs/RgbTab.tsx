@@ -892,6 +892,25 @@ export default function RgbTab() {
                   </div>
                 </div>
               )}
+              <Toggle
+                label="Flash on track change"
+                description="Pulse every device once when the OS media session starts a new track (Spotify, browsers, anything the media flyout sees)."
+                checked={rgbCfg.trackFlashMs > 0}
+                onChange={(v) => save((c) => (c.rgb.trackFlashMs = v ? 400 : 0))}
+              />
+              {rgbCfg.trackFlashMs > 0 && (
+                <div className="mt-3">
+                  <Slider
+                    label="Flash duration"
+                    min={150}
+                    max={1000}
+                    step={50}
+                    value={rgbCfg.trackFlashMs}
+                    format={(v) => `${v} ms`}
+                    onChange={(v) => save((c) => (c.rgb.trackFlashMs = v))}
+                  />
+                </div>
+              )}
             </div>
           </div>
         </Card>

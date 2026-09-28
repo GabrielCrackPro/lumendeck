@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { EVENTS } from "@shared/constants";
-import type { AudioLevel, Config, DeviceColor, RgbStatus } from "@shared/types";
+import type { AudioLevel, Config, DeviceColor, MediaInfo, RgbStatus } from "@shared/types";
 import { api } from "./ipc";
 import { truncateError } from "./utilities";
 import type { AvailableUpdate } from "./updater";
@@ -37,6 +37,8 @@ interface Store {
   deviceColors: Record<number, DeviceColor>;
   /** Live audio level from the audio-reactive mode. */
   audioLevel: AudioLevel;
+  /** What the OS media session is playing (null = nothing). */
+  media: MediaInfo | null;
   /** Wallpaper's current dominant color — drives the UI glow. */
   wallpaperColor: [number, number, number] | null;
   wallpaperPaused: boolean;
@@ -50,6 +52,7 @@ interface Store {
   setRgb: (rgb: RgbStatus) => void;
   setDeviceColors: (frame: DeviceColor[]) => void;
   setAudioLevel: (level: AudioLevel) => void;
+  setMedia: (media: MediaInfo | null) => void;
   setWallpaperColor: (c: [number, number, number]) => void;
   setWallpaperPaused: (p: boolean) => void;
   setUpdateAvailable: (update: AvailableUpdate | null) => void;
@@ -103,6 +106,7 @@ export const useStore = create<Store>((set, get) => ({
   },
   deviceColors: {},
   audioLevel: { volume: 0, beat: false, deviceName: "" },
+  media: null,
   wallpaperColor: null,
   wallpaperPaused: false,
   updateAvailable: null,
@@ -112,9 +116,10 @@ export const useStore = create<Store>((set, get) => ({
 
   load: async () => {
     set({ loaded: false, loadError: null });
-    const [cfgRes, rgbRes] = await Promise.allSettled([
+    const [cfgRes, rgbRes, mediaRes] = await Promise.allSettled([
       invokeWithTimeout<Config>("get_config"),
       invokeWithTimeout<RgbStatus>("rgb_status"),
+      invokeWithTimeout<MediaInfo | null>("media_current"),
     ]);
 
     const errors: string[] = [];
@@ -129,6 +134,11 @@ export const useStore = create<Store>((set, get) => ({
       patch.rgb = rgbRes.value;
     } else {
       errors.push(`rgb: ${String(rgbRes.reason)}`);
+    }
+    // Media is optional chrome: a failure to read SMTC must never block the
+    // dashboard, and "no session" (null) is a normal state.
+    if (mediaRes.status === "fulfilled") {
+      patch.media = mediaRes.value;
     }
 
     patch.loadError = errors.length ? errors.join(" · ") : null;
@@ -228,6 +238,7 @@ export const useStore = create<Store>((set, get) => ({
       return { deviceColors: next };
     }),
   setAudioLevel: (audioLevel) => set({ audioLevel }),
+  setMedia: (media) => set({ media }),
   setWallpaperColor: (wallpaperColor) => set({ wallpaperColor }),
   setWallpaperPaused: (wallpaperPaused) => set({ wallpaperPaused }),
   setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),
@@ -300,6 +311,9 @@ export async function bindEvents(): Promise<() => void> {
   unsubs.push(
     await listen<AudioLevel>(EVENTS.AUDIO_LEVEL, (e) => {
       useStore.getState().setAudioLevel(e.payload);
+    }),
+    await listen<MediaInfo | null>(EVENTS.MEDIA_SESSION, (e) => {
+      useStore.getState().setMedia(e.payload);
     }),
   );
   unsubs.push(
