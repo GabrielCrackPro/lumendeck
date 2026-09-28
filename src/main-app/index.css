@@ -73,6 +73,13 @@
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Unbounded", "Outfit", ui-sans-serif, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
+
+  /* The app is a window that gets maximized, so it has to stay composed on a
+     32" 1440p/4K panel as well as in a 900px side-by-side column. Tailwind
+     stops at 2xl (1536px); these two cover the widths a maximized window
+     actually reaches, where grids add columns instead of stretching. */
+  --breakpoint-3xl: 120rem; /* 1920px */
+  --breakpoint-4xl: 160rem; /* 2560px */
 }
 
 /* ---------- base ---------- */

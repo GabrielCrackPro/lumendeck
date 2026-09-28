@@ -28,7 +28,10 @@ export default function GeneralTab() {
   if (!cfg) return null;
 
   return (
-    <div className="stagger space-y-6">
+    /* Settings is a reading surface, not a dashboard: a full-width row puts
+       the toggle a foot from its own label once the window is maximized, so
+       this column keeps a comfortable measure and centres in the shell. */
+    <div className="stagger mx-auto w-full max-w-[1120px] space-y-6 3xl:max-w-[1280px]">
       <Card title="Setup">
         {confirmSetup ? (
           <div className="flex items-center justify-between gap-4">

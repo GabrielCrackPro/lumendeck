@@ -152,7 +152,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
       {/* ===== row 1: now playing + engine ===== */}
       <div className="grid gap-5 xl:grid-cols-12">
         {/* Now playing — spans 5 */}
-        <Card title="Now playing" right={
+        <Card title="Now playing" className="xl:col-span-5" right={
           <Chip tone={paused ? "warn" : "ok"} pulse={!paused}>
             {paused ? "paused" : "live"}
           </Chip>
@@ -200,6 +200,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
         {/* Engine — spans 7: mode header, device table, live spectrum */}
         <Card
           title="Lighting engine"
+          className="xl:col-span-7"
           right={
             <div className="flex items-center gap-2">
               <Chip tone={rgb.connected ? "ok" : "danger"} pulse={rgb.connected}>
@@ -353,9 +354,9 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
       </div>
 
       {/* ===== row 3: scenes + shortcuts ===== */}
-      <div className="grid gap-5 xl:grid-cols-12">
-        {scenes.length > 0 && (
-          <Card title="Scenes" right={
+      {scenes.length > 0 && (
+        <div className="grid gap-5 xl:grid-cols-12">
+          <Card title="Scenes" className="xl:col-span-7" right={
             <button
               onClick={() => onNavigate("general")}
               className="rounded-md border border-[var(--line-strong)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
@@ -383,8 +384,33 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               ))}
             </div>
           </Card>
-        )}
-      </div>
+          <Card title="Keyboard" className="xl:col-span-5" right={
+            <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--text-faint)]">
+              press ?
+            </span>
+          }>
+            <p className="mb-4 text-sm leading-relaxed text-[var(--text-dim)]">
+              Every corner of the app is one keystroke away — no mouse required.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {["Ctrl K — palette", "Ctrl 1-4 — tabs", "? — all shortcuts"].map((s) => (
+                <span
+                  key={s}
+                  className="rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-1.5 text-xs font-semibold text-[var(--text-dim)]"
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+            <button
+              onClick={() => window.dispatchEvent(new Event("lumendeck:open-shortcuts"))}
+              className="mt-4 rounded-lg border border-dashed border-[var(--line-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[rgb(var(--glow))]"
+            >
+              View all shortcuts
+            </button>
+          </Card>
+        </div>
+      )}
 
       {/* jump links */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">

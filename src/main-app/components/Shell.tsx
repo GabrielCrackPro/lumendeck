@@ -426,6 +426,14 @@ export default function Shell() {
       return false;
     }
   });
+
+  // Other tabs can open the overlay without owning its state (e.g. the
+  // Overview shortcut card).
+  useEffect(() => {
+    const onOpen = () => setShortcutsOpen(true);
+    window.addEventListener("lumendeck:open-shortcuts", onOpen);
+    return () => window.removeEventListener("lumendeck:open-shortcuts", onOpen);
+  }, []);
   // Scoped so the shell does not re-render on every RGB frame — only the
   // children that actually read device colors need that rate.
   const { wallpaperPaused, cfg, loaded, saving } = useStore(
@@ -641,7 +649,11 @@ export default function Shell() {
           </header>
 
           <div className="flex-1 overflow-y-auto px-5 py-4">
-            <div key={tab} className="page-enter mx-auto w-full max-w-[1400px]">
+            {/* Fluid, not a fixed 1400px island: on a maximized 1440p/4K
+                window a hard cap left a dead gutter wider than the sidebar
+                beside it. The cap still stops an ultrawide from stretching a
+                single column across three feet of glass. */}
+            <div key={tab} className="page-enter mx-auto w-full max-w-[2600px]">
               <Suspense fallback={<TabSkeleton />}>
                 {tab === "overview" && <OverviewTab onNavigate={(t) => setTab(t as TabId)} />}
                 {tab === "rgb" && <RgbTab />}

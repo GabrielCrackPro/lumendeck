@@ -661,7 +661,10 @@ export default function RgbTab() {
         </div>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_1.15fr]">
+      {/* `@container`: the mode cards below sit in a narrow column whose
+          width has nothing to do with the viewport, so viewport breakpoints
+          squeezed them once the window was maximized. */}
+      <div className="@container grid gap-6 lg:grid-cols-[1fr_1.15fr]">
       <div className="space-y-6">
         <Card
           title="Devices"
@@ -924,7 +927,7 @@ export default function RgbTab() {
               <div className="kicker mb-2 mt-5 first:mt-0">
                 {group === "reactive" ? "Reactive to wallpaper" : "Animated"}
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 @[22rem]:grid-cols-2 @[38rem]:grid-cols-4">
                 {RGB_MODES.filter((m) => m.group === group).map((m) => {
                   const active = rgbCfg.mode === m.id;
                   return (

@@ -46,13 +46,16 @@ export function Card({
   title,
   children,
   right,
+  className,
 }: {
   title: string;
   children: ReactNode;
   right?: ReactNode;
+  /** Extra classes on the panel root, e.g. `xl:col-span-5` in a 12-col row. */
+  className?: string;
 }) {
   return (
-    <section className="glass overflow-hidden">
+    <section className={`glass overflow-hidden ${className ?? ""}`}>
       <header className="flex min-h-[42px] items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4">
         <h2 className="kicker !text-[var(--text-dim)]">{title}</h2>
         {right}

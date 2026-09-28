@@ -272,7 +272,7 @@ export default function StickersTab() {
         )}
 
         {cfg.stickers.length > 0 && (
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid gap-5 lg:grid-cols-2 3xl:grid-cols-3">
             {cfg.stickers.map((s) => (
               <div
                 key={s.id}
