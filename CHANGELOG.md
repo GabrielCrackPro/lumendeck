@@ -7,6 +7,7 @@ and it lands under that release's heading.
 ## 0.2.7 — 2026-09-28
 
 ### Added
+- combine wallpaper context into Now playing; accent-driven audio mode (`bd14e0f`)
 - show album art and app identity for the playing track (`c9ee397`)
 
 _1 internal._
