@@ -156,6 +156,8 @@ export interface GeneralConfig {
   amoled: boolean;
   /** The minimize button hides the dashboard to the tray instead of the taskbar. */
   minimizeToTray: boolean;
+  /** A launch-at-login start shows the dashboard instead of starting in the tray. */
+  showDashboardOnLogin: boolean;
 }
 
 export interface GalleryEntry {

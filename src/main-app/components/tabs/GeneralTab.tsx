@@ -58,6 +58,14 @@ export default function GeneralTab() {
           checked={cfg.general.autostart}
           onChange={(v) => save((c) => (c.general.autostart = v))}
         />
+        {cfg.general.autostart && (
+          <Toggle
+            label="Show the dashboard at login"
+            description="With this off, logging in gives you a clean desktop: LumenDeck applies your wallpaper and lights in the background and waits in the tray. Turn it on and the dashboard opens alongside the rest of your startup apps."
+            checked={cfg.general.showDashboardOnLogin ?? false}
+            onChange={(v) => save((c) => (c.general.showDashboardOnLogin = v))}
+          />
+        )}
         <div className="py-2.5">
           <div className="kicker mb-2">Minimize button</div>
           <Segmented

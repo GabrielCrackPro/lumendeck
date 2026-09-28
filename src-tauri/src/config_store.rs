@@ -238,6 +238,19 @@ mod tests {
     }
 
     #[test]
+    fn login_start_stays_quiet_for_older_configs() {
+        // A config written before the opt-in existed must keep booting into
+        // the tray rather than popping the dashboard over a fresh desktop.
+        let json = serde_json::json!({
+            "version": crate::config::CONFIG_VERSION,
+            "general": {"autostart": true}
+        });
+        let cfg = parse_and_migrate(&json.to_string()).unwrap();
+        assert!(cfg.general.autostart);
+        assert!(!cfg.general.show_dashboard_on_login);
+    }
+
+    #[test]
     fn parse_and_migrate_preserves_user_fields() {
         let json = serde_json::json!({
             "version": crate::config::CONFIG_VERSION,

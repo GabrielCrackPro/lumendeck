@@ -45,6 +45,13 @@ fn launched_at_autostart() -> bool {
     std::env::args().any(|a| a == START_HIDDEN_ARG)
 }
 
+/// Whether this launch should come up in the tray instead of showing the
+/// dashboard. A login start is quiet unless the user asked otherwise; a
+/// manual start always shows the window, however the setting is configured.
+fn start_hidden(general: &crate::config::GeneralConfig, at_login: bool) -> bool {
+    at_login && !general.show_dashboard_on_login
+}
+
 use std::sync::OnceLock;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -491,9 +498,13 @@ pub fn run() {
             // Autostart launches come up in the tray only — the window is
             // built (so the webview warms up and the taskbar thumbnail is
             // ready) but never shown. The tray icon is built above, so the
-            // app is always one left-click away.
-            let start_hidden = launched_at_autostart();
-            if start_hidden {
+            // app is always one left-click away. Users who want the window
+            // at login opt back in from General.
+            let hidden_at_start = start_hidden(
+                &config_store::get().general,
+                launched_at_autostart(),
+            );
+            if hidden_at_start {
                 log::info!("startup: autostart launch — starting in the tray");
             } else {
                 main_window.show()?;
@@ -534,4 +545,29 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running LumenDeck");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::GeneralConfig;
+
+    #[test]
+    fn manual_launch_always_shows_the_dashboard() {
+        for show_on_login in [true, false] {
+            let mut g = GeneralConfig::default();
+            g.show_dashboard_on_login = show_on_login;
+            assert!(!start_hidden(&g, false));
+        }
+    }
+
+    #[test]
+    fn login_launch_is_tray_only_unless_opted_in() {
+        let quiet = GeneralConfig::default();
+        assert!(start_hidden(&quiet, true), "the default boot is tray-only");
+
+        let mut loud = GeneralConfig::default();
+        loud.show_dashboard_on_login = true;
+        assert!(!start_hidden(&loud, true));
+    }
 }

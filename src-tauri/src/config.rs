@@ -69,6 +69,12 @@ pub struct GeneralConfig {
     /// area instead of parking it on the taskbar. Wallpapers and lighting
     /// keep running either way; the tray icon brings the window back.
     pub minimize_to_tray: bool,
+    /// A launch-at-login start shows the dashboard instead of coming up in
+    /// the tray. Off by default: the wallpaper and lights are the point of
+    /// an autostart, and a window popping up over a freshly booted desktop
+    /// is not. Ignored when `autostart` is off — a manual start always
+    /// shows the window.
+    pub show_dashboard_on_login: bool,
 }
 
 impl Default for GeneralConfig {
@@ -92,6 +98,7 @@ impl Default for GeneralConfig {
             // Tray, not taskbar: a taskbar button for a window that only
             // shows a wallpaper would be the app's most visible feature.
             minimize_to_tray: true,
+            show_dashboard_on_login: false,
         }
     }
 }
