@@ -158,6 +158,8 @@ export interface GeneralConfig {
   minimizeToTray: boolean;
   /** A launch-at-login start shows the dashboard instead of starting in the tray. */
   showDashboardOnLogin: boolean;
+  /** Internal: the one-time tray balloon for a quiet login start was shown. */
+  startupHintShown: boolean;
 }
 
 export interface GalleryEntry {

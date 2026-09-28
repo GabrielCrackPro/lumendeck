@@ -75,6 +75,9 @@ pub struct GeneralConfig {
     /// is not. Ignored when `autostart` is off — a manual start always
     /// shows the window.
     pub show_dashboard_on_login: bool,
+    /// Internal: the one-time "running in the background" tray balloon has
+    /// been shown, so a quiet login start is explained exactly once.
+    pub startup_hint_shown: bool,
 }
 
 impl Default for GeneralConfig {
@@ -99,6 +102,7 @@ impl Default for GeneralConfig {
             // shows a wallpaper would be the app's most visible feature.
             minimize_to_tray: true,
             show_dashboard_on_login: false,
+            startup_hint_shown: false,
         }
     }
 }

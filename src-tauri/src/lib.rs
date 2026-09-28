@@ -1,6 +1,7 @@
 //! LumenDeck backend library: wallpaper-driven RGB, live wallpapers, stickers.
 
 pub mod bgremove;
+pub mod balloon;
 pub mod config;
 pub mod config_store;
 pub mod config_watch;
@@ -50,6 +51,37 @@ fn launched_at_autostart() -> bool {
 /// manual start always shows the window, however the setting is configured.
 fn start_hidden(general: &crate::config::GeneralConfig, at_login: bool) -> bool {
     at_login && !general.show_dashboard_on_login
+}
+
+/// The first time LumenDeck comes up silently, say so. Without this, a tray
+/// icon and a changed wallpaper are easy to miss on a fresh boot, and the
+/// obvious question — where did the window go? — has no answer. Shown once,
+/// ever; clicking it opens the dashboard.
+fn first_hidden_start_hint(app: &tauri::AppHandle) {
+    if config_store::get().general.startup_hint_shown {
+        return;
+    }
+    // Mark it before showing, not after: if the shell refuses the balloon,
+    // nagging on every single boot is worse than never saying anything.
+    let mut cfg = config_store::get();
+    cfg.general.startup_hint_shown = true;
+    if let Err(e) = config_store::set(cfg) {
+        log::warn!("startup hint: could not record that it was shown: {e}");
+    }
+
+    let app = app.clone();
+    balloon::spawn(
+        "LumenDeck is running in the background",
+        "Your wallpaper and lights are live. Click here to open the dashboard, \
+         or turn on \"Show the dashboard at login\" in settings.",
+        move || {
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.unminimize();
+                let _ = main.show();
+                let _ = main.set_focus();
+            }
+        },
+    );
 }
 
 use std::sync::OnceLock;
@@ -506,6 +538,7 @@ pub fn run() {
             );
             if hidden_at_start {
                 log::info!("startup: autostart launch — starting in the tray");
+                first_hidden_start_hint(app.handle());
             } else {
                 main_window.show()?;
             }
