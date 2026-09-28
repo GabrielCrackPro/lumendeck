@@ -12,8 +12,14 @@ export interface Toast {
   id: number;
   tone: "error" | "info" | "ok";
   msg: string;
-  /** Optional single action — currently only "Undo" on destructive deletes. */
-  action?: { label: string; run: () => void };
+  /** Bold headline above the message. Omitted for one-line notices. */
+  title?: string;
+  /** 0..100 while a long task runs (an update download). */
+  progress?: number | null;
+  /** Stay until dismissed — for things the user should not miss. */
+  sticky?: boolean;
+  /** Optional single action — "Undo" on deletes, "Install" on an update. */
+  action?: { label: string; run: () => void; disabled?: boolean };
 }
 
 interface Store {
@@ -41,7 +47,13 @@ interface Store {
   setUpdateAvailable: (update: AvailableUpdate | null) => void;
   /** Transient notifications (auto-dismiss in Shell). */
   toasts: Toast[];
-  toast: (tone: Toast["tone"], msg: string, action?: Toast["action"]) => void;
+  toast: (
+    tone: Toast["tone"],
+    msg: string,
+    opts?: Partial<Pick<Toast, "action" | "title" | "progress" | "sticky">>,
+  ) => void;
+  /** Patch an existing toast in place (progress ticks, disabling its action). */
+  patchToast: (id: number, patch: Partial<Omit<Toast, "id">>) => void;
   dismissToast: (id: number) => void;
   /**
    * Toast offering to put a just-deleted config entity back, verbatim.
@@ -118,12 +130,13 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   toasts: [],
-  toast: (tone, msg, action) =>
+  toast: (tone, msg, opts) =>
     set((s) => ({
-      toasts: [
-        ...s.toasts,
-        { id: Date.now() + Math.random(), tone, msg, action },
-      ],
+      toasts: [...s.toasts, { id: Date.now() + Math.random(), tone, msg, ...opts }],
+    })),
+  patchToast: (id, patch) =>
+    set((s) => ({
+      toasts: s.toasts.map((t) => (t.id === id ? { ...t, ...patch } : t)),
     })),
   dismissToast: (id) =>
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),

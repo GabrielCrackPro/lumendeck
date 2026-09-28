@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore, bindEvents } from "./store";
-import { checkForAppUpdate } from "./updater";
+import { checkForAppUpdate, announceUpdate } from "./updater";
 import Shell from "./components/Shell";
 import Onboarding from "./components/Onboarding";
 import { IconRefresh } from "./components/icons";
@@ -59,12 +59,7 @@ export default function App() {
       .then((update) => {
         if (!update) return;
         useStore.getState().setUpdateAvailable(update);
-        useStore
-          .getState()
-          .toast(
-            "info",
-            `LumenDeck v${update.version} is ready to install in Settings.`,
-          );
+        announceUpdate(update);
       })
       .catch((error) => console.debug("update check unavailable", error));
   }, [loaded, cfg?.general.onboarded]);

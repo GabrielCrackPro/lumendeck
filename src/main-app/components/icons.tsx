@@ -201,6 +201,31 @@ export const IconCheck = (props: P) => (
   </svg>
 );
 
+/** Toast tones: a check, a warning triangle, a plain info dot. */
+export const IconAlert = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M12 4.5 21 19.5H3L12 4.5Z" />
+    <path d="M12 10v4" />
+    <path d="M12 17h.01" />
+  </svg>
+);
+
+export const IconInfo = (props: P) => (
+  <svg {...base(props)}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 11.5v5" />
+    <path d="M12 8h.01" />
+  </svg>
+);
+
+export const IconDownload = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M12 4v10" />
+    <path d="m8 11 4 4 4-4" />
+    <path d="M5 19h14" />
+  </svg>
+);
+
 export const IconPipette = (props: P) => (
   <svg {...base(props)}>
     <path d="m11 11 6.5-6.5a2.1 2.1 0 0 1 3 3L14 14" />

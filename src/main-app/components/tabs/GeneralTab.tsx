@@ -4,7 +4,7 @@ import { useStore } from "../../store";
 import { Card, Toggle, Select, Btn, DisplaysCard, Segmented } from "../ui";
 import { api } from "../../ipc";
 import { truncateError } from "../../utilities";
-import { checkForAppUpdate, installAppUpdate } from "../../updater";
+import { checkForAppUpdate, installAppUpdate, announceUpdate } from "../../updater";
 import type { ThemeMode } from "@shared/types";
 
 export default function GeneralTab() {
@@ -301,12 +301,8 @@ export default function GeneralTab() {
                 const update = await checkForAppUpdate();
                 setUpdateAvailable(update);
                 if (update) {
-                  useStore
-                    .getState()
-                    .toast(
-                      "info",
-                      `Version ${update.version} is ready. Select Install to continue.`,
-                    );
+                  // Same offer as the startup check: install from the toast.
+                  announceUpdate(update);
                 } else {
                   useStore
                     .getState()

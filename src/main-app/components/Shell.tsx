@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
-import { IconBulb, IconImage, IconSticker, IconGear, IconPause, IconZap, IconRailCollapse, IconSearch } from "./icons";
+import { IconBulb, IconImage, IconSticker, IconGear, IconPause, IconZap, IconRailCollapse, IconSearch, IconCheck, IconAlert, IconInfo } from "./icons";
 import { DEFAULT_GLOW } from "@shared/constants";
 import TitleBar from "./TitleBar";
 const CommandPalette = lazy(() => import("./CommandPalette"));
@@ -118,6 +118,33 @@ function BootSplash() {
 }
 
 /** Bottom-right transient notifications. */
+const MAX_TOASTS = 4;
+
+/**
+ * One look per tone. The panel stays neutral so the icon chip and the
+ * title carry the meaning — a fully tinted card shouted over the glass.
+ */
+const TONE = {
+  ok: {
+    icon: IconCheck,
+    shell: "border-emerald-500/25 bg-[color-mix(in_srgb,var(--panel-strong)_92%,transparent)]",
+    chip: "bg-emerald-500/15 text-emerald-400",
+    title: "text-emerald-300",
+  },
+  error: {
+    icon: IconAlert,
+    shell: "border-red-500/30 bg-[color-mix(in_srgb,var(--panel-strong)_92%,transparent)]",
+    chip: "bg-red-500/15 text-red-400",
+    title: "text-red-300",
+  },
+  info: {
+    icon: IconInfo,
+    shell: "border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--panel-strong)_92%,transparent)]",
+    chip: "bg-[rgb(var(--glow)/0.15)] text-[rgb(var(--glow))]",
+    title: "text-[rgb(var(--glow))]",
+  },
+} as const;
+
 function Toasts() {
   const { toasts, dismissToast } = useStore(
     useShallow((s) => ({ toasts: s.toasts, dismissToast: s.dismissToast })),
@@ -125,52 +152,95 @@ function Toasts() {
   useEffect(() => {
     if (toasts.length === 0) return;
     const timers = toasts.map((t) =>
-      // An actionable toast needs room to actually be read and clicked.
-      setTimeout(
-        () => dismissToast(t.id),
-        t.action ? 12000 : t.tone === "error" ? 7000 : 4000,
-      ),
+      // An actionable toast needs room to actually be read and clicked;
+      // a sticky one (an update waiting) does not go on its own at all.
+      t.sticky
+        ? undefined
+        : setTimeout(
+            () => dismissToast(t.id),
+            t.action ? 12000 : t.tone === "error" ? 7000 : 4000,
+          ),
     );
-    return () => timers.forEach(clearTimeout);
+    return () => timers.forEach((t) => t && clearTimeout(t));
   }, [toasts, dismissToast]);
+
   if (toasts.length === 0) return null;
+  // Oldest first, capped: a burst of device connect/disconnect notices
+  // should never wallpaper the dashboard.
+  const shown = toasts.slice(-MAX_TOASTS);
+  const hidden = toasts.length - shown.length;
   return (
-    <div className="pointer-events-none fixed bottom-5 right-5 z-50 flex w-80 flex-col gap-2">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          onClick={() => dismissToast(t.id)}
-          className={`pointer-events-auto flex cursor-pointer items-start gap-2.5 rounded-xl border px-3.5 py-3 text-sm shadow-[0_16px_40px_-12px_rgb(0_0_0/0.6)] backdrop-blur transition-all page-enter-header ${
-            t.tone === "error"
-              ? "border-red-500/30 bg-red-500/12 text-red-200"
-              : t.tone === "ok"
-                ? "border-emerald-500/30 bg-emerald-500/12 text-emerald-200"
-                : "border-[var(--line)] bg-[var(--panel-strong)] text-[var(--text)]"
-          }`}
-        >
-          <span
-            className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
-              t.tone === "error"
-                ? "bg-red-400"
-                : t.tone === "ok"
-                  ? "bg-emerald-400"
-                  : "bg-[rgb(var(--glow))]"
-            }`}
-          />
-          <span className="min-w-0 flex-1 leading-relaxed">{t.msg}</span>
-          {t.action && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                t.action!.run();
-              }}
-              className="shrink-0 self-center rounded-md border border-[rgb(var(--glow)/0.45)] px-2 py-1 text-[11px] font-semibold text-[rgb(var(--glow))] transition-colors hover:bg-[rgb(var(--glow)/0.15)]"
+    <div
+      role="region"
+      aria-label="Notifications"
+      aria-live="polite"
+      className="pointer-events-none fixed bottom-5 right-5 z-50 flex w-[21rem] flex-col gap-2"
+    >
+      {shown.map((t) => {
+        const tone = TONE[t.tone];
+        const ToneIcon = tone.icon;
+        return (
+          <div
+            key={t.id}
+            role="status"
+            className={`page-enter-header pointer-events-auto relative overflow-hidden rounded-xl border shadow-[0_16px_40px_-12px_rgb(0_0_0/0.6)] backdrop-blur ${tone.shell}`}
+          >
+            <div
+              onClick={() => dismissToast(t.id)}
+              className="flex cursor-pointer items-start gap-3 px-3.5 py-3"
             >
-              {t.action.label}
-            </button>
-          )}
+              <span
+                className={`mt-px flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${tone.chip}`}
+              >
+                <ToneIcon className="h-3.5 w-3.5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                {t.title && (
+                  <div
+                    className={`text-[13px] font-semibold leading-snug ${tone.title}`}
+                  >
+                    {t.title}
+                  </div>
+                )}
+                <div
+                  className={`text-[13px] leading-relaxed ${t.title ? "mt-0.5 text-[var(--text-dim)]" : tone.title}`}
+                >
+                  {t.msg}
+                </div>
+                {t.action && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      t.action!.run();
+                    }}
+                    disabled={t.action.disabled}
+                    className={`mt-2.5 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                      t.action.disabled
+                        ? "cursor-default border-[var(--line)] text-[var(--text-faint)]"
+                        : "border-[rgb(var(--glow)/0.45)] text-[rgb(var(--glow))] hover:bg-[rgb(var(--glow)/0.15)]"
+                    }`}
+                  >
+                    {t.action.label}
+                  </button>
+                )}
+              </div>
+            </div>
+            {t.progress != null && (
+              <div className="h-1 w-full bg-[var(--panel-sunken)]">
+                <div
+                  className="h-full bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow)/0.7)] transition-[width] duration-200"
+                  style={{ width: `${Math.max(2, Math.min(100, t.progress))}%` }}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {hidden > 0 && (
+        <div className="pointer-events-auto self-end rounded-full border border-[var(--line)] bg-[var(--panel-strong)] px-2.5 py-1 font-mono text-[10px] text-[var(--text-faint)]">
+          +{hidden} older
         </div>
-      ))}
+      )}
     </div>
   );
 }
