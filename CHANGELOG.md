@@ -6,8 +6,8 @@ and it lands under that release's heading.
 
 ## 0.2.7 — 2026-09-29
 
-### Changed
-- extract UI primitives and Rust helpers; redesign Overview hero cards (`6a6a380`)
+### Added
+- Overview dashboard overhaul; system-accent theming; per-LED preview for all modes (`a1af26d`)
 
 ### Fixed
 - keep desktop icons visible above the live wallpaper without stalling playback (`4efe4f7`)
