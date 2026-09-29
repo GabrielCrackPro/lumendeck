@@ -8,3 +8,8 @@ and it lands under that release's heading.
 
 ### Changed
 - extract UI primitives and Rust helpers; redesign Overview hero cards (`6a6a380`)
+
+### Fixed
+- keep desktop icons visible above the live wallpaper without stalling playback (`4efe4f7`)
+
+_1 internal._
