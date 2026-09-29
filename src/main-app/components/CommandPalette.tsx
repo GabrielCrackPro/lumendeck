@@ -251,6 +251,19 @@ export default function CommandPalette({
       keywords: "on off enable disable engine",
       run: () => save((c) => { c.general.wallpaperEnabled = !c.general.wallpaperEnabled; }),
     });
+    // Third route to the master switch, after the settings card and the tray.
+    // Worth having: a binding that misbehaves should be killable without
+    // hunting for the right tab.
+    cmds.push({
+      id: "toggle-hotkeys",
+      label: (cfg.general.hotkeysEnabled ?? true)
+        ? "Disable global hotkeys"
+        : "Enable global hotkeys",
+      group: "playback",
+      icon: IconSliders,
+      keywords: "hotkeys shortcuts keys keyboard bindings global on off enable disable",
+      run: () => save((c) => { c.general.hotkeysEnabled = !(c.general.hotkeysEnabled ?? true); }),
+    });
 
     // Wallpaper: a submenu entry instead of dumping every gallery item into
     // the root list — selecting it swaps the palette into the wallpapers list.

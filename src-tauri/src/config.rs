@@ -86,6 +86,13 @@ pub struct GeneralConfig {
     /// Internal: the last version whose release notes were opened in the
     /// dashboard. Empty = never read. Drives the "what's new" marker.
     pub changelog_seen_version: String,
+    /// Master switch for system-wide key bindings. False releases every
+    /// binding the OS is holding, which is the emergency off-ramp when a
+    /// combo misbehaves. Defaults to true: a fresh install binds nothing
+    /// anyway (every action ships unbound), so this costs no privacy on
+    /// first run, and starting false would silently break the bindings of
+    /// anyone who had already configured some.
+    pub hotkeys_enabled: bool,
     /// System-wide key bindings, applied by `crate::hotkeys` from the tray
     /// process so they keep working while the dashboard is hidden.
     pub hotkeys: HotkeyConfig,
@@ -192,6 +199,7 @@ impl Default for GeneralConfig {
             changelog_seen_version: String::new(),
             // Unbound by default; see HotkeyBinding.
             hotkeys: HotkeyConfig::default(),
+            hotkeys_enabled: true,
         }
     }
 }
@@ -787,10 +795,16 @@ mod playlist_tests {
     #[test]
     fn hotkeys_survive_an_old_config_without_the_section() {
         // A config written before hotkeys existed must still load, with the
-        // whole section defaulted rather than the file being rejected.
+        // whole section defaulted rather than the file being rejected. The
+        // master switch has to default to on here, or upgrading would
+        // silently kill bindings the user had already set up.
         let old = serde_json::json!({ "version": 1, "general": { "theme": "dark" } });
         let cfg: Config = serde_json::from_value(old).expect("pre-hotkey config must parse");
         assert!(cfg.general.hotkeys.entries().iter().all(|(_, b)| b.is_empty()));
+        assert!(
+            cfg.general.hotkeys_enabled,
+            "upgrading must not silently disable existing hotkeys"
+        );
     }
 
     #[test]

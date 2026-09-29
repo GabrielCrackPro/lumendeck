@@ -246,6 +246,19 @@ pub fn install_live_frame(jpeg: &[u8], source: &str) -> bool {
     true
 }
 
+/// Drop every 4th byte from a 32-bpp buffer, giving the 3-bytes-per-pixel
+/// layout `RgbImage` requires.
+///
+/// `GetDIBits` at 32bpp hands back BGRA; the caller swaps B and R in place
+/// first, so by the time the buffer gets here it is RGBA and only the alpha
+/// channel has to go. Length is the whole point: see the call site.
+fn drop_alpha_bytes(pixels: &[u8]) -> Vec<u8> {
+    pixels
+        .chunks_exact(4)
+        .flat_map(|px| [px[0], px[1], px[2]])
+        .collect()
+}
+
 /// Cheap luminance check: decode the JPEG and sample a sparse grid. A frame
 /// is "near-black" when >98% of samples are below RGB 12 (compression noise
 /// around pure black). Returns false on decode failure (don't punish a
@@ -521,7 +534,14 @@ fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), St
         for px in pixels.chunks_exact_mut(4) {
             px.swap(0, 2);
         }
-        let img = image::RgbImage::from_raw(w as u32, h, pixels)
+        // Must be a real 3-channel buffer, not the 4-channel one GetDIBits
+        // filled: `RgbImage::from_raw` only checks the buffer is *at least*
+        // w*h*3 long, so passing 32bpp data succeeds and then trips an
+        // assertion inside the JPEG encoder. That assert fires inside a
+        // window procedure, where a panic cannot unwind, so it aborts the
+        // whole process rather than returning an error.
+        let rgb = drop_alpha_bytes(&pixels);
+        let img = image::RgbImage::from_raw(w as u32, h, rgb)
             .ok_or("bitmap buffer mismatch")?;
         image::DynamicImage::ImageRgb8(img)
             .save_with_format(out, image::ImageFormat::Jpeg)
@@ -609,7 +629,9 @@ fn set_lock_screen_wallpaper(path: &PathBuf) {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_slideshow_image_extension, slideshow_image, wallpaper_key};
+    use super::{
+        drop_alpha_bytes, is_slideshow_image_extension, slideshow_image, wallpaper_key,
+    };
     use crate::config::WallpaperKind;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -657,5 +679,34 @@ mod tests {
         );
 
         fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn dropping_alpha_yields_exactly_the_length_the_encoder_demands() {
+        // The crash this guards: `RgbImage::from_raw` accepts a buffer that is
+        // merely *at least* w*h*3, so the 32bpp vector slipped through and the
+        // JPEG encoder asserted 1920x1080*3 against 1920x1080*4. The converted
+        // buffer has to be exactly w*h*3, not more.
+        let (w, h) = (4usize, 3usize);
+        let bgra: Vec<u8> = (0..(w * h * 4) as u8).collect();
+        let rgb = drop_alpha_bytes(&bgra);
+        assert_eq!(rgb.len(), w * h * 3);
+    }
+
+    #[test]
+    fn dropping_alpha_keeps_rgb_and_drops_only_the_fourth_byte() {
+        let rgba: Vec<u8> = vec![10, 20, 30, 40, 50, 60, 70, 80];
+        assert_eq!(drop_alpha_bytes(&rgba), vec![10, 20, 30, 50, 60, 70]);
+    }
+
+    #[test]
+    fn the_converted_buffer_is_exactly_what_a_1920x1080_frame_needs() {
+        // The dimensions the shell thumbnail factory actually requests, so the
+        // regression is pinned to the real frame size rather than a toy one.
+        let (w, h) = (1920usize, 1080usize);
+        let bgra = vec![0u8; w * h * 4];
+        let rgb = drop_alpha_bytes(&bgra);
+        assert_eq!(rgb.len(), w * h * 3);
+        assert_eq!(image::RgbImage::from_raw(w as u32, h as u32, rgb).is_some(), true);
     }
 }

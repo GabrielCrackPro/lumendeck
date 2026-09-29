@@ -27,10 +27,11 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 /// Volume nudge per key press, as a fraction of full scale.
 const VOLUME_STEP: f32 = 0.05;
 
-/// The binding set currently registered with the OS. Used to skip redundant
-/// re-registration: config saves fire constantly (a slider drag is dozens),
-/// and each pass unregisters everything before rebuilding it.
-static ACTIVE: Mutex<Option<HotkeyConfig>> = Mutex::new(None);
+/// The binding set currently registered with the OS, plus the master switch it
+/// was registered under. Used to skip redundant re-registration: config saves
+/// fire constantly (a slider drag is dozens), and each pass unregisters
+/// everything before rebuilding it.
+static ACTIVE: Mutex<Option<(bool, HotkeyConfig)>> = Mutex::new(None);
 
 /// A hotkey that could not be taken, reported to the dashboard.
 #[derive(Clone, serde::Serialize)]
@@ -44,28 +45,34 @@ pub struct HotkeyError {
     pub message: String,
 }
 
-/// Re-register every binding from `cfg`. No-op when the binding set is
-/// unchanged, so this is safe to call on every config save and on every
-/// external config reload.
-pub fn sync(app: &tauri::AppHandle, cfg: &HotkeyConfig) {
+/// Re-register every binding from `cfg`. No-op when the binding set and the
+/// master switch are both unchanged, so this is safe to call on every config
+/// save and on every external config reload.
+pub fn sync(app: &tauri::AppHandle, enabled: bool, cfg: &HotkeyConfig) {
     {
         let active = ACTIVE.lock().expect("hotkey mutex poisoned");
-        if active.as_ref() == Some(cfg) {
+        if active.as_ref().is_some_and(|(on, c)| *on == enabled && c == cfg) {
             return;
         }
     }
-    register_all(app, cfg);
+    register_all(app, enabled, cfg);
     if let Ok(mut active) = ACTIVE.lock() {
-        *active = Some(cfg.clone());
+        *active = Some((enabled, cfg.clone()));
     }
 }
 
 /// Rebuild the whole OS registration from scratch. Drops every previous
-/// binding first so a removed or re-pointed combo is actually released.
-fn register_all(app: &tauri::AppHandle, cfg: &HotkeyConfig) {
+/// binding first so a removed, re-pointed, or switched-off combo is actually
+/// released rather than lingering as an invisible key grab.
+fn register_all(app: &tauri::AppHandle, enabled: bool, cfg: &HotkeyConfig) {
     let gs = app.global_shortcut();
     if let Err(e) = gs.unregister_all() {
         log::warn!("hotkey: could not release previous bindings: {e}");
+    }
+
+    if !enabled {
+        log::info!("hotkey: disabled by the user; no keys are held");
+        return;
     }
 
     let mut bound = 0usize;
@@ -95,6 +102,22 @@ fn register_all(app: &tauri::AppHandle, cfg: &HotkeyConfig) {
         }
     }
     log::info!("hotkey: {bound} bound, {refused} refused");
+}
+
+/// Flip the master switch without going through the dashboard. Returns the
+/// new state. The tray menu uses this so a bad binding can be killed from
+/// the notification area instead of requiring a window.
+pub fn set_enabled(app: &tauri::AppHandle, enabled: bool) -> bool {
+    let next = match crate::config_store::update(|c| c.general.hotkeys_enabled = enabled) {
+        Ok(fresh) => fresh.general.hotkeys_enabled,
+        Err(e) => {
+            log::warn!("hotkey: could not save the switch: {e}");
+            return !enabled;
+        }
+    };
+    sync(app, next, &crate::config_store::get().general.hotkeys);
+    log::info!("hotkey: switch -> {next}");
+    next
 }
 
 /// Parse, safety-check and register one accelerator with a handler that
@@ -281,6 +304,14 @@ mod tests {
         for accel in ["", "   ", "Ctrl+", "Ctrl+Nonsense", "Ctrl+A+B"] {
             assert!(validate(accel).is_err(), "{accel:?} must not validate");
         }
+    }
+
+    #[test]
+    fn validation_is_independent_of_the_master_switch() {
+        // The recorder asks "would the OS take this combo?", not "are hotkeys
+        // on right now" — a user must be able to edit their bindings while the
+        // switch is off and turn it on afterwards.
+        assert!(validate("Ctrl+Alt+M").is_ok());
     }
 
     #[test]

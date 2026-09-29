@@ -130,9 +130,14 @@ fn apply_side_effects_now(app: &AppHandle, cfg: &Config) {
     }
     // Topmost sticker windows track their per-sticker onTop flag.
     crate::sticker_windows::sync(app);
-    // Re-bind system-wide hotkeys when the binding set changed. Cheap no-op
-    // otherwise, so it is safe on every (heavily debounced) config save.
-    crate::hotkeys::sync(app, &cfg.general.hotkeys);
+    // Re-bind system-wide hotkeys when the binding set or the master switch
+    // changed. Cheap no-op otherwise, so it is safe on every (heavily
+    // debounced) config save.
+    crate::hotkeys::sync(
+        app,
+        cfg.general.hotkeys_enabled,
+        &cfg.general.hotkeys,
+    );
     log::debug!(
         "side effects applied (wallpaper={}, stickers={})",
         cfg.general.wallpaper_enabled,

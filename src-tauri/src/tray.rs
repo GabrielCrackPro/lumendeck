@@ -23,6 +23,7 @@ pub const ID_MODE: &str = "mode-";
 pub const ID_PROFILE: &str = "profile-";
 pub const ID_RESTORE_WP: &str = "restore-wallpaper";
 pub const ID_QUIT: &str = "quit";
+pub const ID_HOTKEYS: &str = "hotkeys";
 
 /// Rebuild the tray menu from current config/pause state.
 pub fn refresh(app: &tauri::AppHandle) {
@@ -57,7 +58,6 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?;
     let edit = MenuItem::with_id(app, ID_EDIT, "Edit stickers", true, None::<&str>)?;
-
     // Lighting mode submenu; checked item = active mode. Also offers
     // "Next mode" cycling on the main level. Order matches ALL_MODES, which
     // is what the hotkey cycle walks.
@@ -78,6 +78,18 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .iter()
         .map(|m| m as &dyn IsMenuItem<tauri::Wry>)
         .collect();
+    // Master switch for the system-wide keys. The emergency off-ramp: a combo
+    // that misbehaves can be released from the notification area without
+    // opening the dashboard.
+    let hotkeys = CheckMenuItem::with_id(
+        app,
+        ID_HOTKEYS,
+        "Global hotkeys",
+        true,
+        cfg.general.hotkeys_enabled,
+        None::<&str>,
+    )?;
+
     let mode_sub = Submenu::with_id_and_items(app, "mode-sub", "Lighting mode", true, &mode_refs)?;
     let next_mode = MenuItem::with_id(app, "next-mode", "Next lighting mode", true, None::<&str>)?;
 
@@ -118,7 +130,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let quit = MenuItem::with_id(app, ID_QUIT, "Quit LumenDeck", true, None::<&str>)?;
 
     let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
-        vec![&dashboard, &sep, &pause, &sep2, &next_mode, &mode_sub];
+        vec![&dashboard, &sep, &pause, &hotkeys, &sep2, &next_mode, &mode_sub];
     if let Some(sub) = &profile_sub {
         items.push(sub);
     }
@@ -148,8 +160,18 @@ pub fn handle(app: &tauri::AppHandle, id: &str) -> bool {
             cycle_lighting_mode(app);
             true
         }
+        ID_HOTKEYS => {
+            let next = !crate::config_store::get().general.hotkeys_enabled;
+            crate::hotkeys::set_enabled(app, next);
+            // The config write already refreshes the menu, but the checkmark
+            // is the whole point of this entry — rebuild explicitly rather
+            // than depending on that indirect side effect.
+            refresh(app);
+            true
+        }
         ID_RESTORE_WP => {
             let restored = crate::wallpaper_bg::restore_original_wallpaper();
+
             if restored {
                 // Stop the engine so the live wallpaper doesn't immediately
                 // paint over the restored background. Reload-safe: the user

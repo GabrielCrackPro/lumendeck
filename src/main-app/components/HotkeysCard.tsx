@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useStore } from "../store";
 import { api } from "../ipc";
-import { Card, InfoNote, Btn } from "./ui";
+import { Card, InfoNote, Btn, Toggle } from "./ui";
 import { HOTKEY_ACTIONS, type HotkeyActionId } from "@shared/constants";
 import type { HotkeyConfig } from "@shared/types";
 import { acceleratorFromEvent, isSafeAccelerator, parseAccelerator } from "../eq";
@@ -51,6 +51,7 @@ function HotkeyRow({
   suggested,
   value,
   conflict,
+  disabled,
   onChange,
 }: {
   label: string;
@@ -59,6 +60,8 @@ function HotkeyRow({
   value: string;
   /** Accelerator already used by a different action, if any. */
   conflict: string | null;
+  /** Master switch is off: the row is inert but its binding is kept. */
+  disabled: boolean;
   onChange: (accelerator: string) => void;
 }) {
   const [recording, setRecording] = useState(false);
@@ -111,7 +114,11 @@ function HotkeyRow({
   }, [recording, onChange, finish]);
 
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-[var(--line)] py-3 last:border-b-0">
+    <div
+      className={`flex items-center justify-between gap-4 border-b border-[var(--line)] py-3 transition-opacity last:border-b-0 ${
+        disabled ? "pointer-events-none opacity-40" : ""
+      }`}
+    >
       <div className="min-w-0">
         <div className="text-sm text-[var(--text)]">{label}</div>
         <div className="mt-0.5 text-xs leading-relaxed text-[var(--text-faint)]">
@@ -173,15 +180,21 @@ function HotkeyRow({
  * instead of an empty column of dashes.
  */
 export default function HotkeysCard() {
-  const hotkeys = useStore((s) => s.cfg?.general.hotkeys);
+  const general = useStore((s) => s.cfg?.general);
   const save = useStore((s) => s.save);
   // While a row is recording, the value under it has not been written yet, so
   // duplicate detection needs the pending combo too. Tracked here rather than
   // in each row so every row agrees on who has what.
   const [draft, setDraft] = useState<{ id: HotkeyActionId; accel: string } | null>(null);
 
-  if (!hotkeys) return null;
-  const cfg: HotkeyConfig = hotkeys;
+  if (!general) return null;
+  const cfg: HotkeyConfig = general.hotkeys;
+  // Older configs predate the switch; absence means on, matching the Rust
+  // default so the dashboard and the tray can never disagree about it.
+  const enabled = general.hotkeysEnabled ?? true;
+  const boundCount = HOTKEY_ACTIONS.filter(
+    (a) => (cfg[a.id]?.accelerator ?? "").trim() !== "",
+  ).length;
 
   const valueFor = (id: HotkeyActionId) =>
     draft && draft.id === id ? draft.accel : (cfg[id]?.accelerator ?? "");
@@ -196,40 +209,52 @@ export default function HotkeysCard() {
     return null;
   };
 
-  const anyBound = HOTKEY_ACTIONS.some(
-    (a) => (cfg[a.id]?.accelerator ?? "").trim() !== "",
-  );
+  const anyBound = boundCount > 0;
 
   return (
     <Card
       title="Global hotkeys"
       right={
-        <Btn
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            // Fill every empty action with its suggestion in one save, so a
-            // user who wants the whole set does not click twelve times.
-            const next: Record<string, string> = {};
-            for (const a of HOTKEY_ACTIONS) {
-              next[a.id] = cfg[a.id]?.accelerator || a.suggested;
-            }
-            save((c) => {
+        enabled && (
+          <Btn
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              // Fill every empty action with its suggestion in one save, so a
+              // user who wants the whole set does not click twelve times.
+              const next: Record<string, string> = {};
               for (const a of HOTKEY_ACTIONS) {
-                c.general.hotkeys[a.id] = {
-                  accelerator: next[a.id] ?? a.suggested,
-                };
+                next[a.id] = cfg[a.id]?.accelerator || a.suggested;
               }
-            });
-          }}
-        >
-          Use suggestions
-        </Btn>
+              save((c) => {
+                for (const a of HOTKEY_ACTIONS) {
+                  c.general.hotkeys[a.id] = {
+                    accelerator: next[a.id] ?? a.suggested,
+                  };
+                }
+              });
+            }}
+          >
+            Use suggestions
+          </Btn>
+        )
       }
     >
       <div className="px-4 py-1">
-        {!anyBound && (
-          <div className="pb-3 pt-1">
+        <div className="border-b border-[var(--line)] py-3">
+          <Toggle
+            label="Enable global hotkeys"
+            description={
+              anyBound
+                ? `${boundCount} of ${HOTKEY_ACTIONS.length} actions are bound. Turning this off releases every key immediately — your combos are kept, and the tray menu has the same switch if a binding ever misbehaves.`
+                : "Master switch for the keys below. Nothing is bound yet, so there is nothing to turn off."
+            }
+            checked={enabled}
+            onChange={(v) => save((c) => (c.general.hotkeysEnabled = v))}
+          />
+        </div>
+        {enabled && !anyBound && (
+          <div className="pb-3 pt-3">
             <InfoNote>
               No keys are taken right now — LumenDeck never grabs a key you
               did not ask for. Pick an action, press <b>Set</b>, then press the
@@ -247,6 +272,7 @@ export default function HotkeysCard() {
               suggested={a.suggested}
               value={accel}
               conflict={accel ? boundBy(accel, a.id) : null}
+              disabled={!enabled}
               onChange={(next) => {
                 setDraft({ id: a.id, accel: next });
                 save((c) => {

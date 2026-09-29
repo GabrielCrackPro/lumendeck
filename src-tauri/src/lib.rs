@@ -511,7 +511,8 @@ pub fn run() {
             crate::tray::refresh(app.handle());
             // Bind the user's system-wide hotkeys. Nothing is bound until they
             // opt in from Settings > Global hotkeys.
-            crate::hotkeys::sync(app.handle(), &config_store::get().general.hotkeys);
+            let hotkeys_cfg = &config_store::get().general;
+            crate::hotkeys::sync(app.handle(), hotkeys_cfg.hotkeys_enabled, &hotkeys_cfg.hotkeys);
 
             // First-run: create dashboard + wallpaper.
             let cfg = config_store::get();

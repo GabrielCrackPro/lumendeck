@@ -169,6 +169,12 @@ export interface GeneralConfig {
   startupHintShown: boolean;
   /** Internal: last version whose release notes were read in the dashboard. */
   changelogSeenVersion: string;
+  /**
+   * Master switch for system-wide keys. When false, every binding is released
+   * from the OS and nothing is grabbed. Bindings are kept, so turning it back
+   * on restores them. Mirrors `hotkeys_enabled` in src-tauri/src/config.rs.
+   */
+  hotkeysEnabled: boolean;
   /** System-wide key bindings; see HOTKEY_ACTIONS for the available actions. */
   hotkeys: HotkeyConfig;
 }
