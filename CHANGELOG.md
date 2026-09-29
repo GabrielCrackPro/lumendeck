@@ -7,7 +7,7 @@ and it lands under that release's heading.
 ## 0.2.7 — 2026-09-30
 
 ### Added
+- master switch for global hotkeys; fix a hard crash in the wallpaper snapshot (`44a1bcb`)
 - configurable global hotkeys and a transient-driven equalizer (`a2e5a25`)
-- Overview dashboard overhaul; system-accent theming; per-LED preview for all modes (`a1af26d`)
 
 _1 internal._
