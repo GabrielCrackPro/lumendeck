@@ -104,7 +104,14 @@ static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 /// loops stalls the pipeline and Chromium tears it down with recurring
 /// PIPELINE_ERROR_DISCONNECTED / PIPELINE_ERROR_DECODE errors.
 fn disable_video_overlays() {
-    let mut extra = "--disable-direct-composition-video-overlays".to_string();
+    // CalculateNativeWinOcclusion is the other half of wallpaper viability:
+    // once the video window sits behind the desktop icons (as it must),
+    // Chromium's occlusion tracker sees it as fully covered and backgrounds
+    // the renderer — pausing <video> and rAF loops. The wallpaper webview
+    // must always believe it is visible.
+    let mut extra = "--disable-direct-composition-video-overlays \
+--disable-features=CalculateNativeWinOcclusion"
+        .to_string();
     // Optional low-end fallback: software decode is light on GPU but burns
     // CPU and destabilizes 4K pipelines — off by default (General tab).
     if let Ok(cfg) = std::fs::read_to_string(config_store::config_path()) {
