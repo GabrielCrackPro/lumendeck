@@ -64,6 +64,10 @@ export async function installAppUpdate(
  * card, so the progress is visible without leaving the dashboard.
  */
 export function announceUpdate(update: AvailableUpdate) {
+  // Dev builds never announce: the only caller (the startup check) is already
+  // gated, but announcements must stay impossible from dev even if a future
+  // call site forgets the gate.
+  if (import.meta.env.DEV) return;
   const run = async (toastId: number) => {
     const store = useStore.getState();
     store.patchToast(toastId, {

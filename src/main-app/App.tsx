@@ -52,6 +52,10 @@ export default function App() {
   }, [load]);
 
   useEffect(() => {
+    // Dev builds must never ping the update endpoint: the packaged app's
+    // version is what releases are cut from, and a dev run would either
+    // match it (no-op) or nag about a release the dev tree already contains.
+    if (import.meta.env.DEV) return;
     if (!loaded || !cfg?.general.onboarded || updateCheckStarted.current)
       return;
     updateCheckStarted.current = true;

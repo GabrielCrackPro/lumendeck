@@ -302,6 +302,12 @@ export default function GeneralTab() {
 
               setChecking(true);
               try {
+                if (import.meta.env.DEV) {
+                  useStore
+                    .getState()
+                    .toast("ok", "Dev build — update checks are disabled.");
+                  return;
+                }
                 const update = await checkForAppUpdate();
                 setUpdateAvailable(update);
                 if (update) {

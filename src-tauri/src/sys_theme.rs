@@ -125,6 +125,50 @@ unsafe fn read_dword(hkey: &HKEY, name: &str) -> Option<u32> {
     ok.then_some(value)
 }
 
+/// Spawns a background watcher that polls the Windows accent color and
+/// emits `system-accent-changed` when it changes. Polling the registry every
+/// few seconds is far cheaper and simpler than a message-only window for
+/// WM_SETTINGCHANGE, and a few seconds of latency is fine for a theme change.
+pub fn spawn_accent_watcher(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let mut last = get_system_accent();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            let cur = get_system_accent();
+            if cur != last {
+                last = cur;
+                if let Some(rgb) = cur {
+                    log::info!(
+                        "sys-theme: system accent changed -> rgb({},{},{})",
+                        rgb[0], rgb[1], rgb[2]
+                    );
+                    crate::events::emit_all(&app, crate::events::SYSTEM_ACCENT, &rgb);
+                }
+            }
+        }
+    });
+}
+
+/// Read the user's current Windows accent color (the taskbar/Start
+/// highlight). Returns None when the registry read fails. Used by the
+/// dashboard as its UI accent fallback so the interface matches the system
+/// theme out of the box.
+pub fn get_system_accent() -> Option<[u8; 3]> {
+    unsafe {
+        let path = HSTRING::from(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Accent");
+        let mut hkey = HKEY::default();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, &path, Some(0), KEY_QUERY_VALUE, &mut hkey).is_err() {
+            return None;
+        }
+        let packed = read_dword(&hkey, "AccentColor");
+        let _ = RegCloseKey(hkey);
+        // 0xAABBGGRR — alpha byte may be 0 or FF; mask it off either way.
+        packed.map(|v| {
+            [(v & 0xFF) as u8, ((v >> 8) & 0xFF) as u8, ((v >> 16) & 0xFF) as u8]
+        })
+    }
+}
+
 /// Preserve the user's original accent so "restore" puts it back.
 pub fn remember_original_accent() {
     unsafe {

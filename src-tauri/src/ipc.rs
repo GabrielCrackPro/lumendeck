@@ -1483,3 +1483,10 @@ pub fn media_transport(action: String) -> Result<(), String> {
 pub fn media_current() -> Option<crate::media_session::MediaInfo> {
     crate::media_session::current()
 }
+
+/// The user's current Windows accent color, for the dashboard's UI accent
+/// fallback (the interface matches the OS theme out of the box).
+#[tauri::command]
+pub fn system_accent() -> Option<[u8; 3]> {
+    crate::sys_theme::get_system_accent()
+}

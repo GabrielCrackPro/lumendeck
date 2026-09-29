@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { IconRefresh, IconMonitor, IconCheck, IconPipette, IconChevronDown } from "./icons";
 import { rgbToHex } from "../utilities";
+import { useStore } from "../store";
+import { SHADER_ART } from "@shared/constants";
+import { convertFileSrc } from "@tauri-apps/api/core";
 
 /**
  * Collapsible sub-section inside a Card: a one-line toggle header that folds
@@ -41,14 +45,17 @@ export function Section({
   );
 }
 
-/** Console panel: flat tile with a hairline header rule. */
+/** Console panel: flat tile with a hairline header rule. Optional `icon`
+ * renders before the title so Overview cards read as labeled modules. */
 export function Card({
   title,
+  icon,
   children,
   right,
   className,
 }: {
   title: string;
+  icon?: ReactNode;
   children: ReactNode;
   right?: ReactNode;
   /** Extra classes on the panel root, e.g. `xl:col-span-5` in a 12-col row. */
@@ -57,7 +64,10 @@ export function Card({
   return (
     <section className={`glass overflow-hidden ${className ?? ""}`}>
       <header className="flex min-h-[42px] items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4">
-        <h2 className="kicker !text-[var(--text-dim)]">{title}</h2>
+        <h2 className="kicker flex items-center gap-2 !text-[var(--text-dim)]">
+          {icon && <span className="text-[rgb(var(--glow))] [&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>}
+          {title}
+        </h2>
         {right}
       </header>
       <div className="relative p-4">{children}</div>
@@ -992,6 +1002,7 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
   const [mons, setMons] = useState<
     { device: string; x: number; y: number; w: number; h: number; primary: boolean }[]
   >([]);
+  const { cfg } = useStore(useShallow((s) => ({ cfg: s.cfg })));
   useEffect(() => {
     let disposed = false;
     const load = () => {
@@ -1017,40 +1028,65 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
       disposed = true;
     };
   }, []);
+  const pm = cfg?.wallpaper.perMonitor ?? {};
+  const globalKind = cfg?.wallpaper.kind ?? "";
+  const globalSource = cfg?.wallpaper.source ?? "";
   return (
-    <Card title="Displays">
+    <Card title="Displays" icon={<IconMonitor />}>
       <div className={`grid gap-3 ${compact ? "sm:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
-        {mons.map((m, i) => (
-          <div
-            key={`${m.device}-${i}`}
-            className={`flex items-center gap-3 rounded-2xl border px-4 py-3.5 ${
-              m.primary
-                ? "border-[rgb(var(--glow)/0.35)] bg-[rgb(var(--glow)/0.07)]"
-                : "border-[var(--line)] bg-[var(--panel-strong)]"
-            }`}
-          >
+        {mons.map((m, i) => {
+          // Effective wallpaper for this monitor: override or global.
+          const ovr = pm[m.device];
+          const kind = ovr?.kind ?? globalKind;
+          const source = ovr?.source ?? globalSource;
+          const mediaUrl = source ? convertFileSrc(source, "media") : "";
+          return (
             <div
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
-                m.primary ? "bg-[rgb(var(--glow)/0.15)]" : "bg-[var(--panel)]"
+              key={`${m.device}-${i}`}
+              className={`overflow-hidden rounded-2xl border ${
+                m.primary
+                  ? "border-[rgb(var(--glow)/0.35)] bg-[rgb(var(--glow)/0.07)]"
+                  : "border-[var(--line)] bg-[var(--panel-strong)]"
               }`}
             >
-              <IconMonitor className="h-5 w-5 text-[var(--text-dim)]" />
-            </div>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-[var(--text)]">
-                {m.device.replace(/\\/g, "") || `Display ${i + 1}`}
+              {/* live wallpaper thumb: video plays muted, images/shaders static */}
+              <div className="relative h-16 w-full overflow-hidden bg-black">
+                {kind === "video" && mediaUrl ? (
+                  <video key={mediaUrl} src={mediaUrl} autoPlay loop muted playsInline preload="metadata" className="h-full w-full object-cover" />
+                ) : kind === "image" && mediaUrl ? (
+                  <img src={mediaUrl} alt="" className="h-full w-full object-cover" />
+                ) : kind === "shader" && source ? (
+                  <div className="h-full w-full" style={{ background: SHADER_ART[source] ?? SHADER_ART.aurora }} />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-[var(--text-faint)]">
+                    <IconMonitor className="h-5 w-5" />
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_55%,rgb(0_0_0/0.55))]" />
                 {m.primary && (
-                  <span className="ml-2 font-mono text-[9px] uppercase tracking-widest text-[rgb(var(--glow))]">
+                  <span className="absolute right-1.5 top-1.5 rounded-md bg-black/50 px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-wider text-white/85">
                     primary
                   </span>
                 )}
+                {ovr && (
+                  <span className="absolute left-1.5 top-1.5 rounded-md bg-black/50 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wider text-white/85">
+                    override
+                  </span>
+                )}
               </div>
-              <div className="font-mono text-[11px] text-[var(--text-faint)]">
-                {m.w} × {m.h}{compact ? "" : ` @ (${m.x}, ${m.y})`}
+              <div className="flex items-center gap-2.5 px-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="truncate text-[13px] font-medium text-[var(--text)]">
+                    {m.device.replace(/\\/g, "") || `Display ${i + 1}`}
+                  </div>
+                  <div className="font-mono text-[10px] text-[var(--text-faint)]">
+                    {m.w} × {m.h}{compact ? "" : ` @ (${m.x}, ${m.y})`}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {mons.length === 0 && (
           <div className="col-span-full text-sm text-[var(--text-faint)]">Detecting displays…</div>
         )}

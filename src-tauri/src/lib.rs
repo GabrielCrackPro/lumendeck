@@ -419,11 +419,16 @@ pub fn run() {
             ipc::scene_delete,
             ipc::scene_rename,
             ipc::media_transport,
-            ipc::media_current
+            ipc::media_current,
+            ipc::system_accent
         ])
         .setup(|app| {
             let setup_at = std::time::Instant::now();
             let _ = APP.set(app.handle().clone());
+
+            // Watch the OS accent so the dashboard rethemes live when the
+            // user changes it (Settings > Personalization, or an external app).
+            crate::sys_theme::spawn_accent_watcher(app.handle().clone());
 
             // Apply autostart preference.
             use tauri_plugin_autostart::ManagerExt;

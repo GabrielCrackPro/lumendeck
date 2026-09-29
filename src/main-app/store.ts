@@ -41,6 +41,8 @@ interface Store {
   media: MediaInfo | null;
   /** Wallpaper's current dominant color — drives the UI glow. */
   wallpaperColor: [number, number, number] | null;
+  /** The user's Windows accent color; live-updated via SYSTEM_ACCENT. */
+  systemAccent: [number, number, number] | null;
   wallpaperPaused: boolean;
   updateAvailable: AvailableUpdate | null;
   loaded: boolean;
@@ -54,6 +56,7 @@ interface Store {
   setAudioLevel: (level: AudioLevel) => void;
   setMedia: (media: MediaInfo | null) => void;
   setWallpaperColor: (c: [number, number, number]) => void;
+  setSystemAccent: (c: [number, number, number] | null) => void;
   setWallpaperPaused: (p: boolean) => void;
   setUpdateAvailable: (update: AvailableUpdate | null) => void;
   /** Transient notifications (auto-dismiss in Shell). */
@@ -108,6 +111,7 @@ export const useStore = create<Store>((set, get) => ({
   audioLevel: { volume: 0, beat: false, deviceName: "" },
   media: null,
   wallpaperColor: null,
+  systemAccent: null,
   wallpaperPaused: false,
   updateAvailable: null,
   loaded: false,
@@ -240,6 +244,7 @@ export const useStore = create<Store>((set, get) => ({
   setAudioLevel: (audioLevel) => set({ audioLevel }),
   setMedia: (media) => set({ media }),
   setWallpaperColor: (wallpaperColor) => set({ wallpaperColor }),
+  setSystemAccent: (systemAccent) => set({ systemAccent }),
   setWallpaperPaused: (wallpaperPaused) => set({ wallpaperPaused }),
   setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),
 }));
@@ -319,6 +324,11 @@ export async function bindEvents(): Promise<() => void> {
   unsubs.push(
     await listen<[number, number, number]>(EVENTS.WALLPAPER_COLOR, (e) => {
       useStore.getState().setWallpaperColor(e.payload);
+    }),
+  );
+  unsubs.push(
+    await listen<[number, number, number]>(EVENTS.SYSTEM_ACCENT, (e) => {
+      useStore.getState().setSystemAccent(e.payload);
     }),
   );
   return () => {

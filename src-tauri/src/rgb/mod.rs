@@ -628,9 +628,17 @@ async fn engine_loop(
             frame.push(DeviceColor {
                 id: dev.id,
                 rgb: rep,
-                // Only animations carry per-LED state; reactive flat frames
-                // would spend event bytes on 96 copies of the same color.
-                led_colors: if is_anim { cap_leds(&per_led) } else { Vec::new() },
+                // Reactive modes push one flat color for every LED; the
+                // per-LED preview would be 96 copies of it, which wasted
+                // event bytes. Zone-mode gradients and animations genuinely
+                // vary per LED, so cap_leds samples those down to the
+                // preview budget. The dashboard's LED lanes render whatever
+                // this carries (flat or varied) either way.
+                led_colors: if per_led.windows(2).any(|w| w[0] != w[1]) {
+                    cap_leds(&per_led)
+                } else {
+                    vec![rep; 1]
+                },
             });
         }
         if !frame.is_empty() {

@@ -207,6 +207,12 @@ export const IconChevronDown = (props: P) => (
   </svg>
 );
 
+export const IconChevronRight = (props: P) => (
+  <svg {...base(props)}>
+    <path d="m9 6 6 6-6 6" />
+  </svg>
+);
+
 export const IconCheck = (props: P) => (
   <svg {...base(props)}>
     <path d="M5 13l4 4L19 7" />

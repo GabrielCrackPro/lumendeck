@@ -20,6 +20,7 @@ export const EVENTS = {
   MEDIA_SESSION: "media-session",
   WALLPAUSE: "wallpaper-pause",
   DISPLAY_CHANGED: "display-changed",
+  SYSTEM_ACCENT: "system-accent-changed",
 } as const;
 
 export const STICKER_MIN_SIZE = 48;

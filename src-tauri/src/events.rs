@@ -28,6 +28,9 @@ pub const AUDIO_LEVEL: &str = "audio-level";
 /// Emitted when the OS media session (SMTC) changes; payload: MediaInfo or
 /// null when nothing is playing. At most once per track/state change.
 pub const MEDIA_SESSION: &str = "media-session";
+/// Emitted when the user (or the OS) changes the Windows accent color;
+/// payload: [r, g, b]. Lets the dashboard retheme live without a restart.
+pub const SYSTEM_ACCENT: &str = "system-accent-changed";
 
 /// Final preview size chosen with the wheel during the last placement.
 static PLACEMENT_SIZE: std::sync::Mutex<Option<i32>> = std::sync::Mutex::new(None);

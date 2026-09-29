@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
+import { api } from "../ipc";
 import { IconBulb, IconImage, IconSticker, IconGear, IconPause, IconZap, IconRailCollapse, IconSearch, IconCheck, IconAlert, IconInfo } from "./icons";
 import { DEFAULT_GLOW } from "@shared/constants";
 import TitleBar from "./TitleBar";
@@ -49,6 +50,22 @@ function useGlow() {
   const accentDevice = useStore((s) => s.cfg?.rgb.accentDevice);
   const accentLive = useStore((s) => s.cfg?.general.accentLive);
   const wallpaperColor = useStore((s) => s.wallpaperColor);
+  // The user's Windows accent color, seeded once via IPC and kept live by the
+  // backend watcher (SYSTEM_ACCENT). This is the deep fallback for every
+  // config-less case, so a fresh install themes itself from the OS instead of
+  // wearing a hardcoded blue, and mid-session OS accent changes retheme the
+  // dashboard without a restart.
+  const sysAccent = useStore((s) => s.systemAccent);
+  useEffect(() => {
+    if (sysAccent) return;
+    let disposed = false;
+    api.systemAccent().then((c) => {
+      if (!disposed && c) useStore.getState().setSystemAccent(c);
+    }).catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, [sysAccent]);
   // Prefer a wallpaper color that is visibly non-black: a dark scene must not
   // tint the whole UI unreadably dark. Smooth toward it; the broadcast is
   // already rate-limited (1/s, meaningful deltas only) backend-side.
@@ -62,14 +79,15 @@ function useGlow() {
     // Wallpaper color leads when present: the interface IS the wallpaper's
     // mood. (wallpaperPaused frames freeze too — fine, color stays coherent.)
     if (accentLive && wpColor) return wpColor;
-    // Default: UI accent is calm — frozen to the static color (animation and
-    // audio-reactive modes get a stable accent instead of flickering).
+    // Default: UI accent is calm — the OS accent leads (staticColor carries
+    // a factory default that would otherwise always win and pin the UI to
+    // that blue regardless of the user's Windows theme).
     if (!accentLive) {
-      return staticColor ?? fallback ?? DEFAULT_GLOW;
+      return sysAccent ?? staticColor ?? fallback ?? DEFAULT_GLOW;
     }
     // "Off" (-1): freeze the accent to the configured static color.
     if (accentDevice === -1) {
-      return staticColor ?? fallback ?? DEFAULT_GLOW;
+      return staticColor ?? fallback ?? sysAccent ?? DEFAULT_GLOW;
     }
     // Manual pick wins outright (even if black — the user chose it).
     if (accentDevice != null) {
@@ -90,8 +108,8 @@ function useGlow() {
     const live =
       activeIds.map((id) => deviceColors[id]?.rgb).find((c) => c != null) ??
       Object.values(deviceColors).find((c) => c.rgb.some((v) => v > 0))?.rgb;
-    return live ?? wpColor ?? fallback ?? DEFAULT_GLOW;
-  }, [deviceColors, mode, staticColor, excluded, devices, accentDevice, accentLive, wpColor]);
+    return live ?? wpColor ?? fallback ?? sysAccent ?? DEFAULT_GLOW;
+  }, [deviceColors, mode, staticColor, excluded, devices, accentDevice, accentLive, wpColor, sysAccent]);
 }
 
 /** Full-window boot splash shown until the backend hands us the config. */
