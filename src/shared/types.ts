@@ -154,6 +154,11 @@ export interface GeneralConfig {
   lockScreenFollowsWallpaper: boolean;
   /** First-run onboarding wizard has been completed. */
   onboarded: boolean;
+  /**
+   * How strongly the dashboard accent is shade-adjusted for legibility on
+   * the theme surface (0 = raw source colors, 1 = full contrast lift).
+   */
+  accentAutoShade: number;
   /** True-black surfaces in dark theme (saves power on OLED panels). */
   amoled: boolean;
   /** The minimize button hides the dashboard to the tray instead of the taskbar. */
@@ -164,6 +169,43 @@ export interface GeneralConfig {
   startupHintShown: boolean;
   /** Internal: last version whose release notes were read in the dashboard. */
   changelogSeenVersion: string;
+  /** System-wide key bindings; see HOTKEY_ACTIONS for the available actions. */
+  hotkeys: HotkeyConfig;
+}
+
+/**
+ * One configurable system-wide shortcut. `accelerator` uses the
+ * Tauri/`global-hotkey` grammar ("Ctrl+Alt+M"); an empty string means unbound.
+ * Nothing is bound by default — the user opts in per action.
+ */
+export interface HotkeyBinding {
+  accelerator: string;
+}
+
+/** Mirrors `HotkeyConfig` in src-tauri/src/config.rs. */
+export interface HotkeyConfig {
+  toggleDashboard: HotkeyBinding;
+  playPause: HotkeyBinding;
+  nextTrack: HotkeyBinding;
+  prevTrack: HotkeyBinding;
+  toggleMute: HotkeyBinding;
+  volumeUp: HotkeyBinding;
+  volumeDown: HotkeyBinding;
+  toggleWallpaper: HotkeyBinding;
+  cycleLightingMode: HotkeyBinding;
+  nextProfile: HotkeyBinding;
+  nextScene: HotkeyBinding;
+  nextWallpaper: HotkeyBinding;
+}
+
+/** Payload of the HOTKEY_ERROR event. */
+export interface HotkeyError {
+  /** Config action id (e.g. "toggleMute"), or empty for a press-time failure. */
+  action: string;
+  /** The accelerator that was refused, as typed by the user. */
+  accelerator: string;
+  /** Human-readable reason. */
+  message: string;
 }
 
 export interface GalleryEntry {
@@ -289,7 +331,13 @@ export interface DeviceColor {
 /** Audio level data emitted from the RGB engine. */
 export interface AudioLevel {
   volume: number;
-  beat: boolean;
+  /**
+   * Decaying transient envelope, 0..1. The backend detects onsets from the
+   * rise in audio energy (with a refractory window so one drum hit is one
+   * pulse) and decays this on wall-clock time, so it is safe to read without
+   * consuming it. Drives the equalizer and the player's beat flash.
+   */
+  pulse: number;
   /** WASAPI device name currently being captured (e.g. "Speakers (Realtek Audio)"). */
   deviceName: string;
 }
@@ -306,4 +354,14 @@ export interface MediaInfo {
   art: string;
   /** Source app icon as a PNG data URI. Empty = generic glyph. */
   appIcon: string;
+  /** Playback position when the backend sampled it, in seconds. */
+  positionSec: number;
+  /** Track duration in seconds (0 when the app doesn't report a timeline). */
+  durationSec: number;
+  /** Unix ms when `positionSec` was sampled, so the UI can extrapolate. */
+  positionUpdatedMs: number;
+  /** Shuffle state. null = the sender doesn't expose it (control disabled). */
+  shuffle: boolean | null;
+  /** Repeat mode: 0 off, 1 track, 2 list/queue. null = not exposed. */
+  repeat: 0 | 1 | 2 | null;
 }

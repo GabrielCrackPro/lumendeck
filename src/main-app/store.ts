@@ -2,8 +2,15 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { EVENTS } from "@shared/constants";
-import type { AudioLevel, Config, DeviceColor, MediaInfo, RgbStatus } from "@shared/types";
+import { EVENTS, HOTKEY_ACTIONS } from "@shared/constants";
+import type {
+  AudioLevel,
+  Config,
+  DeviceColor,
+  HotkeyError,
+  MediaInfo,
+  RgbStatus,
+} from "@shared/types";
 import { api } from "./ipc";
 import { truncateError } from "./utilities";
 import type { AvailableUpdate } from "./updater";
@@ -43,6 +50,8 @@ interface Store {
   wallpaperColor: [number, number, number] | null;
   /** The user's Windows accent color; live-updated via SYSTEM_ACCENT. */
   systemAccent: [number, number, number] | null;
+  /** Latest [volume_percent, muted_flag] from the backend volume watcher. */
+  systemVolume: [number, number] | null;
   wallpaperPaused: boolean;
   updateAvailable: AvailableUpdate | null;
   loaded: boolean;
@@ -108,10 +117,11 @@ export const useStore = create<Store>((set, get) => ({
     lastError: null,
   },
   deviceColors: {},
-  audioLevel: { volume: 0, beat: false, deviceName: "" },
+  audioLevel: { volume: 0, pulse: 0, deviceName: "" },
   media: null,
   wallpaperColor: null,
   systemAccent: null,
+  systemVolume: null,
   wallpaperPaused: false,
   updateAvailable: null,
   loaded: false,
@@ -329,6 +339,30 @@ export async function bindEvents(): Promise<() => void> {
   unsubs.push(
     await listen<[number, number, number]>(EVENTS.SYSTEM_ACCENT, (e) => {
       useStore.getState().setSystemAccent(e.payload);
+    }),
+  );
+  unsubs.push(
+    await listen<[number, number]>(EVENTS.VOLUME_CHANGED, (e) => {
+      useStore.setState({ systemVolume: e.payload });
+    }),
+  );
+  // A hotkey that could not be bound (another app owns the combo) or that had
+  // nothing to act on. Keyed per accelerator so a combo another app holds
+  // produces one toast rather than one per failed save. A press with nothing
+  // to act on is informational, not a failure — the binding itself is fine.
+  unsubs.push(
+    await listen<HotkeyError>(EVENTS.HOTKEY_ERROR, (e) => {
+      const { action, accelerator, message } = e.payload;
+      const label = HOTKEY_ACTIONS.find((a) => a.id === action)?.label ?? action;
+      useStore
+        .getState()
+        .toast(
+          accelerator ? "error" : "info",
+          accelerator
+            ? `${label}: ${accelerator} could not be bound — ${message}`
+            : `${label} — ${message}`,
+          { key: `hotkey:${action}:${accelerator}` },
+        );
     }),
   );
   return () => {

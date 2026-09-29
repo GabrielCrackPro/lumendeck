@@ -402,6 +402,50 @@ impl SmoothedColors {
     }
 }
 
+/// Per-LED crossfade cache: the last frame actually pushed to a device, kept
+/// as f64 so repeated blending never discards sub-8-bit progress. Used to
+/// ease animation modes into each other after a mode switch, mirroring how
+/// the dashboard's --glow accent drifts instead of snapping.
+#[derive(Default)]
+pub struct SmoothedFrames {
+    map: std::collections::HashMap<u32, Vec<[f64; 3]>>,
+}
+
+impl SmoothedFrames {
+    /// Blend the previous frame toward `frame` by `k` (0..1). Starts from the
+    /// frame itself on the first call, so mode switches crossfade and cold
+    /// starts don't.
+    pub fn step(&mut self, device: u32, frame: &[[u8; 3]], k: f64) -> Vec<[u8; 3]> {
+        let k = k.clamp(0.0, 1.0);
+        let e = self.map.entry(device).or_insert_with(|| {
+            frame
+                .iter()
+                .map(|c| [c[0] as f64, c[1] as f64, c[2] as f64])
+                .collect()
+        });
+        e.resize(frame.len(), [0.0; 3]);
+        e.iter_mut()
+            .zip(frame.iter())
+            .map(|(cur, target)| {
+                let mut out = [0u8; 3];
+                for i in 0..3 {
+                    cur[i] += (target[i] as f64 - cur[i]) * k;
+                    out[i] = cur[i].round().clamp(0.0, 255.0) as u8;
+                }
+                out
+            })
+            .collect()
+    }
+
+    pub fn forget(&mut self, device: u32) {
+        self.map.remove(&device);
+    }
+
+    pub fn device_ids(&self) -> Vec<u32> {
+        self.map.keys().copied().collect()
+    }
+}
+
 /// Main loop: drain samples, compute per-device colors, push to OpenRGB.
 /// Reactive modes ease toward wallpaper-derived targets; animation modes
 /// generate per-LED frames on their own cadence (independent of samples).
@@ -411,6 +455,11 @@ async fn engine_loop(
     last_sent_ms: Arc<AtomicU64>,
 ) {
     let mut smoothed = SmoothedColors::default();
+    // Animation-mode crossfade: when the mode (or speed/hue shape) changes,
+    // the first new frame is blended in from the last pushed one instead of
+    // hard-cutting. Keyed per device because exclusion sweeps can interleave.
+    let mut anim_frames = SmoothedFrames::default();
+    let mut last_anim_mode: Option<RgbMode> = None;
     // Latest sample per (id, monitor): one wallpaper webview pushes per
     // display, and each keeps its own "all" + zone slots alive.
     let mut latest: Vec<ZoneSample> = Vec::new();
@@ -418,6 +467,13 @@ async fn engine_loop(
     // removed, webview crashed), expire its samples instead of freezing the
     // lights on the last frame forever.
     const SAMPLE_TTL_MS: u64 = 3_000;
+    // Level/transient magnitude below which the dashboard is told nothing.
+    // Silence must not become a ~40Hz stream of zeroes to every webview; the
+    // floor is far under anything audible.
+    const AUDIO_UI_FLOOR: f32 = 0.002;
+    // How long to keep publishing after the last audible sample, so the
+    // dashboard sees the level reach zero and its envelopes can settle.
+    const AUDIO_UI_TAIL: std::time::Duration = std::time::Duration::from_millis(1_200);
     let mut cfg_rx = crate::config_store::watch();
     let mut ticker = tokio::time::interval(std::time::Duration::from_millis(25));
     let phase_start = std::time::Instant::now();
@@ -430,6 +486,10 @@ async fn engine_loop(
     // Ensure audio capture + SMTC poller threads are spawned (idempotent).
     audio::ensure_started();
     crate::media_session::ensure_started();
+    // Wall-clock anchor for the transient envelope decay, and for the
+    // "keep publishing briefly after the sound stops" tail below.
+    let mut last_tick = std::time::Instant::now();
+    let mut last_audio_ui: Option<std::time::Instant> = None;
 
     loop {
         tokio::select! {
@@ -446,6 +506,12 @@ async fn engine_loop(
         }
 
         let mut cfg: RgbConfig = cfg_rx.borrow_and_update().rgb.clone();
+        // Real elapsed time for this tick. `tokio::time::interval` uses Burst
+        // catch-up, so the nominal 25ms is not a reliable delta; anything
+        // derived from it would drift whenever the loop is busy.
+        let now_tick = std::time::Instant::now();
+        let dt_secs = now_tick.duration_since(last_tick).as_secs_f32();
+        last_tick = now_tick;
         // Night dimming: cap brightness inside the scheduled window. Applied
         // here so every mode (reactive + animation) is affected uniformly.
         if let Some(cap) = night_cap(&cfg) {
@@ -563,6 +629,13 @@ async fn engine_loop(
 
         let t = phase_start.elapsed().as_secs_f64();
         let status = client.status();
+        // Device set changes invalidate crossfade caches: a reconnected
+        // strip should not fade from colors it never actually showed.
+        for cached in anim_frames.device_ids() {
+            if !status.devices.iter().any(|d| d.id == cached) {
+                anim_frames.forget(cached);
+            }
+        }
         let is_anim = cfg.mode.is_animation();
         let mut frame: Vec<DeviceColor> = Vec::new();
         for dev in &status.devices {
@@ -605,10 +678,22 @@ async fn engine_loop(
                     .or_else(|| latest.iter().find(|s| s.id == "all"))
                     .map(|s| s.rgb)
                     .or_else(|| palette::dominant_over_samples(&latest));
-                match animation_frame(&cfg, n, t, accent) {
-                    Some(f) => f,
-                    None => continue,
-                }
+                let Some((rep, per_led)) = animation_frame(&cfg, n, t, accent) else {
+                    continue;
+                };
+                // Crossfade on mode change: blend the new mode's first frames
+                // from the last pushed frame (~0.35s to fully converge at the
+                // 30fps animation cadence). Reaction modes already ease via
+                // SmoothedColors; this gives animation modes the same glow.
+                let fade = if last_anim_mode != Some(cfg.mode) {
+                    last_anim_mode = Some(cfg.mode);
+                    0.35
+                } else {
+                    1.0
+                };
+                let per_led = anim_frames.step(dev.id, &per_led, fade);
+                let rep = *per_led.first().unwrap_or(&rep);
+                (rep, per_led)
             } else {
                 let Some(target) = target_color_for_device(dev.id, &cfg, &latest) else {
                     continue;
@@ -695,20 +780,44 @@ async fn engine_loop(
             }
         }
         // Emit audio level for UI visualization when in audio reactive mode.
-        if cfg.mode == RgbMode::AudioReactive {
+        // Feed the UI's transient envelope. Decayed on the real elapsed time
+        // (not the tick count) so a hit reads the same length at any rate.
+        audio::decay_pulse(dt_secs);
+
+        // Publish the level for the dashboard's visualizers. This is NOT gated
+        // on the lighting mode: the Now playing equalizer and the card's audio
+        // halo are shown whenever something plays, and a player whose
+        // equalizer only moves when the LEDs happen to be in audio-reactive
+        // mode is broken. The level itself is only interesting while something
+        // is audible, so silence stops the stream instead of pushing a
+        // constant zero at every webview ~40x a second.
+        let volume = audio::volume();
+        let pulse = audio::pulse();
+        let audible = volume > AUDIO_UI_FLOOR || pulse > AUDIO_UI_FLOOR;
+        if audible {
+            last_audio_ui = Some(std::time::Instant::now());
+        }
+        // Keep streaming briefly after the last sound so the dashboard sees
+        // the level fall to zero and its own envelopes can settle.
+        let still_settling = last_audio_ui
+            .is_some_and(|t| t.elapsed() < AUDIO_UI_TAIL);
+        if audible || still_settling {
             if let Some(app) = crate::app_handle() {
-                #[derive(Clone, serde::Serialize)]
-                struct AudioLevelPayload {
-                    volume: f32,
-                    beat: bool,
-                    device_name: String,
-                }
-                let payload = AudioLevelPayload {
-                    volume: audio::volume(),
-                    beat: audio::beat(),
-                    device_name: audio::device_name(),
-                };
-                crate::events::emit_all(&app, crate::events::AUDIO_LEVEL, &payload);
+            #[derive(Clone, serde::Serialize)]
+            struct AudioLevelPayload {
+                volume: f32,
+                /// Decaying transient envelope, 0..1. Drives the equalizer and
+                /// the card's beat flash; unlike `beat` it is safe to read
+                /// without consuming it.
+                pulse: f32,
+                device_name: String,
+            }
+            let payload = AudioLevelPayload {
+                volume,
+                pulse,
+                device_name: audio::device_name(),
+            };
+            crate::events::emit_all(&app, crate::events::AUDIO_LEVEL, &payload);
             }
         }
     }
@@ -981,6 +1090,59 @@ mod tests {
         let b = s.step(1, [255, 255, 255], 0.0);
         assert_eq!(a, [0, 0, 0]);
         assert!(b[0] > 200, "smoothing 0 should move most of the way: {b:?}");
+    }
+
+    #[test]
+    fn frame_crossfade_starts_from_frame() {
+        // Cold start: the first frame IS the target (no fade from black).
+        let mut s = SmoothedFrames::default();
+        let f = s.step(7, &[[255, 0, 0]; 4], 0.35);
+        assert_eq!(f, vec![[255, 0, 0]; 4]);
+    }
+
+    #[test]
+    fn frame_crossfade_blends_toward_target() {
+        let mut s = SmoothedFrames::default();
+        s.step(7, &[[0, 0, 0]; 4], 1.0);
+        // 35% of the way to red on the first blended step.
+        let f = s.step(7, &[[255, 0, 0]; 4], 0.35);
+        assert_eq!(f[0][0], 89, "0.35 * 255 = 89");
+        // Full-k step converges immediately.
+        let g = s.step(7, &[[255, 0, 0]; 4], 1.0);
+        assert_eq!(g, vec![[255, 0, 0]; 4]);
+    }
+
+    #[test]
+    fn frame_crossfade_keeps_sub_byte_progress() {
+        // f64 cache must not lose sub-8-bit progress across many small steps.
+        let mut s = SmoothedFrames::default();
+        s.step(1, &[[0, 0, 0]], 1.0);
+        let mut last = [0u8; 3];
+        for _ in 0..40 {
+            last = s.step(1, &[[255, 0, 0]], 0.35)[0];
+        }
+        assert_eq!(last, [255, 0, 0], "40 x 0.35 must converge exactly");
+    }
+
+    #[test]
+    fn frame_crossfade_handles_resize() {
+        let mut s = SmoothedFrames::default();
+        s.step(2, &[[10, 10, 10]; 3], 1.0);
+        // Growing the strip: new LEDs start at the incoming frame.
+        let grown = s.step(2, &[[10, 10, 10], [200, 0, 0], [10, 10, 10], [0, 200, 0]], 1.0);
+        assert_eq!(grown, vec![[10, 10, 10], [200, 0, 0], [10, 10, 10], [0, 200, 0]]);
+    }
+
+    #[test]
+    fn frame_crossfade_forget_drops_cache() {
+        let mut s = SmoothedFrames::default();
+        s.step(3, &[[0, 0, 0]; 2], 1.0);
+        assert_eq!(s.device_ids(), vec![3]);
+        s.forget(3);
+        assert!(s.device_ids().is_empty());
+        // After forgetting, the next step cold-starts again.
+        let f = s.step(3, &[[5, 5, 5]; 2], 0.35);
+        assert_eq!(f, vec![[5, 5, 5]; 2]);
     }
 
     fn night_cfg(start: &str, end: &str, cap: f64) -> RgbConfig {

@@ -5,7 +5,7 @@ import { Card, Toggle, Slider, Btn, ColorInput, Dropdown, Section, Segmented, In
 import { IconRefresh, IconZap, IconWave, IconDevice, IconPlus, IconTrash } from "../icons";
 import { RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import { rgbToHex } from "../../utilities";
-import type { RgbMode } from "@shared/types";
+import type { AudioLevel, DeviceColor, RgbMode } from "@shared/types";
 
 /**
  * One physical key: label + width in u (1u = standard keycap).
@@ -66,6 +66,17 @@ export function KeyboardPreview() {
     if (!canvas || !kb) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    // Perf: frames arrive at 12.5Hz as fresh objects even when the pushed
+    // colors are identical. The full keyboard repaint (per-key gradients,
+    // radial glows) is expensive — skip it unless something actually changed.
+    const sig = kbColors
+      ? `${kbColors.rgb.join(",")}:${kbColors.ledColors.length}:${
+          kbColors.ledColors[0]?.join(",") ?? ""
+        }`
+      : "none";
+    if (sig === (canvas.dataset.sig ?? "")) return;
+    canvas.dataset.sig = sig;
 
     const dpr = 2;
     const W = (canvas.width = canvas.offsetWidth * dpr);
@@ -309,7 +320,7 @@ export function KeyboardPreview() {
       }
       void ox;
     }
-  }, [kb, kbColors, isKeyboard, deviceColors]);
+  }, [kb, kbColors, isKeyboard]);
 
   return (
     <div className="relative overflow-hidden panel-inset p-3.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]">
@@ -402,6 +413,13 @@ function ModePreview({ mode, staticColor, liveColor, speed, brightness, saturati
   waveDirection?: 1 | -1;
 }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
+  // Perf: `audioVolume` updates at 25-40Hz through the store. If it were an
+  // effect dependency, every update would tear down and rebuild this draw
+  // loop (and React would re-render the whole tab per tick). Instead the
+  // loop reads the live value from the store each frame — cheap, and the
+  // animation stays perfectly in sync with the audio engine.
+  const audioRef = useRef(audioVolume);
+  audioRef.current = audioVolume;
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
@@ -411,6 +429,13 @@ function ModePreview({ mode, staticColor, liveColor, speed, brightness, saturati
     const t0 = performance.now();
 
     const draw = () => {
+      // Perf: when the app is hidden (tray, minimized) the timers keep firing
+      // — rAF gets throttled by occlusion but setTimeout doesn't. Skip all
+      // canvas work until the window is visible again.
+      if (document.hidden) {
+        schedule();
+        return;
+      }
       const dpr = 2;
       const W = (canvas.width = canvas.offsetWidth * dpr);
       const H = (canvas.height = canvas.offsetHeight * dpr);
@@ -471,7 +496,7 @@ function ModePreview({ mode, staticColor, liveColor, speed, brightness, saturati
             // Engine: volume-floored brightness + spectral hue tilt across the strip.
             // Base color is the live wallpaper accent (engine mirrors this),
             // falling back to the static color before the first sample.
-            const vol = Math.max(audioVolume ?? 0.3, 0.3);
+            const vol = Math.max(audioRef.current ?? 0.3, 0.3);
             const audioBase = liveColor ?? staticColor;
             leds.push(hsl((hslHue(audioBase) + 40 * f * vol) % 360).map((v) => Math.round(v * vol)) as [number, number, number]);
             break;
@@ -533,12 +558,19 @@ function ModePreview({ mode, staticColor, liveColor, speed, brightness, saturati
         raf = window.setTimeout(draw, 66) as unknown as number;
       }
     };
+    const schedule = () => {
+      if (active) {
+        raf = requestAnimationFrame(draw);
+      } else {
+        raf = window.setTimeout(draw, 66) as unknown as number;
+      }
+    };
     draw();
     return () => {
       cancelAnimationFrame(raf);
       clearTimeout(raf);
     };
-  }, [mode, staticColor, liveColor, speed, brightness, saturation, active, audioVolume, cycleSpread, waveDirection]);
+  }, [mode, staticColor, liveColor, speed, brightness, saturation, active, cycleSpread, waveDirection]);
   return <canvas ref={ref} className="absolute inset-0 h-full w-full" />;
 }
 
@@ -563,15 +595,59 @@ function hslHue([r, g, b]: [number, number, number]): number {
 }
 
 export default function RgbTab() {
-  const { cfg, rgb, save, audioLevel } = useStore(
+  // Perf: deviceColors and audioLevel both update at frame rate. Subscribing
+  // the whole tab to them re-renders ~35x/sec; both consumers only need the
+  // first device's representative color (a slow-moving value), so mirror
+  // them into state at 2Hz instead.
+  const { cfg, rgb, save } = useStore(
     useShallow((s) => ({
       cfg: s.cfg,
       rgb: s.rgb,
       save: s.save,
-      audioLevel: s.audioLevel,
     })),
   );
-  const deviceColors = useStore((s) => s.deviceColors);
+  const [audioLevel, setAudioLevelLive] = useState(useStore.getState().audioLevel);
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let pending: AudioLevel | null = null;
+    const un = useStore.subscribe((s, prev) => {
+      if (s.audioLevel !== prev.audioLevel) pending = s.audioLevel;
+      if (timer == null) {
+        timer = setInterval(() => {
+          if (pending) {
+            setAudioLevelLive(pending);
+            pending = null;
+          }
+        }, 500);
+      }
+    });
+    return () => {
+      un();
+      if (timer) clearInterval(timer);
+    };
+  }, []);
+  const [deviceColors, setDeviceColorsLive] = useState<Record<number, DeviceColor>>(
+    useStore.getState().deviceColors,
+  );
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let dirty = false;
+    const un = useStore.subscribe((s, prev) => {
+      if (s.deviceColors !== prev.deviceColors) dirty = true;
+      if (timer == null) {
+        timer = setInterval(() => {
+          if (dirty) {
+            setDeviceColorsLive(useStore.getState().deviceColors);
+            dirty = false;
+          }
+        }, 500);
+      }
+    });
+    return () => {
+      un();
+      if (timer) clearInterval(timer);
+    };
+  }, []);
   const [profileNaming, setProfileNaming] = useState(false);
   const [profileNameVal, setProfileNameVal] = useState("");
   const promptProfileName = () => {
@@ -1217,12 +1293,17 @@ export default function RgbTab() {
                         className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-75"
                         style={{
                           width: `${Math.round(audioLevel.volume * 100)}%`,
-                          background: audioLevel.beat
-                            ? "rgb(var(--glow))"
-                            : "linear-gradient(90deg, rgb(var(--glow)), rgb(167 139 250))",
-                          boxShadow: audioLevel.beat
-                            ? "0 0 12px rgb(var(--glow) / 0.6)"
-                            : undefined,
+                          // The transient is a decaying envelope, not a flag,
+                          // so the flash fades with the hit instead of
+                          // snapping off on the next frame.
+                          background:
+                            audioLevel.pulse > 0.05
+                              ? "rgb(var(--glow))"
+                              : "linear-gradient(90deg, rgb(var(--glow)), rgb(167 139 250))",
+                          boxShadow:
+                            audioLevel.pulse > 0.05
+                              ? `0 0 12px rgb(var(--glow) / ${(0.25 + audioLevel.pulse * 0.5).toFixed(2)})`
+                              : undefined,
                         }}
                       />
                     </div>
@@ -1230,7 +1311,7 @@ export default function RgbTab() {
                       <span className="font-mono text-[10px] text-[var(--text-faint)]">
                         {Math.round(audioLevel.volume * 100)}%
                       </span>
-                      {audioLevel.beat && (
+                      {audioLevel.pulse > 0.25 && (
                         <span className="font-mono text-[10px] text-[rgb(var(--glow))]">beat</span>
                       )}
                     </div>

@@ -1,5 +1,7 @@
 // Shared constants for LumenDeck.
 
+import type { HotkeyConfig } from "./types";
+
 /** Prefix of the custom asset protocol for local media. */
 export const MEDIA_SCHEME = "media";
 
@@ -21,6 +23,9 @@ export const EVENTS = {
   WALLPAUSE: "wallpaper-pause",
   DISPLAY_CHANGED: "display-changed",
   SYSTEM_ACCENT: "system-accent-changed",
+  VOLUME_CHANGED: "volume-changed",
+  /** A global hotkey could not be bound, or a pressed one had nothing to do. */
+  HOTKEY_ERROR: "hotkey-error",
 } as const;
 
 export const STICKER_MIN_SIZE = 48;
@@ -48,6 +53,99 @@ export const SHADERS = [
   { id: "plasma", label: "Plasma" },
   { id: "starfield", label: "Starfield" },
 ] as const;
+
+/** Key of `HotkeyConfig` that holds each action's binding. */
+export type HotkeyActionId = keyof HotkeyConfig;
+
+/**
+ * Every bindable action, in the order the settings card lists them. The
+ * `suggested` combos are the defaults shown before the user records anything —
+ * they are never registered on their own, because taking an OS-wide key the
+ * user did not ask for is how an ambient app becomes annoying.
+ *
+ * All suggestions sit in the Ctrl+Alt family: that corner is mostly free on
+ * Windows, and keeping one family makes the whole list readable at a glance.
+ */
+export const HOTKEY_ACTIONS: {
+  id: HotkeyActionId;
+  label: string;
+  description: string;
+  suggested: string;
+}[] = [
+  {
+    id: "toggleDashboard",
+    label: "Show / hide LumenDeck",
+    description: "Bring the dashboard up, or get it out of the way when it is already focused.",
+    suggested: "Ctrl+Alt+D",
+  },
+  {
+    id: "playPause",
+    label: "Play / pause music",
+    description: "Toggles whatever the current media session is playing.",
+    suggested: "Ctrl+Alt+Space",
+  },
+  {
+    id: "nextTrack",
+    label: "Next track",
+    description: "Skips forward in the current media session.",
+    suggested: "Ctrl+Alt+Right",
+  },
+  {
+    id: "prevTrack",
+    label: "Previous track",
+    description: "Skips back in the current media session.",
+    suggested: "Ctrl+Alt+Left",
+  },
+  {
+    id: "toggleMute",
+    label: "Mute / unmute",
+    description: "Toggles the system output device.",
+    suggested: "Ctrl+Alt+M",
+  },
+  {
+    id: "volumeUp",
+    label: "Volume up",
+    description: "Raises the system volume by 5%, unmuting first if needed.",
+    suggested: "Ctrl+Alt+Up",
+  },
+  {
+    id: "volumeDown",
+    label: "Volume down",
+    description: "Lowers the system volume by 5%.",
+    suggested: "Ctrl+Alt+Down",
+  },
+  {
+    id: "toggleWallpaper",
+    label: "Pause / resume wallpaper",
+    description: "Freezes the live wallpaper without stopping the lighting.",
+    suggested: "Ctrl+Alt+P",
+  },
+  {
+    id: "cycleLightingMode",
+    label: "Next lighting mode",
+    description: "Walks the modes in the same order as the tray menu.",
+    suggested: "Ctrl+Alt+L",
+  },
+  {
+    id: "nextProfile",
+    label: "Next lighting profile",
+    description: "Applies the next saved RGB profile. Needs at least one profile.",
+    suggested: "Ctrl+Alt+R",
+  },
+  {
+    id: "nextScene",
+    label: "Next scene",
+    description: "Applies the next saved scene (wallpaper + lighting). Needs at least one scene.",
+    suggested: "Ctrl+Alt+S",
+  },
+  {
+    id: "nextWallpaper",
+    label: "Next wallpaper",
+    description:
+      "Steps to the next vault entry on every display. Clears per-display overrides so the change is visible.",
+    suggested: "Ctrl+Alt+N",
+  },
+];
 
 export type RgbModeGroup = "reactive" | "animation";
 

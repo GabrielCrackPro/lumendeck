@@ -546,6 +546,41 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 
+@keyframes iconSwap {
+  /* play/pause glyph morph: spin-and-shrink out, spin-and-grow in */
+  0% {
+    transform: rotate(-90deg) scale(0.4);
+    opacity: 0;
+  }
+  100% {
+    transform: rotate(0deg) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes togglePop {
+  /* state flip on shuffle/repeat: a quick spring past 1 then settle */
+  0% {
+    transform: scale(0.7);
+  }
+  60% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Play/pause: re-keying the glyph replays the swap. */
+.player-icon-swap {
+  animation: iconSwap 0.28s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+/* Active toggle (shuffle on, repeat on, ...) pops its glyph on flip. */
+.player-toggle-pop {
+  animation: togglePop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
 .transport-pulse {
   animation: transportPulse 0.6s ease-out both;
 }
@@ -565,7 +600,9 @@ input[type="color"]::-webkit-color-swatch {
   .pal-row,
   .track-swap,
   .track-slide,
-  .transport-pulse {
+  .transport-pulse,
+  .player-icon-swap,
+  .player-toggle-pop {
     animation: none !important;
   }
 }

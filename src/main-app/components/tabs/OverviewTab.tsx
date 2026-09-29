@@ -1,13 +1,14 @@
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useState, useRef, type CSSProperties, type ReactNode } from "react";
 import { useStore } from "../../store";
-import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, ItemTitle, SwitchBtn } from "../ui";
-import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause, IconNext, IconPrevious, IconWave, IconSun, IconZap, IconChevronRight } from "../icons";
+import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, ItemTitle, SwitchBtn, chipStyle, ICON_BTN, ICON_BTN_IDLE, ICON_BTN_ACTIVE, ICON_BTN_PRIMARY, MINI_BTN } from "../ui";
+import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause, IconNext, IconPrevious, IconWave, IconSun, IconZap, IconChevronRight, IconMediaApp, IconShuffle, IconRepeat } from "../icons";
 import { SHADERS, SHADER_ART, RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import type { Config, MediaInfo, RgbDeviceInfo, DeviceColor } from "@shared/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { basename } from "../../utilities";
 import { api } from "../../ipc";
+import { EqEngine } from "../../eq";
 
 /** Compact wallpaper thumb: video plays muted, image static, shader art. */
 function WallpaperThumb({
@@ -23,11 +24,35 @@ function WallpaperThumb({
   bare?: boolean;
 }) {
   const mediaUrl = convertFileSrc(source, "media");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Perf: a playing <video> decodes every frame even while the app sits in
+  // the tray (thumbnails don't get the browser's occlusion optimization for
+  // media). Pause decode when hidden, resume when shown — unless the user
+  // paused the wallpaper themselves.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const onVis = () => {
+      if (document.hidden) {
+        if (!el.paused) {
+          el.dataset.autoplaying = "1";
+          el.pause();
+        }
+      } else if (el.dataset.autoplaying === "1") {
+        delete el.dataset.autoplaying;
+        el.play().catch(() => {});
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    if (document.hidden && !el.paused) el.pause();
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [mediaUrl]);
   return (
     <div className={`relative h-full w-full overflow-hidden bg-black ${bare ? "" : "min-h-32 rounded-lg border border-[var(--line)]"}`}>
       {kind === "video" && source ? (
         <video
           key={mediaUrl}
+          ref={videoRef}
           src={mediaUrl}
           autoPlay
           loop
@@ -61,31 +86,101 @@ function WallpaperThumb({
 }
 
 /**
- * Wraps the Now playing stage with a subtle audio-reactive glow. Reads the
- * frame-rate audio level from the store inside a rAF loop and drives two CSS
- * variables (`--al` volume, `--beat` decaying beat flash) directly on the DOM
- * node, so nothing up the tree ever re-renders at frame rate.
+ * Wraps the Now playing stage with a subtle audio-reactive glow, and drives
+ * the equalizer beside the artwork from the same loop.
+ *
+ * The rAF loop feeds the level stream into `EqEngine` and writes the result
+ * straight to CSS custom properties on the DOM node — nothing up the tree
+ * re-renders at frame rate. Two details matter:
+ *
+ *  - The loop *parks* when the engine reports itself settled, so a tray-only
+ *    session is not burning a 60Hz timer over silence. Any new audio sample
+ *    or a return from a hidden tab restarts it.
+ *  - Frames carry real elapsed time, so the animation is identical on a 60Hz
+ *    and a 240Hz display (see eq.ts).
  */
-function AudioPulse({ children }: { children: ReactNode }) {
+function AudioPulse({
+  children,
+  playing,
+}: {
+  children: ReactNode;
+  playing: boolean;
+}) {
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
+    const engine = new EqEngine();
     let raf = 0;
-    let beat = 0;
-    const tick = () => {
-      const { volume, beat: hit } = useStore.getState().audioLevel;
-      beat = Math.max(beat * 0.88, hit ? 1 : 0);
+    let lastFrame = 0;
+    // The store holds only the newest level, so detect "a new sample arrived"
+    // by watching for a change. Reading it per frame instead would re-run
+    // onset detection on the same held value and invent beats.
+    let lastVolume = -1;
+    let lastPulse = -1;
+
+    const paint = (now: number) => {
+      const { volume, pulse } = useStore.getState().audioLevel;
+      if (volume !== lastVolume || pulse !== lastPulse) {
+        engine.sample(volume, pulse, now);
+        lastVolume = volume;
+        lastPulse = pulse;
+      }
+      const dt = lastFrame === 0 ? 1000 / 60 : now - lastFrame;
+      lastFrame = now;
+      const bars = engine.frame(now, dt, playing);
       const el = ref.current;
       if (el) {
         el.style.setProperty("--al", volume.toFixed(3));
-        el.style.setProperty("--beat", beat.toFixed(3));
+        el.style.setProperty("--beat", engine.beat.toFixed(3));
+        for (let i = 0; i < bars.length; i++) {
+          el.style.setProperty(`--eq${i}`, (bars[i] ?? 0).toFixed(3));
+        }
       }
-      raf = requestAnimationFrame(tick);
+      if (engine.settled) {
+        // Park the loop. Nothing is moving, and any new audio reading (or a
+        // return from a hidden tab) restarts it, so there is no reason to hold
+        // a 60Hz timer open over silence.
+        raf = 0;
+        return;
+      }
+      raf = requestAnimationFrame(paint);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+
+    const start = () => {
+      if (raf === 0) {
+        lastFrame = 0;
+        raf = requestAnimationFrame(paint);
+      }
+    };
+    start();
+    // Any new audio reading wakes the loop back up.
+    const unsub = useStore.subscribe((s, prev) => {
+      if (s.audioLevel !== prev.audioLevel) start();
+    });
+    const onVisible = () => {
+      if (!document.hidden) start();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      unsub();
+      document.removeEventListener("visibilitychange", onVisible);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [playing]);
   return (
-    <div ref={ref} className="relative" style={{ "--al": 0, "--beat": 0 } as CSSProperties}>
+    <div
+      ref={ref}
+      className="relative"
+      style={
+        {
+          "--al": 0,
+          "--beat": 0,
+          "--eq0": 0,
+          "--eq1": 0,
+          "--eq2": 0,
+          "--eq3": 0,
+        } as CSSProperties
+      }
+    >
       {children}
     </div>
   );
@@ -211,36 +306,40 @@ function QuickSlider({
 }
 
 /**
- * Tiny 4-bar equalizer driven by the audio level. Pure CSS: bar heights are
- * computed from the AudioPulse `--al`/`--beat` variables via scale transforms,
- * so it animates without React re-renders. Hidden when nothing plays.
+ * Inline equalizer bars. Each bar reads its own `--eq0..--eq3` variable,
+ * which `AudioPulse` writes from the transient engine every frame. There is
+ * deliberately no height transition here: the engine already smooths the
+ * values, and a CSS transition layered on top would lag a frame behind every
+ * write and blur the attack.
+ *
+ * Always mounted: `playing` collapses/expands the bars smoothly (width +
+ * opacity transition) instead of popping the block in and out of the layout.
  */
-function EqBars() {
+function EqBars({ playing }: { playing: boolean }) {
   return (
     <span
-      className="flex h-4 w-5 shrink-0 items-end gap-[2px]"
+      className="flex shrink-0 items-end gap-[2px] overflow-hidden transition-all duration-300 ease-out"
       style={{
-        // Each bar gets a slightly different multiplier so they don't move in
-        // lockstep; the parent's --al drives all of them.
-        "--al2": "calc(var(--al, 0) * 0.72 + var(--beat, 0) * 0.2)",
-        "--al3": "calc(var(--al, 0) * 1.18 + var(--beat, 0) * 0.1)",
-        "--al4": "calc(var(--al, 0) * 0.9)",
-      } as CSSProperties}
+        width: playing ? "22px" : "0px",
+        opacity: playing ? 1 : 0,
+      }}
     >
-      {["var(--al, 0)", "var(--al2)", "var(--al3)", "var(--al4)"].map((v, i) => (
+      {EQ_BAR_VARS.map((v) => (
         <span
-          key={i}
-          className="w-[3px] rounded-sm bg-[rgb(var(--glow))] transition-[height] duration-100"
+          key={v}
+          className="w-[3px] shrink-0 rounded-sm bg-[rgb(var(--glow))]"
           style={{
-            height: `clamp(3px, calc(${v} * 16px), 16px)`,
-            opacity: "calc(0.55 + var(--al, 0) * 0.45)",
+            height: `clamp(3px, calc(var(${v}, 0) * 16px), 16px)`,
+            opacity: "calc(0.5 + var(--al, 0) * 0.5)",
           }}
         />
-      ))
-      }
+      ))}
     </span>
   );
 }
+
+/** CSS variable each equalizer bar reads, bass first. */
+const EQ_BAR_VARS = ["--eq0", "--eq1", "--eq2", "--eq3"] as const;
 
 /**
  * Track identity for the media row. Keyed by title+artist, so a track change
@@ -255,17 +354,45 @@ function TrackIdentity({
   beatScale: string;
 }) {
   return (
-    <div key={`${media.title}—${media.artist}`} className="track-swap flex min-w-0 flex-1 items-center gap-3 rounded-lg">
-      {media.art && (
-        <img
-          src={media.art}
-          alt=""
-          className="track-slide h-12 w-12 shrink-0 rounded-lg border border-[var(--line-strong)] object-cover"
-          style={{ transform: beatScale }}
-        />
-      )}
-      {media.playing && <EqBars />}
-      <div className="track-slide min-w-0">
+    <div className="track-slide flex min-w-0 flex-1 items-center gap-3 rounded-lg">
+      {/* Song image with the playing app's icon woven into the corner:
+          the icon sits inset on the art with a ring that separates it from
+          any artwork. Playing state reads from the EqBars next to the tile,
+          so no status dot is needed on the image itself. */}
+      <div
+        className="relative shrink-0"
+        style={{ transform: beatScale }}
+        title={media.appId}
+      >
+        {media.art ? (
+          <img
+            src={media.art}
+            alt=""
+            className="h-16 w-16 rounded-xl border border-[var(--line-strong)] object-cover shadow-[0_4px_14px_-6px_rgb(0_0_0/0.55)]"
+          />
+        ) : (
+          <div className="flex h-16 w-16 items-center justify-center rounded-xl border border-[var(--line-strong)] bg-[var(--panel-sunken)]">
+            <IconWave className="h-6 w-6 text-[var(--text-faint)]" />
+          </div>
+        )}
+        {(media.appIcon || media.appId) && (
+          <span className="absolute -bottom-1 -right-1">
+            {media.appIcon ? (
+              <img
+                src={media.appIcon}
+                alt=""
+                className="h-7 w-7 rounded-[7px] border border-[var(--panel-strong)] object-contain shadow-[0_1px_5px_rgb(0_0_0/0.45)]"
+              />
+            ) : (
+              <span className="flex h-7 w-7 items-center justify-center rounded-[7px] border border-[var(--panel-strong)] bg-black/60 shadow-[0_1px_5px_rgb(0_0_0/0.45)]">
+                <IconMediaApp app={media.appId} aria-label={media.appId} className="h-4 w-4 text-white/90" />
+              </span>
+            )}
+          </span>
+        )}
+      </div>
+      <EqBars playing={media.playing} />
+      <div className="min-w-0">
         <div
           className="truncate text-[14px] font-semibold leading-tight text-[var(--text)]"
           title={`${media.title} — ${media.artist}`}
@@ -273,15 +400,264 @@ function TrackIdentity({
           {media.title}
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[10.5px] text-[var(--text-faint)]">
-          {media.appIcon && (
-            <img src={media.appIcon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-[3px]" />
-          )}
-          <span className="truncate">
-            {media.artist || "Unknown artist"}
-            {media.appId && ` · ${media.appId}`}
+          <span className="truncate">{media.artist || "Unknown artist"}</span>
+          <span
+            className="shrink-0 text-[10px] text-[var(--text-faint)]/70"
+            title={media.appId}
+          >
+            {media.album && `· ${media.album}`}
           </span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Track progress bar: elapsed / total with a filling accent line. The backend
+ * samples the SMTC timeline at ~1Hz; between samples the position advances
+ * locally (a CSS transform on a rAF, no React re-renders), and each fresh
+ * sample snaps the bar back to ground truth — so seek/track changes show
+ * immediately. Hidden when the sender reports no duration (radio, some web
+ * players), when paused it freezes rather than disappearing.
+ */
+function ProgressBar({ media }: { media: MediaInfo }) {
+  const fillRef = useRef<HTMLSpanElement | null>(null);
+  const timeRef = useRef<HTMLSpanElement | null>(null);
+  const duration = media.durationSec;
+  const trackKey = `${media.title}—${media.artist}`;
+  // Scrubbing: while dragging, the rAF stops owning the fill and the pointer
+  // does; a seek is sent once on release. Skew-compensated play resumes from
+  // the next backend sample, which snaps the bar back to ground truth.
+  const [scrub, setScrub] = useState<number | null>(null);
+  const barRef = useRef<HTMLSpanElement | null>(null);
+  const posFromEvent = (e: PointerEvent | React.PointerEvent) => {
+    const bar = barRef.current;
+    if (!bar || duration <= 0) return 0;
+    const rect = bar.getBoundingClientRect();
+    const f = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    return f * duration;
+  };
+  useEffect(() => {
+    if (duration <= 0) return;
+    let raf = 0;
+    const start = performance.now();
+    // The sample may already be a beat old by the time it reaches us —
+    // include that skew so the bar starts at the true position.
+    const basePos = media.positionSec + (media.playing ? Math.max(0, (Date.now() - (media.positionUpdatedMs || Date.now())) / 1000) : 0);
+    const fmt = (s: number) => {
+      const total = Math.max(0, Math.floor(s));
+      const m = Math.floor(total / 60);
+      return `${m}:${String(total % 60).padStart(2, "0")}`;
+    };
+    const paint = (pos: number) => {
+      if (fillRef.current) {
+        fillRef.current.style.transform = `scaleX(${duration > 0 ? pos / duration : 0})`;
+      }
+      if (timeRef.current) {
+        const next = fmt(pos);
+        if (timeRef.current.textContent !== next) timeRef.current.textContent = next;
+      }
+    };
+    const tick = () => {
+      const elapsed = media.playing ? (performance.now() - start) / 1000 : 0;
+      paint(Math.min(duration, basePos + elapsed));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+    // Re-arm on every sample: each MEDIA_SESSION event carries a fresh
+    // position anchor. media.playing is intentionally read via closure —
+    // the object identity changes whenever anything meaningful changes.
+  }, [trackKey, duration, media]);
+  // The fill follows the pointer while scrubbing (own effect so it wins
+  // over the rAF without racing it every frame).
+  useEffect(() => {
+    if (scrub == null) return;
+    const onMove = (e: PointerEvent) => {
+      const pos = posFromEvent(e);
+      setScrub(pos);
+      if (fillRef.current) {
+        fillRef.current.style.transform = `scaleX(${duration > 0 ? pos / duration : 0})`;
+      }
+      if (timeRef.current) {
+        const total = Math.floor(pos);
+        timeRef.current.textContent = `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+      }
+    };
+    const onUp = (e: PointerEvent) => {
+      const pos = posFromEvent(e);
+      setScrub(null);
+      void api.mediaSeek(pos).catch(() => {});
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrub != null, duration]);
+  if (duration <= 0) return null;
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-2.5">
+      <span
+        ref={timeRef}
+        className={`w-9 shrink-0 text-right font-mono text-[10px] tabular-nums ${
+          scrub != null ? "text-[rgb(var(--glow))]" : "text-[var(--text-faint)]"
+        }`}
+      >
+        0:00
+      </span>
+      <span
+        ref={barRef}
+        role="slider"
+        aria-label="Seek"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(duration)}
+        aria-valuenow={Math.round(scrub ?? media.positionSec)}
+        tabIndex={0}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setScrub(posFromEvent(e));
+        }}
+        onKeyDown={(e) => {
+          const step = duration * 0.02;
+          if (e.key === "ArrowRight") {
+            void api.mediaSeek(Math.min(duration, media.positionSec + step)).catch(() => {});
+          } else if (e.key === "ArrowLeft") {
+            void api.mediaSeek(Math.max(0, media.positionSec - step)).catch(() => {});
+          }
+        }}
+        className="group relative h-1 min-w-0 flex-1 cursor-pointer rounded-full bg-[var(--line-strong)] transition-[height] hover:h-1.5"
+      >
+        <span
+          ref={fillRef}
+          className="absolute inset-0 origin-left rounded-full bg-[rgb(var(--glow))] shadow-[0_0_6px_rgb(var(--glow)/0.6)]"
+          style={{ transform: "scaleX(0)" }}
+        />
+        {/* thumb: hidden until hover or scrub */}
+        <span
+          className={`absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow)/0.8)] transition-opacity ${
+            scrub != null ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
+          style={{ left: `${duration > 0 ? ((scrub ?? media.positionSec) / duration) * 100 : 0}%` }}
+        />
+      </span>
+      <span className="w-9 shrink-0 font-mono text-[10px] tabular-nums text-[var(--text-faint)]">
+        {fmtDuration(duration)}
+      </span>
+    </div>
+  );
+}
+
+function fmtDuration(s: number): string {
+  const total = Math.max(0, Math.floor(s));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Player controls use the app's canonical icon-button tokens (ICON_BTN_*)
+ * from ui.tsx — the same accent values as the shared chip language, just
+ * round and borderless at rest. No local style constants here anymore.
+ */
+
+/**
+ * System master volume: speaker button (click = mute toggle) + compact
+ * slider. This is the default render endpoint's volume — the same knob the
+ * taskbar speaker controls — because SMTC has no per-app volume. State is
+ * read on mount and after each local change; other apps' volume changes
+ * sync on the next mount/reopen of the tab (no global volume polling).
+ */
+function VolumeControl() {
+  // `systemVolume` is seeded on mount (the watcher may not have fired yet)
+  // and then kept live by the backend's WASAPI change notifications, so
+  // keyboard/taskbar/other-app volume edits mirror here in real time.
+  const event = useStore((s) => s.systemVolume);
+  const [vol, setVol] = useState<number | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [live, setLive] = useState<number | null>(null);
+  const shown = live ?? vol;
+  useEffect(() => {
+    let disposed = false;
+    api.volumeGet()
+      .then(([v, m]) => {
+        if (!disposed) {
+          setVol(Math.round(v));
+          setMuted(m > 0.5);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, []);
+  useEffect(() => {
+    if (!event) return;
+    const [v, m] = event;
+    setVol(Math.round(v));
+    setMuted(m > 0.5);
+    // A live event means our scrub is stale — external change wins.
+    setLive(null);
+  }, [event]);
+  const commit = (v: number) => {
+    setVol(v);
+    void api.volumeSet(v).catch(() => {});
+  };
+  const toggleMute = () => {
+    void api.volumeMuteToggle()
+      .then((next) => setMuted(next))
+      .catch(() => {});
+  };
+  if (shown == null) return null;
+  return (
+    <div className="flex shrink-0 items-center gap-1.5" title="System volume">
+      <button
+        aria-label={muted ? "Unmute" : "Mute"}
+        onClick={toggleMute}
+        className={`${ICON_BTN} ${
+          muted
+            ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
+            : ICON_BTN_IDLE
+        }`}
+      >
+        {muted || shown === 0 ? (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+            <path d="m16 9 5 5m0-5-5 5" />
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+            <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+          </svg>
+        )}
+      </button>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={shown}
+        style={{ "--fill": `${shown}%`, width: "72px" } as CSSProperties}
+        className="h-1"
+        onChange={(e) => setLive(Number(e.target.value))}
+        onPointerUp={() => {
+          if (live != null) commit(live);
+          setLive(null);
+        }}
+        onKeyUp={() => {
+          if (live != null) commit(live);
+          setLive(null);
+        }}
+        onBlur={() => {
+          if (live != null) commit(live);
+          setLive(null);
+        }}
+      />
+      <span className="w-7 shrink-0 font-mono text-[9px] tabular-nums text-[var(--text-faint)]">
+        {shown}%
+      </span>
     </div>
   );
 }
@@ -295,10 +671,20 @@ function TrackIdentity({
 function TransportButtons({
   playing,
   trackKey,
+  shuffle,
+  repeat,
 }: {
   playing: boolean;
   trackKey: string;
+  /** undefined = sender has no shuffle control (button hidden). */
+  shuffle?: boolean | null;
+  /** undefined = sender has no repeat control (button hidden). */
+  repeat?: 0 | 1 | 2 | null;
 }) {
+  // Capability vs state: a `null` state with a known capability means the
+  // button renders disabled rather than showing a possibly-wrong state.
+  const shuffleSupported = shuffle !== null;
+  const repeatSupported = repeat !== null;
   const [busy, setBusy] = useState(false);
   const [pulseId, setPulseId] = useState(0);
   const first = useRef(true);
@@ -318,28 +704,68 @@ function TransportButtons({
       setBusy(false);
     }
   };
-  const btn =
-    "flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text-dim)] hover-glow disabled:opacity-40";
   // Remounting the row (key=pulseId) replays the ripple on every track
   // change; the ring starts at the button, so no fill-mode is wanted.
+  // Must compose the same idle style as the other buttons — the base token
+  // alone leaves the border color unset (Tailwind default = near-white).
   const ripple = (delayMs: number) =>
-    pulseId > 0 ? { className: `${btn} transport-pulse`, style: { animationDelay: `${delayMs}ms` } } : { className: btn };
+    pulseId > 0
+      ? { className: `${ICON_BTN} ${ICON_BTN_IDLE} transport-pulse`, style: { animationDelay: `${delayMs}ms` } }
+      : { className: `${ICON_BTN} ${ICON_BTN_IDLE}` };
   return (
-    <div key={pulseId} className="flex items-center gap-1.5">
+    <div key={pulseId} className="flex items-center gap-2">
+      {/* Shuffle: shown whenever the sender exposes it; disabled (dimmed)
+          when the capability exists but the UI hasn't received state yet. */}
+      {shuffle !== undefined && (
+        <button
+          aria-label="Toggle shuffle"
+          title={shuffleSupported ? "Shuffle" : "Shuffle not available in this app"}
+          disabled={!shuffleSupported || busy}
+          onClick={() => void api.mediaShuffle(!shuffle).catch(() => {})}
+          className={`${ICON_BTN} ${shuffle ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
+        >
+          <span key={String(shuffle)} className={shuffle ? "player-toggle-pop flex" : "flex"}>
+            <IconShuffle className="h-3.5 w-3.5" />
+          </span>
+        </button>
+      )}
       <button aria-label="Previous track" disabled={busy} onClick={() => send("previous")} {...ripple(90)}>
         <IconPrevious className="h-4 w-4" />
       </button>
       <button
         aria-label={playing ? "Pause" : "Play"}
-        className={`${btn} !border-[rgb(var(--glow)/0.4)] !text-[rgb(var(--glow))] ${pulseId > 0 ? "transport-pulse" : ""}`}
+        className={`${ICON_BTN} ${ICON_BTN_PRIMARY} ${pulseId > 0 ? "transport-pulse" : ""}`}
         disabled={busy}
         onClick={() => send("toggle")}
       >
-        {playing ? <IconPause className="h-4 w-4" /> : <IconPlay className="h-4 w-4" />}
+        {/* key re-mounts the glyph on state flip, replaying the swap spin */}
+        <span key={playing ? "pause" : "play"} className="player-icon-swap flex">
+          {playing ? <IconPause className="h-5 w-5" /> : <IconPlay className="h-5 w-5" />}
+        </span>
       </button>
       <button aria-label="Next track" disabled={busy} onClick={() => send("next")} {...ripple(180)}>
         <IconNext className="h-4 w-4" />
       </button>
+      {/* Repeat: cycles off -> track -> list. `on` = list repeat (accent);
+          track repeat adds the "1" superscript, like every music app. */}
+      {repeat !== undefined && (
+        <button
+          aria-label="Cycle repeat mode"
+          title={repeatSupported ? (repeat === 1 ? "Repeat track" : repeat === 2 ? "Repeat queue" : "Repeat off") : "Repeat not available in this app"}
+          disabled={!repeatSupported || busy}
+          onClick={() => void api.mediaRepeat(repeat).catch(() => {})}
+          className={`relative ${ICON_BTN} ${(repeat ?? 0) > 0 ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
+        >
+          <span key={String(repeat)} className={(repeat ?? 0) > 0 ? "player-toggle-pop flex" : "flex"}>
+            <IconRepeat className="h-3.5 w-3.5" />
+          </span>
+          {repeat === 1 && (
+            <span className="absolute -right-0 -top-0.5 font-mono text-[8px] font-bold leading-none text-[rgb(var(--glow))]">
+              1
+            </span>
+          )}
+        </button>
+      )}
     </div>
   );
 }
@@ -394,10 +820,29 @@ function LedLaneRow({
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    // Perf: the preview only needs ~30fps (the store coalesces frames to
+    // 12.5Hz anyway), and a redraw is pointless when the color data hasn't
+    // changed. Skipping unchanged frames keeps N device lanes from repainting
+    // 60x/second while the engine pushes a static color.
     let raf = 0;
-    const draw = () => {
+    let lastDraw = 0;
+    let lastSig = "";
+    let lastW = 0;
+    const FRAME_MS = 1000 / 30;
+    const draw = (now: number) => {
+      raf = requestAnimationFrame(draw);
+      if (now - lastDraw < FRAME_MS) return;
+      const sig = `${ledColors?.length ?? 0}:${ledColors?.[0]?.join(",") ?? ""}:${
+        ledColors?.length ? ledColors[Math.floor(ledColors.length / 2)]!.join(",") : ""
+      }:${
+        ledColors?.length ? ledColors[ledColors.length - 1]!.join(",") : ""
+      }:${muted}`;
+      if (sig === lastSig && canvas.offsetWidth === lastW) return;
+      lastDraw = now;
+      lastSig = sig;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const W = (canvas.width = canvas.offsetWidth * dpr);
+      lastW = canvas.offsetWidth;
+      const W = (canvas.width = lastW * dpr);
       const H = (canvas.height = canvas.offsetHeight * dpr);
       ctx.clearRect(0, 0, W, H);
       const gap = 2 * dpr;
@@ -427,7 +872,6 @@ function LedLaneRow({
         ctx.fillStyle = `rgb(${r} ${g} ${b})`;
         ctx.fill();
       }
-      raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
@@ -531,7 +975,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             </Chip>
           }
         >
-          <AudioPulse>
+          <AudioPulse playing={!!media?.playing}>
             <WallpaperStage
               cfg={cfg}
               paused={paused}
@@ -540,23 +984,34 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               onChange={() => onNavigate("wallpaper")}
             />
 
-            {/* Media row: track identity left, transport right. */}
-            <div className="mt-3.5 flex flex-wrap items-center gap-3">
-              {media ? (
-                <TrackIdentity
-                  media={media}
-                  beatScale="scale(calc(1 + var(--beat, 0) * 0.045))"
+            {media ? (
+              <div
+                key={`${media.title}—${media.artist}`}
+                className="track-swap mt-3.5 flex min-w-0 items-center gap-3.5"
+              >
+                <TrackIdentity media={media} beatScale="scale(calc(1 + var(--beat, 0) * 0.045))" />
+                <TransportButtons
+                  playing={media.playing}
+                  trackKey={`${media.title}—${media.artist}`}
+                  shuffle={media.shuffle}
+                  repeat={media.repeat}
                 />
-              ) : (
-                <div className="flex min-w-0 flex-1 items-center gap-2 font-mono text-[10.5px] text-[var(--text-faint)]">
-                  <IconWave className="h-3.5 w-3.5 shrink-0" />
-                  no media playing
-                </div>
+              </div>
+            ) : (
+              <div className="mt-3.5 flex min-w-0 items-center gap-2 font-mono text-[10.5px] text-[var(--text-faint)]">
+                <IconWave className="h-3.5 w-3.5 shrink-0" />
+                no media playing
+              </div>
+            )}
+
+            {/* Progress line with system volume at the right end: the two
+                read as one "playback state" strip. Progress hides for
+                senders without a timeline; volume is always relevant. */}
+            <div className="mt-2.5 flex min-w-0 items-center gap-4">
+              {media && (
+                <ProgressBar key={`${media.title}—${media.artist}`} media={media} />
               )}
-              <TransportButtons
-                playing={media?.playing ?? false}
-                trackKey={`${media?.title ?? ""}—${media?.artist ?? ""}`}
-              />
+              <VolumeControl />
             </div>
           </AudioPulse>
         </Card>
@@ -647,7 +1102,9 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             </span>
           </div>
 
-          {/* mode pills: one-click switch between all 8 modes */}
+          {/* mode pills: one-click switch between all 8 modes. Uses the
+              shared chip language (chipStyle) — same selected look as every
+              other selectable control in the app. */}
           <div className="mt-3 flex flex-wrap gap-1.5">
             {RGB_MODES.map((m) => {
               const active = cfg.rgb.enabled && cfg.rgb.mode === m.id;
@@ -656,11 +1113,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                   key={m.id}
                   title={m.hint}
                   onClick={() => save((c) => { c.rgb.enabled = true; c.rgb.mode = m.id; })}
-                  className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition-all active:scale-95 ${
-                    active
-                      ? "border-[rgb(var(--glow)/0.55)] bg-[rgb(var(--glow)/0.14)] text-[rgb(var(--glow))]"
-                      : "border-[var(--line)] bg-[var(--panel-strong)] text-[var(--text-dim)] hover:border-[var(--line-strong)] hover:text-[var(--text)]"
-                  }`}
+                  className={chipStyle(active) + " rounded-lg px-2.5 py-1 text-[11px]"}
                 >
                   {m.label}
                 </button>
@@ -686,11 +1139,8 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                         cc.rgb.excludedDevices = [...set];
                       })
                     }
-                    className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-all active:scale-95 ${
-                      muted
-                        ? "border-[var(--line)] bg-transparent text-[var(--text-faint)]"
-                        : "border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text)]"
-                    }`}
+                    className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium ${chipStyle(false)}`}                   
+                    style={muted ? { opacity: 0.55 } : undefined}
                   >
                     <span
                       className="h-2.5 w-2.5 shrink-0 rounded-full transition-colors duration-500"
@@ -789,7 +1239,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
           <Card title="Scenes" icon={<IconLayers />} className="xl:col-span-7" right={
             <button
               onClick={() => onNavigate("general")}
-              className="rounded-md border border-[var(--line-strong)] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--text-dim)] hover-glow"
+              className={MINI_BTN}
             >
               manage
             </button>

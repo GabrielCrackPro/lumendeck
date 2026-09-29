@@ -10,6 +10,7 @@ pub mod dev_watchdog;
 pub mod display_watch;
 pub mod error;
 pub mod events;
+pub mod hotkeys;
 pub mod idle;
 pub mod ipc;
 pub mod media;
@@ -26,6 +27,7 @@ pub mod taskbar_thumbnail;
 pub mod thumbs;
 pub mod tray;
 pub mod wallpaper;
+pub mod volume;
 pub mod wallpaper_bg;
 pub mod win32;
 pub mod window_utils;
@@ -355,6 +357,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // System-wide hotkeys. No shortcuts are registered by the plugin
+        // itself; `hotkeys::sync` applies the user's bindings once the
+        // dashboard and tray exist.
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         // Serve local media to webviews over http://media.localhost (WebView2
         // treats custom schemes this way, which enables range requests).
         .register_uri_scheme_protocol("media", |_ctx, request| {
@@ -419,8 +425,15 @@ pub fn run() {
             ipc::scene_delete,
             ipc::scene_rename,
             ipc::media_transport,
+            ipc::media_seek,
+            ipc::media_shuffle,
+            ipc::media_repeat,
+            ipc::volume_get,
+            ipc::volume_set,
+            ipc::volume_mute_toggle,
             ipc::media_current,
-            ipc::system_accent
+            ipc::system_accent,
+            ipc::hotkey_validate
         ])
         .setup(|app| {
             let setup_at = std::time::Instant::now();
@@ -429,6 +442,7 @@ pub fn run() {
             // Watch the OS accent so the dashboard rethemes live when the
             // user changes it (Settings > Personalization, or an external app).
             crate::sys_theme::spawn_accent_watcher(app.handle().clone());
+            crate::volume::spawn_watcher(app.handle().clone());
 
             // Apply autostart preference.
             use tauri_plugin_autostart::ManagerExt;
@@ -487,20 +501,17 @@ pub fn run() {
                 // standard expectation; the context menu stays on right-click).
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, button_state: tauri::tray::MouseButtonState::Up, .. } = event {
-                        let app = tray.app_handle();
-                        if let Some(w) = app.get_webview_window("main") {
-                            if w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) {
-                                let _ = w.hide();
-                            } else {
-                                let _ = w.unminimize();
-                                let _ = w.show();
-                                let _ = w.set_focus();
-                            }
-                        }
+                        // Left-click toggles the dashboard (the standard
+                        // expectation; the context menu stays on right-click).
+                        // Same code path as the tray menu and the hotkey.
+                        crate::tray::toggle_dashboard(tray.app_handle());
                     }
                 })
                 .build(app)?;
             crate::tray::refresh(app.handle());
+            // Bind the user's system-wide hotkeys. Nothing is bound until they
+            // opt in from Settings > Global hotkeys.
+            crate::hotkeys::sync(app.handle(), &config_store::get().general.hotkeys);
 
             // First-run: create dashboard + wallpaper.
             let cfg = config_store::get();

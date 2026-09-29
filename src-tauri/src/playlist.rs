@@ -160,9 +160,112 @@ async fn tick() {
 
 static LAST_APPLIED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
+/// Which vault entry `advance` should apply next, given the live wallpaper.
+///
+/// Pure so the ordering rule is testable: it walks the vault in display order
+/// from whichever entry matches what is on screen, wrapping at the end. A
+/// wallpaper that is not a vault entry (a file the user picked directly, or a
+/// shader) has no position, so the walk restarts from the top.
+pub fn next_entry_index(
+    gallery: &[crate::config::GalleryEntry],
+    live: &crate::config::WallpaperConfig,
+) -> Option<usize> {
+    if gallery.is_empty() {
+        return None;
+    }
+    let current = gallery
+        .iter()
+        .position(|g| g.kind == live.kind && g.source == live.source);
+    Some(match current {
+        Some(i) => (i + 1) % gallery.len(),
+        None => 0,
+    })
+}
+
+/// Apply the next vault entry after the one on screen, wrapping at the end.
+/// Backs the "next wallpaper" hotkey so the vault can be stepped without
+/// opening the dashboard.
+///
+/// Per-display overrides are cleared: the point of a "next wallpaper" key is
+/// that something changes on the screens you are looking at, and leaving
+/// stale overrides in place can make the press look like a no-op.
+pub fn advance() -> Option<crate::config::GalleryEntry> {
+    let cfg = crate::config_store::get();
+    let idx = next_entry_index(&cfg.gallery, &cfg.wallpaper)?;
+    let next = cfg.gallery[idx].clone();
+    let app = crate::app_handle()?;
+
+    crate::config_store::update(|c| {
+        c.wallpaper.kind = next.kind;
+        c.wallpaper.source = next.source.clone();
+        c.wallpaper.per_monitor.clear();
+    })
+    .ok()?;
+
+    if crate::config_store::get().general.wallpaper_enabled {
+        let _ = crate::wallpaper::ensure(&app);
+        crate::wallpaper_bg::apply_bg(&crate::config_store::get().wallpaper);
+    }
+    log::info!("playlist: advanced to \"{}\" ({:?})", next.name, next.kind);
+    Some(next)
+}
+
 // Silence unused-variant warnings on WallpaperKind when playlists only use a
 // subset in a given build.
 #[allow(dead_code)]
 fn _kind_used(k: WallpaperKind) -> WallpaperKind {
     k
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{GalleryEntry, WallpaperKind};
+    fn entry(id: &str) -> GalleryEntry {
+        GalleryEntry {
+            id: id.into(),
+            name: id.into(),
+            kind: WallpaperKind::Video,
+            source: format!("C:/{id}.mp4"),
+            added_ms: 0,
+            thumb: None,
+        }
+    }
+
+    fn live(source: &str) -> crate::config::WallpaperConfig {
+        let mut w = crate::config::WallpaperConfig::default();
+        w.kind = WallpaperKind::Video;
+        w.source = source.into();
+        w
+    }
+
+    #[test]
+    fn advance_walks_the_vault_in_order_and_wraps() {
+        let g = vec![entry("a"), entry("b"), entry("c")];
+        assert_eq!(next_entry_index(&g, &live("C:/a.mp4")), Some(1));
+        assert_eq!(next_entry_index(&g, &live("C:/b.mp4")), Some(2));
+        assert_eq!(next_entry_index(&g, &live("C:/c.mp4")), Some(0));
+    }
+
+    #[test]
+    fn advance_from_a_wallpaper_outside_the_vault_starts_at_the_top() {
+        let g = vec![entry("a"), entry("b")];
+        assert_eq!(next_entry_index(&g, &live("C:/elsewhere.mp4")), Some(0));
+    }
+
+    #[test]
+    fn an_empty_vault_has_nothing_to_advance_to() {
+        assert_eq!(next_entry_index(&[], &live("C:/a.mp4")), None);
+    }
+
+    #[test]
+    fn a_kind_mismatch_is_not_a_match() {
+        // Same path, different kind: the vault entry is a different wallpaper.
+        let mut other = entry("a");
+        other.kind = WallpaperKind::Image;
+        let g = vec![other, entry("b")];
+        let mut w = live("C:/a.mp4");
+        w.kind = WallpaperKind::Video;
+        assert_eq!(next_entry_index(&g, &w), Some(0));
+    }
 }

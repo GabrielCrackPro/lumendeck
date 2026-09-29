@@ -1,10 +1,19 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { api } from "../ipc";
 import { IconBulb, IconImage, IconSticker, IconGear, IconPause, IconZap, IconRailCollapse, IconSearch, IconCheck, IconAlert, IconInfo } from "./icons";
 import { DEFAULT_GLOW } from "@shared/constants";
+import { readableOnTheme } from "../accent";
 import TitleBar from "./TitleBar";
+
+/** Read the --glow triplet currently on :root, or null when unparsable. */
+function currentGlow(): [number, number, number] | null {
+  const raw = document.documentElement.style.getPropertyValue("--glow").trim();
+  const parts = raw.split(/\s+/).map(Number);
+  if (parts.length !== 3 || parts.some((v) => !Number.isFinite(v))) return null;
+  return parts as [number, number, number];
+}
 const CommandPalette = lazy(() => import("./CommandPalette"));
 
 // Tab code is split so the initial bundle only carries the Overview; other
@@ -40,6 +49,10 @@ const SETTINGS_TAB: {
  * Resolve the UI accent glow. Priority: the wallpaper's own dominant color
  * (the UI breathes with the wallpaper — the whole point of the app), then the
  * user's explicit device pick, then static color, then the default.
+ * Every branch passes through readableOnTheme(): source colors are chosen for
+ * hardware/screens, not for legibility on the dashboard, so a near-black
+ * wallpaper tone or a dim static shade gets lifted to a readable shade of
+ * the same hue instead of smearing into the panels.
  */
 function useGlow() {
   const deviceColors = useStore((s) => s.deviceColors);
@@ -49,6 +62,8 @@ function useGlow() {
   const devices = useStore((s) => s.rgb.devices);
   const accentDevice = useStore((s) => s.cfg?.rgb.accentDevice);
   const accentLive = useStore((s) => s.cfg?.general.accentLive);
+  const theme = useStore((s) => s.cfg?.general.theme ?? "dark");
+  const autoShade = useStore((s) => s.cfg?.general.accentAutoShade ?? 1);
   const wallpaperColor = useStore((s) => s.wallpaperColor);
   // The user's Windows accent color, seeded once via IPC and kept live by the
   // backend watcher (SYSTEM_ACCENT). This is the deep fallback for every
@@ -74,25 +89,31 @@ function useGlow() {
       ? wallpaperColor
       : null;
   return useMemo<[number, number, number]>(() => {
+    // One readability pass for every source: the raw color keeps its identity
+    // (hue, character) when it already clears the contrast floor; otherwise it
+    // steps toward white/black until the accent is legible on this theme.
+    // Strength is user-tunable (Settings > Appearance); 0 = raw colors.
+    const pick = (c: [number, number, number]) =>
+      readableOnTheme(c, theme === "light" ? "light" : "dark", Math.max(0, Math.min(1, autoShade)));
     const fallback =
       mode === "static" || mode === "breathe" ? staticColor : undefined;
     // Wallpaper color leads when present: the interface IS the wallpaper's
     // mood. (wallpaperPaused frames freeze too — fine, color stays coherent.)
-    if (accentLive && wpColor) return wpColor;
+    if (accentLive && wpColor) return pick(wpColor);
     // Default: UI accent is calm — the OS accent leads (staticColor carries
     // a factory default that would otherwise always win and pin the UI to
     // that blue regardless of the user's Windows theme).
     if (!accentLive) {
-      return sysAccent ?? staticColor ?? fallback ?? DEFAULT_GLOW;
+      return pick(sysAccent ?? staticColor ?? fallback ?? DEFAULT_GLOW);
     }
     // "Off" (-1): freeze the accent to the configured static color.
     if (accentDevice === -1) {
-      return staticColor ?? fallback ?? sysAccent ?? DEFAULT_GLOW;
+      return pick(staticColor ?? fallback ?? sysAccent ?? DEFAULT_GLOW);
     }
     // Manual pick wins outright (even if black — the user chose it).
     if (accentDevice != null) {
       const picked = deviceColors[accentDevice]?.rgb;
-      if (picked) return picked;
+      if (picked) return pick(picked);
     }
     // Otherwise prefer a device actually in the loop: the keyboard first,
     // then any non-excluded device, so an excluded/black device never tints
@@ -108,29 +129,31 @@ function useGlow() {
     const live =
       activeIds.map((id) => deviceColors[id]?.rgb).find((c) => c != null) ??
       Object.values(deviceColors).find((c) => c.rgb.some((v) => v > 0))?.rgb;
-    return live ?? wpColor ?? fallback ?? sysAccent ?? DEFAULT_GLOW;
-  }, [deviceColors, mode, staticColor, excluded, devices, accentDevice, accentLive, wpColor, sysAccent]);
+    return pick(live ?? wpColor ?? fallback ?? sysAccent ?? DEFAULT_GLOW);
+  }, [deviceColors, mode, staticColor, excluded, devices, accentDevice, accentLive, wpColor, sysAccent, theme, autoShade]);
 }
 
 /** Full-window boot splash shown until the backend hands us the config. */
 function BootSplash() {
   return (
-    <div className="relative z-10 flex h-full w-full flex-col items-center justify-center gap-4">
+    <div className="relative z-10 flex h-full w-full flex-col items-center justify-center gap-5">
       <img
         src="/app-icon.png"
         alt=""
-        className="h-14 w-14 animate-[lpage_0.6s_ease-out_both] rounded-xl border border-[rgb(var(--glow)/0.5)]"
+        className="h-14 w-14 animate-[lbreath_2.4s_ease-in-out_infinite] rounded-xl border border-[rgb(var(--glow)/0.5)]"
       />
-      <div className="flex items-center gap-1.5">
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="h-1 w-4 animate-[lpulse_1.4s_ease-in-out_infinite] rounded-[2px] bg-[rgb(var(--glow))]"
-            style={{ animationDelay: `${i * 0.2}s` }}
-          />
-        ))}
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="h-1 w-8 rounded-full animate-[lpulse_1.4s_ease-in-out_infinite] bg-[rgb(var(--glow))] shadow-[0_0_6px_rgb(var(--glow))]"
+              style={{ animationDelay: `${i * 0.2}s` }}
+            />
+          ))}
+        </div>
+        <div className="kicker">initializing engine</div>
       </div>
-      <div className="kicker">initializing engine</div>
     </div>
   );
 }
@@ -360,14 +383,28 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Skeleton matching a tab's card rhythm while a lazy chunk streams in. */
+/**
+ * Skeleton matching a tab's card rhythm while a lazy chunk streams in.
+ * Mimics the Overview grid (hero band + two-column cards) so the swap from
+ * skeleton to content moves the least amount of pixels possible.
+ */
 function TabSkeleton() {
   return (
-    <div className="stagger space-y-6">
-      <div className="glass h-44" />
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="glass h-64" />
-        <div className="glass h-64" />
+    <div className="stagger space-y-5">
+      <div className="flex items-end justify-between">
+        <div className="space-y-2">
+          <div className="glass h-6 w-52 rounded-md" />
+          <div className="glass h-3 w-72 rounded-md" />
+        </div>
+        <div className="glass h-7 w-20 rounded-lg" />
+      </div>
+      <div className="grid gap-5 xl:grid-cols-12">
+        <div className="glass h-72 xl:col-span-5" />
+        <div className="glass h-72 xl:col-span-7" />
+      </div>
+      <div className="grid gap-5 xl:grid-cols-12">
+        <div className="glass h-48 xl:col-span-7" />
+        <div className="glass h-48 xl:col-span-5" />
       </div>
     </div>
   );
@@ -470,8 +507,40 @@ export default function Shell() {
     } catch {}
   }, [collapsed]);
 
+  // Ease the accent instead of snapping. --glow changes its source constantly
+  // (OS accent at boot, then the wallpaper's dominant color, then live drift
+  // as the wallpaper plays). Snapping between sources reads as a hard flash;
+  // a short exponential chase keeps the theme continuous. Done in JS because
+  // CSS transitions can't interpolate a space-triplet custom property, and
+  // the rAF cost is one string write per frame while converging.
+  const glowRef = useRef(glow);
   useEffect(() => {
-    document.documentElement.style.setProperty("--glow", glow.join(" "));
+    glowRef.current = glow;
+    const root = document.documentElement;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      root.style.setProperty("--glow", glow.join(" "));
+      return;
+    }
+    let raf = 0;
+    const cur = currentGlow() ?? glow;
+    const tick = () => {
+      const target = glowRef.current;
+      const now = currentGlow() ?? target;
+      let settled = true;
+      const next = target.map((t, i) => {
+        const c = now[i] ?? t;
+        const v = c + (t - c) * 0.14;
+        if (Math.abs(t - v) > 0.5) settled = false;
+        return Math.round(v * 10) / 10;
+      }) as [number, number, number];
+      root.style.setProperty("--glow", next.join(" "));
+      if (!settled) raf = requestAnimationFrame(tick);
+      else root.style.setProperty("--glow", target.join(" "));
+    };
+    // Start from wherever the property actually is (survives HMR/reparent).
+    root.style.setProperty("--glow", cur.join(" "));
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [glow]);
 
   // Keyboard navigation: Ctrl+1..5 jump between tabs. The dashboard is used

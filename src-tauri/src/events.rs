@@ -31,6 +31,14 @@ pub const MEDIA_SESSION: &str = "media-session";
 /// Emitted when the user (or the OS) changes the Windows accent color;
 /// payload: [r, g, b]. Lets the dashboard retheme live without a restart.
 pub const SYSTEM_ACCENT: &str = "system-accent-changed";
+/// Emitted whenever the system master volume or mute changes (any source);
+/// payload: [volume_percent, muted_flag] floats. Lets the player's volume
+/// slider mirror keyboard/taskbar/other-app changes live.
+pub const VOLUME_CHANGED: &str = "volume-changed";
+/// Emitted when a global hotkey could not be taken (another app owns the
+/// combo) or when a pressed hotkey had nothing to act on. Payload:
+/// `HotkeyError { action, accelerator, message }`.
+pub const HOTKEY_ERROR: &str = "hotkey-error";
 
 /// Final preview size chosen with the wheel during the last placement.
 static PLACEMENT_SIZE: std::sync::Mutex<Option<i32>> = std::sync::Mutex::new(None);

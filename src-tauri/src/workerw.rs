@@ -13,9 +13,9 @@ use std::sync::Mutex;
 use windows::core::w;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, GA_PARENT, GetAncestor, GetClassNameW, GetWindowRect, HWND_BOTTOM,
-    SendMessageTimeoutW, SetParent, SetWindowPos, SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE,
+    FindWindowExW, GA_PARENT, GetAncestor, GetClassNameW, GetWindow, GetWindowRect,
+    GW_HWNDNEXT, GW_HWNDPREV, HWND_BOTTOM, SendMessageTimeoutW, SetParent, SetWindowPos,
+    SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,9 +178,11 @@ pub fn attach(hwnd: HWND, monitor: (i32, i32, u32, u32)) -> Result<(), String> {
 }
 
 /// Put `hwnd` directly below SHELLDLL_DefView in its parent's Z-order.
-/// No-op-ish when already correct: SetWindowPos to the same slot still
-/// succeeds silently. Falls back to HWND_BOTTOM when DefView is absent
-/// (dedicated wallpaper WorkerW topology, where bottom == correct).
+/// Falls back to HWND_BOTTOM when DefView is absent (dedicated wallpaper
+/// WorkerW topology, where bottom == correct). Cheap when already correct:
+/// the current Z-order is read with GetWindow first and SetWindowPos —
+/// which can trigger a repaint of the whole window and read as a flicker —
+/// is skipped entirely unless something actually stole the slot.
 fn reassert_below_icons(hwnd: HWND) {
     unsafe {
         let parent = GetAncestor(hwnd, GA_PARENT);
@@ -190,6 +192,21 @@ fn reassert_below_icons(hwnd: HWND) {
         let def_view: HWND =
             FindWindowExW(Some(parent), None, w!("SHELLDLL_DefView"), None).unwrap_or_default();
         let after = if def_view.is_invalid() { HWND_BOTTOM } else { def_view };
+        if after == HWND_BOTTOM {
+            // Bottom slot: correct iff nothing sits BELOW us in Z-order — one
+            // GW_HWNDNEXT lookup.
+            let below = GetWindow(hwnd, GW_HWNDNEXT).unwrap_or_default();
+            if below.is_invalid() {
+                return;
+            }
+        } else {
+            // Slot is "after DefView": correct iff the window immediately
+            // above us IS the DefView. One GetWindow call, no SetWindowPos.
+            let above = GetWindow(hwnd, GW_HWNDPREV).unwrap_or_default();
+            if above == def_view {
+                return;
+            }
+        }
         let _ = SetWindowPos(
             hwnd,
             Some(after),

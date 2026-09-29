@@ -12,12 +12,12 @@ import { GLOW_TEXT_DARK } from "@shared/constants";
  * user never sees a half-built interface (empty cards, stale counters):
  *   1. config + RGB status loaded from the backend
  *   2. the first RGB frame arrived (engine is actually streaming)
- *   3. a short beat for lazy tab chunks to warm + the window to settle
+ *   3. a short beat for the window to settle
  * If the engine never streams a frame (no OpenRGB, all devices excluded),
  * gate 2 falls away after a grace period instead of blocking forever.
  */
-const FIRST_FRAME_GRACE_MS = 4000;
-const MIN_SPLASH_MS = 900; // avoids a jarring flash of the splash
+const FIRST_FRAME_GRACE_MS = 2500;
+const MIN_SPLASH_MS = 700; // avoids a jarring flash of the splash
 
 type Stage = 0 | 1 | 2 | 3;
 const STAGE_LABEL: Record<Stage, string> = {
@@ -26,6 +26,28 @@ const STAGE_LABEL: Record<Stage, string> = {
   2: "waking the lights",
   3: "polishing the glass",
 };
+
+/**
+ * Warm the lazy tab chunks while the splash is still up, so the first tab
+ * click (and the Overview's first paint) never sits on a skeleton. Idle
+ * scheduling keeps this off the critical path; failures are harmless because
+ * Suspense retry handles them on demand.
+ */
+function preloadTabs() {
+  const kick = () => {
+    void import("./components/tabs/OverviewTab");
+    void import("./components/tabs/RgbTab");
+    void import("./components/tabs/WallpaperTab");
+    void import("./components/tabs/StickersTab");
+    void import("./components/tabs/GeneralTab");
+    void import("./components/CommandPalette");
+  };
+  if ("requestIdleCallback" in window) {
+    requestIdleCallback(kick, { timeout: 1500 });
+  } else {
+    setTimeout(kick, 200);
+  }
+}
 
 export default function App() {
   // Scoped: a bare useStore() would re-render the whole app on every RGB
@@ -44,6 +66,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    preloadTabs();
     load();
     const unbind = bindEvents();
     return () => {
@@ -79,9 +102,31 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [loaded, stage]);
 
+  // Gate 2's real signal: the first RGB frame from the engine. Without this
+  // the splash always burned its full grace timeout on every launch —
+  // the single biggest "why does this take so long to open" offender. A
+  // machine without OpenRGB (or with everything muted) never streams frames,
+  // so an offline engine + loaded config also releases the gate immediately;
+  // the grace timeout remains as the fallback for a hung connection.
+  const gate2Done = useRef(false);
+  useEffect(() => {
+    if (stage >= 2 || gate2Done.current) return;
+    const check = () => {
+      const s = useStore.getState();
+      const streaming = Object.keys(s.deviceColors).length > 0;
+      const engineDown = !s.rgb.connected && s.loaded;
+      if (streaming || engineDown) {
+        gate2Done.current = true;
+        setStage((st) => Math.max(st, 2) as Stage);
+      }
+    };
+    check();
+    return useStore.subscribe(check);
+  }, [stage]);
+
   useEffect(() => {
     if (stage < 2) return;
-    const t = window.setTimeout(() => setStage(3), 350);
+    const t = window.setTimeout(() => setStage(3), 250);
     return () => window.clearTimeout(t);
   }, [stage]);
 
@@ -113,12 +158,15 @@ export default function App() {
     root.classList.toggle("dark", theme !== "light");
   }, [cfg?.general.theme, cfg?.general.amoled]);
 
+  // Theme must be known before ANY chrome paints: applying it after the
+  // splash would flash the wrong palette. Seed from the store synchronously
+  // (the config may already be in the store from a fast reload).
   if (loadError) {
     return <LoadError error={loadError} onRetry={() => load()} />;
   }
 
   if (!ready) {
-    return <Splash stage={stage} />;
+    return <Splash stage={stage} streaming={Object.keys(useStore.getState().deviceColors).length > 0} />;
   }
 
   if (cfg && !cfg.general.onboarded) {
@@ -129,7 +177,7 @@ export default function App() {
 }
 
 /** Boot splash: the LumenDeck LED mark with live staging readout. */
-function Splash({ stage }: { stage: Stage }) {
+function Splash({ stage, streaming }: { stage: Stage; streaming: boolean }) {
   const steps = [0, 1, 2, 3];
   const pct = ((stage + 1) / 4) * 100;
   return (
@@ -166,6 +214,9 @@ function Splash({ stage }: { stage: Stage }) {
         </div>
         <div className="font-mono text-[10px] tabular-nums text-[var(--text-faint)]">
           {pct.toFixed(0)}%
+          {streaming && (
+            <span className="ml-2 text-[rgb(var(--glow))]">live</span>
+          )}
         </div>
       </div>
     </div>
@@ -174,6 +225,14 @@ function Splash({ stage }: { stage: Stage }) {
 
 /** Backend connect failure — readable reason + a glowing retry. */
 function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
+  const [retrying, setRetrying] = useState(false);
+  const retry = () => {
+    setRetrying(true);
+    onRetry();
+    // onRetry is async (store load); if it fails again the error re-renders
+    // and this flag resets via the store update. Optimistic spinner only.
+    setTimeout(() => setRetrying(false), 1200);
+  };
   return (
     <div className="grain relative flex h-screen items-center justify-center overflow-hidden">
       <div className="aura" />
@@ -203,12 +262,13 @@ function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
           {error}
         </pre>
         <button
-          onClick={onRetry}
-          className="glow-fill inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-transform active:scale-[0.97]"
+          onClick={retry}
+          disabled={retrying}
+          className="glow-fill inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-transform active:scale-[0.97] disabled:opacity-60"
           style={{ color: GLOW_TEXT_DARK }}
         >
-          <IconRefresh className="h-4 w-4" />
-          Retry connection
+          <IconRefresh className={`h-4 w-4 ${retrying ? "animate-spin" : ""}`} />
+          {retrying ? "Reconnecting…" : "Retry connection"}
         </button>
       </div>
     </div>

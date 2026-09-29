@@ -62,6 +62,11 @@ pub struct GeneralConfig {
     /// First-run onboarding wizard has been completed. False on fresh
     /// installs; the dashboard shows a guided setup until it's done.
     pub onboarded: bool,
+    /// Dashboard accent auto-shade: how strongly the UI lifts/darkens a
+    /// source color until it is legible on the theme surface. 0.0 = off
+    /// (raw colors, may be hard to read), 1.0 = full adjustment to clear
+    /// the contrast floor. Hardware colors are unaffected either way.
+    pub accent_auto_shade: f64,
     /// AMOLED mode: true-black surfaces in dark theme (pixels fully off on
     /// OLED panels). Ignored in light theme.
     pub amoled: bool,
@@ -81,7 +86,84 @@ pub struct GeneralConfig {
     /// Internal: the last version whose release notes were opened in the
     /// dashboard. Empty = never read. Drives the "what's new" marker.
     pub changelog_seen_version: String,
-}
+    /// System-wide key bindings, applied by `crate::hotkeys` from the tray
+    /// process so they keep working while the dashboard is hidden.
+    pub hotkeys: HotkeyConfig,
+}
+
+/// One configurable system-wide shortcut.
+///
+/// `accelerator` uses the Tauri/`global-hotkey` grammar, e.g.
+/// `"Ctrl+Alt+M"`. An empty string means "not bound" — bindings default to
+/// unbound on purpose: registering OS-wide key grabs the user never asked for
+/// is the fastest way to make an ambient app feel hostile. The dashboard shows
+/// a suggested combo per action and the user opts in.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HotkeyBinding {
+    pub accelerator: String,
+}
+
+impl HotkeyBinding {
+    pub fn bound(accelerator: &str) -> Self {
+        Self {
+            accelerator: accelerator.to_string(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.accelerator.trim().is_empty()
+    }
+}
+
+/// Every action a hotkey can trigger, each with its own (possibly empty)
+/// binding. Adding a field here is additive: older config files deserialize
+/// with the field defaulted, and the action shows up unbound in the UI.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HotkeyConfig {
+    /// Show the dashboard if hidden, hide it if visible.
+    pub toggle_dashboard: HotkeyBinding,
+    pub play_pause: HotkeyBinding,
+    pub next_track: HotkeyBinding,
+    pub prev_track: HotkeyBinding,
+    /// Mute/unmute the system output device.
+    pub toggle_mute: HotkeyBinding,
+    /// System volume up/down by 5%.
+    pub volume_up: HotkeyBinding,
+    pub volume_down: HotkeyBinding,
+    /// Pause/resume the live wallpaper.
+    pub toggle_wallpaper: HotkeyBinding,
+    /// Step to the next lighting mode (same order as the tray menu).
+    pub cycle_lighting_mode: HotkeyBinding,
+    /// Cycle saved RGB profiles.
+    pub next_profile: HotkeyBinding,
+    /// Apply the next saved scene profile.
+    pub next_scene: HotkeyBinding,
+    /// Advance the active playlist / gallery to the next entry.
+    pub next_wallpaper: HotkeyBinding,
+}
+
+impl HotkeyConfig {
+    /// `(action id, binding)` pairs, in a stable order. The ids match the
+    /// frontend's `HotkeyAction` union and the tray's dispatch table.
+    pub fn entries(&self) -> [(&'static str, &HotkeyBinding); 12] {
+        [
+            ("toggleDashboard", &self.toggle_dashboard),
+            ("playPause", &self.play_pause),
+            ("nextTrack", &self.next_track),
+            ("prevTrack", &self.prev_track),
+            ("toggleMute", &self.toggle_mute),
+            ("volumeUp", &self.volume_up),
+            ("volumeDown", &self.volume_down),
+            ("toggleWallpaper", &self.toggle_wallpaper),
+            ("cycleLightingMode", &self.cycle_lighting_mode),
+            ("nextProfile", &self.next_profile),
+            ("nextScene", &self.next_scene),
+            ("nextWallpaper", &self.next_wallpaper),
+        ]
+    }
+}
 
 impl Default for GeneralConfig {
     fn default() -> Self {
@@ -100,6 +182,7 @@ impl Default for GeneralConfig {
             accent_sync_armed: false,
             lock_screen_follows_wallpaper: false,
             onboarded: false,
+            accent_auto_shade: 1.0,
             amoled: false,
             // Tray, not taskbar: a taskbar button for a window that only
             // shows a wallpaper would be the app's most visible feature.
@@ -107,6 +190,8 @@ impl Default for GeneralConfig {
             show_dashboard_on_login: false,
             startup_hint_shown: false,
             changelog_seen_version: String::new(),
+            // Unbound by default; see HotkeyBinding.
+            hotkeys: HotkeyConfig::default(),
         }
     }
 }
@@ -661,5 +746,63 @@ mod playlist_tests {
         let back: WallpaperPlaylist = serde_json::from_str(&json).unwrap();
         assert_eq!(pl, back);
         assert!(json.contains("\"shuffleMin\":30"));
+    }
+
+    // ---------- Hotkeys ----------
+
+    #[test]
+    fn hotkeys_default_to_unbound() {
+        let g = GeneralConfig::default();
+        for (id, binding) in g.hotkeys.entries() {
+            assert!(binding.is_empty(), "{id} must not grab a key on first run");
+        }
+    }
+
+    #[test]
+    fn hotkey_entries_cover_every_action_exactly_once() {
+        let g = GeneralConfig::default();
+        let mut ids: Vec<&str> = g.hotkeys.entries().iter().map(|(id, _)| *id).collect();
+        let count = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), count, "duplicate action id in HotkeyConfig::entries");
+        for expected in [
+            "toggleDashboard",
+            "playPause",
+            "nextTrack",
+            "prevTrack",
+            "toggleMute",
+            "volumeUp",
+            "volumeDown",
+            "toggleWallpaper",
+            "cycleLightingMode",
+            "nextProfile",
+            "nextScene",
+            "nextWallpaper",
+        ] {
+            assert!(ids.contains(&expected), "entries() is missing {expected}");
+        }
+    }
+
+    #[test]
+    fn hotkeys_survive_an_old_config_without_the_section() {
+        // A config written before hotkeys existed must still load, with the
+        // whole section defaulted rather than the file being rejected.
+        let old = serde_json::json!({ "version": 1, "general": { "theme": "dark" } });
+        let cfg: Config = serde_json::from_value(old).expect("pre-hotkey config must parse");
+        assert!(cfg.general.hotkeys.entries().iter().all(|(_, b)| b.is_empty()));
+    }
+
+    #[test]
+    fn hotkey_binding_roundtrips_and_ignores_blank_accelerators() {
+        let mut hk = HotkeyConfig::default();
+        hk.toggle_mute = HotkeyBinding::bound("Ctrl+Alt+M");
+        hk.play_pause = HotkeyBinding::bound("   ");
+        let json = serde_json::to_string(&hk).unwrap();
+        assert!(json.contains("\"accelerator\":\"Ctrl+Alt+M\""));
+        let back: HotkeyConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(hk, back);
+        assert!(!back.toggle_mute.is_empty());
+        assert!(back.play_pause.is_empty(), "whitespace is not a binding");
     }
 }

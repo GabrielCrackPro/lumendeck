@@ -3,7 +3,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section, InfoNote, chipStyle, ItemTitle } from "../ui";
+import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section, InfoNote, chipStyle, ItemTitle, OVERLAY_ICON_BTN } from "../ui";
 import { IconImage, IconLayers, IconGlobe, IconPlus, IconTrash, IconPencil, IconPlay, IconFolder } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
 import type { Config, GalleryEntry, WallpaperKind, ZoneDef } from "@shared/types";
@@ -583,7 +583,7 @@ export default function WallpaperTab() {
                               <button
                                 onClick={() => clearMonitor(m.device)}
                                 title="Reset to global"
-                                className="shrink-0 rounded-md border border-white/15 px-1.5 py-1 text-[10px] text-white/50 transition-colors hover:text-white"
+                                className="shrink-0 rounded-[5px] border border-white/15 px-1.5 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-white/60 transition-colors hover:border-white/40 hover:text-white"
                               >
                                 reset
                               </button>
@@ -701,7 +701,7 @@ export default function WallpaperTab() {
                       e.stopPropagation();
                       setAddToCol(addToCol === g.id ? null : g.id);
                     }}
-                    className="absolute right-11 top-2 hidden h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-black/60 text-white/70 backdrop-blur transition-colors hover:text-white group-hover:flex"
+                    className={`absolute right-11 top-2 hidden group-hover:flex ${OVERLAY_ICON_BTN}`}
                   >
                     <IconFolder className="h-3.5 w-3.5" />
                   </button>
@@ -718,7 +718,7 @@ export default function WallpaperTab() {
                         )
                         .catch((e) => toast("error", `Remove failed: ${truncateError(e)}`));
                     }}
-                    className="absolute right-2 top-2 hidden h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-black/60 text-white/70 backdrop-blur transition-colors hover:bg-red-500 hover:text-white group-hover:flex"
+                    className={`absolute right-2 top-2 hidden hover:!bg-red-500 group-hover:flex ${OVERLAY_ICON_BTN}`}
                   >
                     <IconTrash className="h-3.5 w-3.5" />
                   </button>
@@ -730,7 +730,7 @@ export default function WallpaperTab() {
               <div className="mt-4 flex justify-center">
                 <button
                   onClick={() => setLimit((n) => n + GALLERY_PAGE)}
-                  className="rounded-full border border-[var(--line-strong)] bg-[var(--panel-strong)] px-5 py-2 text-xs font-semibold text-[var(--text-dim)] hover-glow"
+                  className="rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-5 py-2 text-xs font-semibold text-[var(--text-dim)] hover-glow active:scale-[0.97]"
                 >
                   Show {Math.min(GALLERY_PAGE, gallery.length - visibleGallery.length)} more
                   <span className="hint ml-1.5">

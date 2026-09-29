@@ -7,6 +7,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { api } from "../ipc";
 import { truncateError } from "../utilities";
+import { MINI_BTN } from "./ui";
 import {
   IconZap,
   IconBulb,
@@ -490,7 +491,7 @@ export default function CommandPalette({
             <button
               onClick={() => setSub(null)}
               title="Back to all commands"
-              className="ml-3 flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--line)] px-2 py-1 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] hover-glow"
+              className={`${MINI_BTN} ml-3 shrink-0 px-2 py-1`}
             >
               <span className="text-[11px] leading-none">←</span>
               {SUB_META[sub].crumb}

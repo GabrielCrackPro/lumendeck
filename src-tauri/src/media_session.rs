@@ -42,6 +42,23 @@ pub struct MediaInfo {
     /// executable. Empty = the UI falls back to a generic glyph.
     #[serde(default)]
     pub app_icon: String,
+    /// Playback position at sampling time, seconds (timeline may be absent).
+    #[serde(default)]
+    pub position_sec: f64,
+    /// Track duration, seconds. 0 = the sender reports no timeline.
+    #[serde(default)]
+    pub duration_sec: f64,
+    /// Unix ms when `position_sec` was sampled; the UI advances the bar
+    /// locally between polls instead of waiting for the next one.
+    #[serde(default)]
+    pub position_updated_ms: u64,
+    /// Shuffle state reported by the sender. None = the app doesn't expose
+    /// it (button renders disabled rather than wrong).
+    #[serde(default)]
+    pub shuffle: Option<bool>,
+    /// Repeat mode reported by the sender: 0 off, 1 track, 2 list/queue.
+    #[serde(default)]
+    pub repeat: Option<u8>,
 }
 
 impl MediaInfo {
@@ -173,7 +190,51 @@ fn read_current() -> Result<Option<MediaInfo>, windows::core::Error> {
         .and_then(|t| decode_art(&t).ok())
         .unwrap_or_default();
     // App icon: resolve the AUMID to a window/pipeline and pull its icon.
-    let app_icon = app_icon_data_uri(&raw_aumid).unwrap_or_default();
+    // Cached per AUMID: manifest parsing + logo decode are disk work that
+    // would otherwise repeat on every SMTC poll (~1Hz).
+    let app_icon = cached_app_icon(&raw_aumid);
+
+    // Timeline: position + duration for the player bar. Some senders report
+    // nothing (or a zero duration) — the UI hides the bar in that case.
+    let (position_sec, duration_sec) = session
+        .GetTimelineProperties()
+        .map(|t| {
+            let pos = t.Position().map(|p| p.Duration).unwrap_or(0) as f64 / 10_000_000.0;
+            let dur = t.EndTime().map(|e| e.Duration).unwrap_or(0) as f64 / 10_000_000.0;
+            (pos.max(0.0), dur.max(0.0))
+        })
+        .unwrap_or((0.0, 0.0));
+    let position_updated_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    // Shuffle / repeat state. The capability gates live on PlaybackControls
+    // (info.Controls()); the current values sit on PlaybackInfo itself. A
+    // missing capability => None => the UI hides/disables the toggle.
+    let info = session.GetPlaybackInfo().ok();
+    let controls = info.as_ref().and_then(|i| i.Controls().ok());
+    let shuffle = controls
+        .as_ref()
+        .and_then(|c| c.IsShuffleEnabled().ok())
+        .unwrap_or(false)
+        .then(|| {
+            info.as_ref()
+                .and_then(|i| i.IsShuffleActive().ok())
+                .and_then(|r| r.Value().ok())
+        })
+        .flatten();
+    let repeat = controls
+        .as_ref()
+        .and_then(|c| c.IsRepeatEnabled().ok())
+        .unwrap_or(false)
+        .then(|| {
+            info.as_ref()
+                .and_then(|i| i.AutoRepeatMode().ok())
+                .and_then(|r| r.Value().ok())
+                .map(|m| m.0 as u8)
+        })
+        .flatten();
 
     Ok(Some(MediaInfo {
         title,
@@ -183,6 +244,11 @@ fn read_current() -> Result<Option<MediaInfo>, windows::core::Error> {
         art,
         app_icon,
         playing,
+        position_sec,
+        duration_sec,
+        position_updated_ms,
+        shuffle,
+        repeat,
     }))
 }
 
@@ -244,25 +310,158 @@ fn decode_art(reference: &windows::Storage::Streams::IRandomAccessStreamReferenc
     Ok(format!("data:{mime};base64,{b64}"))
 }
 
+/// Per-AUMID icon cache. A failed lookup caches the empty string too, so a
+/// sender without an extractable icon stops re-probing the disk every poll.
+fn cached_app_icon(aumid: &str) -> String {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, String>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = cache.lock().expect("app icon cache poisoned");
+    if let Some(hit) = map.get(aumid) {
+        return hit.clone();
+    }
+    let icon = app_icon_data_uri(aumid).unwrap_or_default();
+    map.insert(aumid.to_string(), icon.clone());
+    icon
+}
+
 /// Extract the source app's icon and return it as a PNG data URI.
 ///
 /// Resolution order:
-/// 1. Packaged app (AUMID without `.exe`): GetPackagePathByFullName for the
-///    package dir, then its manifest default icon — complex; skipped.
+/// 1. Packaged app (AUMID like `SpotifyAB.SpotifyMusic_...!App`): resolve the
+///    package install dir from the full name, parse AppxManifest.xml for the
+///    app's Square44x44Logo / Square150x150Logo / default tile logo, find the
+///    best scale variant on disk, decode + PNG-encode.
 /// 2. Classic exe (AUMID endswith `.exe`): the AUMID often *is* the path.
 ///    SHGetFileInfoW pulls the icon handle, CopyIcon + GetIconInfo give the
 ///    bitmaps, PNG-encode.
 /// 3. Fallback: empty (UI shows a glyph). Non-fatal — names still display.
 fn app_icon_data_uri(aumid: &str) -> Option<String> {
-    // Only the classic-exe path is reliable; package icons need the
-    // AppxManifest dance and most SMTC senders are packaged anyway... but
-    // their AUMIDs don't end in .exe. Try a plain path probe first.
     let path = aumid.trim();
-    if !path.to_ascii_lowercase().ends_with(".exe") || !std::path::Path::new(path).is_file() {
-        // Not a resolvable exe path — no icon.
+    if path.to_ascii_lowercase().ends_with(".exe") {
+        if std::path::Path::new(path).is_file() {
+            return extract_exe_icon(path);
+        }
         return None;
     }
-    extract_exe_icon(path)
+    // Packaged AUMID: `<PackageFamily>!<AppId>` — the part before `!` is the
+    // package full name (no `!` means the whole string is it).
+    let full_name = raw_aumid_package_full_name(path);
+    extract_package_icon(&full_name)
+}
+
+/// The package full name portion of a raw AUMID (before the `!App` suffix).
+fn raw_aumid_package_full_name(aumid: &str) -> &str {
+    aumid.split('!').next().unwrap_or(aumid).trim()
+}
+
+/// Extract a packaged app's tile logo as a PNG data URI.
+fn extract_package_icon(package_full_name: &str) -> Option<String> {
+    use windows::Win32::Storage::Packaging::Appx::GetPackagePathByFullName;
+    use windows::core::HSTRING;
+
+    if package_full_name.is_empty() {
+        return None;
+    }
+    unsafe {
+        // Two-call pattern: first with no buffer to get the length.
+        let mut len = 0u32;
+        let err = GetPackagePathByFullName(
+            &HSTRING::from(package_full_name),
+            &mut len,
+            None,
+        );
+        if err.is_err() || len == 0 {
+            return None;
+        }
+        let mut buf = vec![0u16; len as usize];
+        let pw = windows::core::PWSTR(buf.as_mut_ptr());
+        let err = GetPackagePathByFullName(
+            &HSTRING::from(package_full_name),
+            &mut len,
+            Some(pw),
+        );
+        if err.is_err() {
+            return None;
+        }
+        let install = String::from_utf16_lossy(&buf[..(len as usize - 1).max(0)]);
+        let manifest = std::path::Path::new(&install).join("AppxManifest.xml");
+        let xml = std::fs::read_to_string(&manifest).ok()?;
+        let logo = manifest_logo_path(&xml)?;
+        let png = load_logo_png(&install, &logo, 48)?;
+        Some(png_to_data_uri(png))
+    }
+}
+
+/// Pull the app's logo attribute out of AppxManifest.xml without a real XML
+/// parser: the manifest is machine-written, so the first `Attr="value"` hit
+/// for a known logo attribute is reliable. A tiny scan keeps deps flat.
+fn manifest_logo_path(xml: &str) -> Option<String> {
+    for attr in [
+        "Square44x44Logo=",
+        "Square150x150Logo=",
+        "Square310x310Logo=",
+        "Square71x71Logo=",
+        "Logo=",
+    ] {
+        if let Some(pos) = xml.find(attr) {
+            let rest = &xml[pos + attr.len()..];
+            // Value must be a double-quoted attribute; manifests always use
+            // `"`. Accept single quotes defensively.
+            for quote in ['"', '\''] {
+                if let Some(stripped) = rest.strip_prefix(quote) {
+                    if let Some(end) = stripped.find(quote) {
+                        let v = stripped[..end].trim();
+                        if !v.is_empty() {
+                            return Some(v.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Resolve a manifest logo path (no extension, scale-agnostic) to the best
+/// available PNG/JPG file on disk and decode it. Tries the highest useful
+/// scales first, falls back to the extensionless base name.
+fn load_logo_png(install: &str, logo: &str, edge: u32) -> Option<Vec<u8>> {
+    let base = std::path::Path::new(install).join(logo.replace('\\', "/"));
+    let dir = base.parent()?;
+    let name = base.file_name()?.to_string_lossy().to_string();
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    // Highest-first: scale 200 is the sweet spot for a 48px thumb; skip
+    // the rest unless missing. Also try the theme-neutral fallbacks.
+    for scale in ["scale-200", "scale-150", "scale-100", "scale-400"] {
+        for ext in [".png", ".jpg"] {
+            candidates.push(dir.join(format!("{name}.{scale}{ext}")));
+        }
+    }
+    for ext in [".png", ".jpg"] {
+        candidates.push(dir.join(format!("{name}{ext}")));
+    }
+    for c in candidates {
+        if let Ok(bytes) = std::fs::read(&c) {
+            if let Ok(img) = image::load_from_memory(&bytes) {
+                let resized = img.resize_to_fill(edge, edge, image::imageops::FilterType::Lanczos3);
+                let mut out = Vec::with_capacity(8 * 1024);
+                if resized
+                    .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+                    .is_ok()
+                {
+                    return Some(out);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn png_to_data_uri(png: Vec<u8>) -> String {
+    use base64::Engine as _;
+    format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&png))
 }
 
 /// Pull the first (large) icon out of an .exe and PNG-encode it at 48px.
@@ -409,6 +608,79 @@ pub fn transport(action: &str) -> Result<(), String> {
     }
 }
 
+/// Toggle shuffle on the current session. Fails informatively when the sender
+/// doesn't support shuffle (the UI disables the button in that case anyway).
+pub fn set_shuffle(active: bool) -> Result<(), String> {
+    use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
+
+    init_apartment();
+    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+        .map_err(|e| format!("SMTC unavailable: {e}"))?;
+    let manager = wait_op(&manager).map_err(|e| format!("SMTC unavailable: {e}"))?;
+    let session = manager
+        .GetCurrentSession()
+        .map_err(|_| "no media session".to_string())?;
+    session
+        .TryChangeShuffleActiveAsync(active)
+        .map_err(|e| format!("shuffle failed: {e}"))
+        .and_then(|op| wait_op(&op).map(|_| ()).map_err(|e| format!("shuffle failed: {e}")))
+}
+
+/// Cycle repeat: off -> track -> list -> off. Senders only expose the modes
+/// they support; cycling just moves to the next mode in the enum order.
+pub fn cycle_repeat(current: Option<u8>) -> Result<(), String> {
+    use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
+    use windows::Media::MediaPlaybackAutoRepeatMode;
+
+    init_apartment();
+    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+        .map_err(|e| format!("SMTC unavailable: {e}"))?;
+    let manager = wait_op(&manager).map_err(|e| format!("SMTC unavailable: {e}"))?;
+    let session = manager
+        .GetCurrentSession()
+        .map_err(|_| "no media session".to_string())?;
+    let next = match current {
+        Some(1) => MediaPlaybackAutoRepeatMode::List,
+        Some(2) | None => MediaPlaybackAutoRepeatMode::None,
+        _ => MediaPlaybackAutoRepeatMode::Track,
+    };
+    session
+        .TryChangeAutoRepeatModeAsync(next)
+        .map_err(|e| format!("repeat failed: {e}"))
+        .and_then(|op| wait_op(&op).map(|_| ()).map_err(|e| format!("repeat failed: {e}")))
+}
+
+/// Seek the current session to `position_sec`. Uses SMTC's playback-position
+/// change; senders opt in — Spotify, most desktop players honor it, some web
+/// players silently ignore it (the bar self-corrects on the next sample).
+pub fn seek(position_sec: f64) -> Result<(), String> {
+    use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
+
+    init_apartment();
+    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+        .map_err(|e| format!("SMTC unavailable: {e}"))?;
+    let manager = wait_op(&manager).map_err(|e| format!("SMTC unavailable: {e}"))?;
+    let session = manager
+        .GetCurrentSession()
+        .map_err(|_| "no media session".to_string())?;
+    // SMTC wants the position in 100ns ticks; clamp to sane bounds.
+    let ticks = (position_sec.max(0.0) * 10_000_000.0) as i64;
+    session
+        .TryChangePlaybackPositionAsync(ticks)
+        .map_err(|e| format!("seek failed: {e}"))
+        .and_then(|op| {
+            wait_op(&op)
+                .map(|accepted| {
+                    if accepted {
+                        ()
+                    } else {
+                        // Sender refused silently; not fatal, the UI resyncs.
+                    }
+                })
+                .map_err(|e| format!("seek failed: {e}"))
+        })
+}
+
 // ---------- WinRT async helpers ----------
 
 // The `windows_future::Async::join` helper trait is private to that crate, so
@@ -456,5 +728,53 @@ fn init_apartment() {
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aumid_package_full_name_splits_on_bang() {
+        assert_eq!(
+            raw_aumid_package_full_name("SpotifyAB.SpotifyMusic_pzzapqpve3rjg!App"),
+            "SpotifyAB.SpotifyMusic_pzzapqpve3rjg"
+        );
+        // No `!`: the whole string is treated as the package name.
+        assert_eq!(
+            raw_aumid_package_full_name("Microsoft.ZuneMusic_8wekyb3d8bbwe"),
+            "Microsoft.ZuneMusic_8wekyb3d8bbwe"
+        );
+    }
+
+    #[test]
+    fn manifest_parser_finds_square44_logo_first() {
+        let xml = r#"<?xml version="1.0"?><Package xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10">
+            <Applications><Application Id="App">
+            <uap:VisualElements DisplayName="Spotify" Square150x150Logo="Images\Logo150.png" Square44x44Logo="Images\Logo44.png" BackgroundColor="transparent"/>
+            </Application></Applications></Package>"#;
+        assert_eq!(manifest_logo_path(xml).unwrap(), r"Images\Logo44.png");
+    }
+
+    #[test]
+    fn manifest_parser_falls_back_to_logo_attribute() {
+        let xml = r#"<VisualElements DisplayName="X" Logo="assets\tile.png" />"#;
+        assert_eq!(manifest_logo_path(xml).unwrap(), r"assets\tile.png");
+    }
+
+    #[test]
+    fn manifest_parser_handles_single_quotes_and_missing() {
+        assert_eq!(
+            manifest_logo_path("<VisualElements Square44x44Logo='a/b.png'/>").unwrap(),
+            "a/b.png"
+        );
+        assert_eq!(manifest_logo_path("<VisualElements />"), None);
+    }
+
+    #[test]
+    fn package_icon_missing_name_is_none() {
+        assert_eq!(extract_package_icon(""), None);
+        assert_eq!(extract_package_icon("NoSuch.Package_deadbeef"), None);
     }
 }

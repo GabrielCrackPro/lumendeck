@@ -201,6 +201,21 @@ export const IconRailCollapse = (props: P) => (
   </svg>
 );
 
+export const IconShuffle = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M16 4h4v4M20 4l-6.5 6.5M4 20 9 15M16 20h4v-4M14.5 14.5 20 20M4 4l5 5" />
+  </svg>
+);
+
+export const IconRepeat = (props: P) => (
+  <svg {...base(props)}>
+    <path d="m17 2 4 4-4 4" />
+    <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+    <path d="m7 22-4-4 4-4" />
+    <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+  </svg>
+);
+
 export const IconChevronDown = (props: P) => (
   <svg {...base(props)}>
     <path d="m6 9 6 6 6-6" />
@@ -334,6 +349,39 @@ export function IconDevice({ type, ...props }: { type: string } & P) {
     <>
       <rect x="4" y="4" width="16" height="16" rx="3" />
       <circle cx="12" cy="12" r="3.5" />
+    </>
+  );
+  return <svg {...base(props)}>{glyph}</svg>;
+}
+
+/**
+ * Media-player brand glyphs (line style, stroke-inherited) used when the OS
+ * cannot supply the sender's real icon — most SMTC senders are packaged apps
+ * whose AUMID is not a resolvable exe path.
+ */
+const MEDIA_APP_GLYPHS: { match: RegExp; node: ReactNode }[] = [
+  { match: /spotify/i, node: <path d="M8.5 9.5c2.5-.7 5-.5 7 .7M9 12.5c2-.5 4-.3 5.7.6M9.5 15.3c1.6-.4 3.2-.2 4.6.5" /> },
+  { match: /chrome|google/i, node: <><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="3.5" /><path d="M12 3.5v5M4 16.5l4.3-2.5M16 19.8l-2.6-4.5" /></> },
+  { match: /firefox|mozilla/i, node: <path d="M12 3.5a8.5 8.5 0 1 1-8.4 9.9C4.5 9 8 8.2 9.5 10.3c1 1.4.4 3.2 2 3.7 1.8.6 3.5-1 3-3.2C13.8 7 9.5 6 6.5 8.5 8 4.5 10.5 3.5 12 3.5Z" /> },
+  { match: /edge/i, node: <path d="M20 12.5a8 8 0 1 1-2.5-7.5M4.2 14h11a3.5 3.5 0 0 1-6.5 2.5M4.5 10a8 8 0 0 1 13-3.5" /> },
+  { match: /youtube/i, node: <><rect x="3" y="7" width="18" height="11" rx="3" /><path d="M10.5 10.2v4.6l4-2.3Z" /></> },
+  { match: /vlc/i, node: <><circle cx="12" cy="14.5" r="5.5" /><path d="M12 14.5l4-7.5-8.5 2.2" /></> },
+  { match: /foobar|winamp|aimp|musicbee|itunes/i, node: <><path d="M9 18V6l8-1.8V16" /><circle cx="7" cy="18" r="2" /><circle cx="15" cy="16" r="2" /></> },
+  { match: /media|player|film|video|movie/i, node: <><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="M10 9.5v5l4.5-2.5Z" /></> },
+];
+
+/**
+ * A line-style glyph for the app that owns the current media session, matched
+ * from its AUMID/appId. Falls back to a generic note glyph — the point is a
+ * stable, theme-correct mark instead of showing the raw app name in text.
+ */
+export function IconMediaApp({ app, ...props }: { app: string } & P) {
+  const hit = MEDIA_APP_GLYPHS.find((g) => g.match.test(app));
+  const glyph = hit?.node ?? (
+    <>
+      <circle cx="9" cy="17" r="2.5" />
+      <path d="M11.5 17V7l7-1.5v9" />
+      <circle cx="18.5" cy="14.5" r="2.5" />
     </>
   );
   return <svg {...base(props)}>{glyph}</svg>;

@@ -67,6 +67,18 @@ export const api = {
   // Media session (SMTC): transport + initial snapshot.
   mediaTransport: (action: "play" | "pause" | "toggle" | "next" | "previous") =>
     invoke<void>("media_transport", { action }),
+  /** Seek the current SMTC session (seconds). Ignored by senders that refuse. */
+  mediaSeek: (positionSec: number) => invoke<void>("media_seek", { positionSec }),
+  /** Toggle shuffle on the current SMTC session. */
+  mediaShuffle: (active: boolean) => invoke<void>("media_shuffle", { active }),
+  /** Cycle repeat mode; pass the currently known mode (or null). */
+  mediaRepeat: (current: 0 | 1 | 2 | null) => invoke<void>("media_repeat", { current }),
+  /** System master volume: [percent, mutedFlag]. */
+  volumeGet: () => invoke<[number, number]>("volume_get"),
+  /** Set the system master volume (0..100). */
+  volumeSet: (percent: number) => invoke<void>("volume_set", { percent }),
+  /** Toggle system mute; resolves to the new state. */
+  volumeMuteToggle: () => invoke<boolean>("volume_mute_toggle"),
   mediaCurrent: () => invoke<MediaInfo | null>("media_current"),
   /** The user's current Windows accent color (RGB triplet), for UI theming. */
   systemAccent: () => invoke<[number, number, number] | null>("system_accent"),
@@ -112,6 +124,14 @@ export const api = {
         primary: boolean;
       }[]
     >("monitors"),
+
+  /**
+   * Parse-check a hotkey accelerator without binding it. Called the moment
+   * the user finishes recording a combo, so an unusable one is caught before
+   * it reaches the config.
+   */
+  hotkeyValidate: (accelerator: string) =>
+    invoke<void>("hotkey_validate", { accelerator }),
 
   quit: () => invoke<void>("quit"),
   factoryReset: () => invoke<void>("factory_reset"),

@@ -5,10 +5,15 @@
 //! `refresh` rebuilds the whole menu from current state and replaces it on the
 //! existing tray icon. Call `refresh` after any state change that the menu
 //! displays (pause toggle, mode change, profile edit).
+//!
+//! Every action below is also a public function, because `crate::hotkeys`
+//! binds the same set to system-wide keys. The menu is a front end for these
+//! actions, not a second implementation of them.
 
 #![cfg(windows)]
 
 use crate::config::RgbMode;
+use tauri::Manager;
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 
 pub const ID_DASHBOARD: &str = "dashboard";
@@ -54,24 +59,15 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let edit = MenuItem::with_id(app, ID_EDIT, "Edit stickers", true, None::<&str>)?;
 
     // Lighting mode submenu; checked item = active mode. Also offers
-    // "Next mode" cycling on the main level.
-    let modes = [
-        (RgbMode::Ambient, "Ambient (wallpaper)"),
-        (RgbMode::Zone, "Zone sync"),
-        (RgbMode::Pulse, "Pulse"),
-        (RgbMode::Static, "Static"),
-        (RgbMode::Wave, "Wave"),
-        (RgbMode::Cycle, "Cycle"),
-        (RgbMode::Breathe, "Breathe"),
-        (RgbMode::AudioReactive, "Audio reactive"),
-    ];
-    let mode_items: Vec<CheckMenuItem<tauri::Wry>> = modes
+    // "Next mode" cycling on the main level. Order matches ALL_MODES, which
+    // is what the hotkey cycle walks.
+    let mode_items: Vec<CheckMenuItem<tauri::Wry>> = ALL_MODES
         .iter()
-        .map(|(m, label)| {
+        .map(|m| {
             CheckMenuItem::with_id(
                 app,
                 format!("{ID_MODE}{m:?}"),
-                *label,
+                mode_label(*m),
                 true,
                 cfg.rgb.mode == *m,
                 None::<&str>,
@@ -145,25 +141,11 @@ pub fn handle(app: &tauri::AppHandle, id: &str) -> bool {
     }
     match id {
         ID_PAUSE => {
-            let now = crate::wallpaper::toggle_manual_pause();
-            log::info!("tray: wallpaper pause -> {now}");
-            refresh(app);
+            toggle_wallpaper(app);
             true
         }
         "next-mode" => {
-            let cfg = crate::config_store::get();
-            let all = [
-                RgbMode::Ambient,
-                RgbMode::Zone,
-                RgbMode::Pulse,
-                RgbMode::Static,
-                RgbMode::Wave,
-                RgbMode::Cycle,
-                RgbMode::Breathe,
-                RgbMode::AudioReactive,
-            ];
-            let idx = all.iter().position(|m| *m == cfg.rgb.mode).unwrap_or(0);
-            set_mode(app, all[(idx + 1) % all.len()]);
+            cycle_lighting_mode(app);
             true
         }
         ID_RESTORE_WP => {
@@ -199,7 +181,7 @@ fn parse_mode(s: &str) -> Option<RgbMode> {
 
 fn set_mode(app: &tauri::AppHandle, mode: RgbMode) {
     let _ = crate::config_store::update(|c| c.rgb.mode = mode);
-    log::info!("tray: lighting mode -> {mode:?}");
+    log::info!("lighting mode -> {mode:?}");
     refresh(app);
 }
 
@@ -211,8 +193,120 @@ fn apply_profile(app: &tauri::AppHandle, name: &str) {
             c.rgb.static_color = p.static_color;
             c.rgb.animation_speed = p.animation_speed;
         });
-        log::info!("tray: profile \"{name}\" applied");
+        log::info!("profile \"{name}\" applied");
         refresh(app);
+    }
+}
+
+// ---------- Actions shared with the global hotkeys ----------
+//
+// These are the single implementation behind both the tray menu entries and
+// the key bindings; each one refreshes the tray afterwards so the checkmarks
+// never drift from the state they represent.
+
+/// Every lighting mode in cycling order. Also drives the tray submenu.
+pub const ALL_MODES: [RgbMode; 8] = [
+    RgbMode::Ambient,
+    RgbMode::Zone,
+    RgbMode::Pulse,
+    RgbMode::Static,
+    RgbMode::Wave,
+    RgbMode::Cycle,
+    RgbMode::Breathe,
+    RgbMode::AudioReactive,
+];
+
+/// Pause or resume the live wallpaper. Returns the new paused state.
+pub fn toggle_wallpaper(app: &tauri::AppHandle) -> bool {
+    let now = crate::wallpaper::toggle_manual_pause();
+    log::info!("wallpaper pause -> {now}");
+    refresh(app);
+    now
+}
+
+/// Menu label for a lighting mode.
+fn mode_label(mode: RgbMode) -> &'static str {
+    match mode {
+        RgbMode::Ambient => "Ambient (wallpaper)",
+        RgbMode::Zone => "Zone sync",
+        RgbMode::Pulse => "Pulse",
+        RgbMode::Static => "Static",
+        RgbMode::Wave => "Wave",
+        RgbMode::Cycle => "Cycle",
+        RgbMode::Breathe => "Breathe",
+        RgbMode::AudioReactive => "Audio reactive",
+    }
+}
+
+/// Step to the next lighting mode, wrapping at the end.
+pub fn cycle_lighting_mode(app: &tauri::AppHandle) {
+    let cfg = crate::config_store::get();
+    let idx = ALL_MODES.iter().position(|m| *m == cfg.rgb.mode).unwrap_or(0);
+    set_mode(app, ALL_MODES[(idx + 1) % ALL_MODES.len()]);
+}
+
+/// Apply the next saved RGB profile (wrapping). No-op without profiles.
+pub fn cycle_profile(app: &tauri::AppHandle) -> bool {
+    let cfg = crate::config_store::get();
+    if cfg.rgb.profiles.is_empty() {
+        return false;
+    }
+    let idx = cfg
+        .rgb
+        .profiles
+        .iter()
+        .position(|p| p.mode == cfg.rgb.mode && p.static_color == cfg.rgb.static_color)
+        .map(|i| (i + 1) % cfg.rgb.profiles.len())
+        .unwrap_or(0);
+    let name = cfg.rgb.profiles[idx].name.clone();
+    apply_profile(app, &name);
+    true
+}
+
+/// Apply the next saved scene profile (wrapping). No-op without scenes.
+pub fn cycle_scene(app: &tauri::AppHandle) -> bool {
+    let cfg = crate::config_store::get();
+    if cfg.scenes.is_empty() {
+        return false;
+    }
+    let idx = cfg
+        .scenes
+        .iter()
+        .position(|s| s.rgb == cfg.rgb && s.wallpaper == cfg.wallpaper)
+        .map(|i| (i + 1) % cfg.scenes.len())
+        .unwrap_or(0);
+    let scene = cfg.scenes[idx].clone();
+    if crate::ipc::scene_apply(app.clone(), scene.id).is_err() {
+        return false;
+    }
+    log::info!("scene \"{}\" applied", scene.name);
+    refresh(app);
+    true
+}
+
+/// Show the dashboard if it is hidden or unfocused, hide it when it is
+/// already up. Shared by the tray icon, the tray menu and the hotkey.
+pub fn toggle_dashboard(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let up = w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false);
+        if up {
+            let _ = w.hide();
+        } else {
+            // The window may be hidden (closed-to-tray) or minimized when
+            // reopened, so unminimize before showing.
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }
+}
+
+/// Bring the dashboard to the front without hiding it.
+pub fn show_dashboard(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
     }
 }
 

@@ -1,12 +1,49 @@
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Toggle, Select, Btn, DisplaysCard, Segmented, InfoNote, ItemTitle } from "../ui";
+import { Card, Toggle, Select, Btn, DisplaysCard, Segmented, InfoNote, ItemTitle, Slider } from "../ui";
 import { api } from "../../ipc";
 import { truncateError } from "../../utilities";
 import { checkForAppUpdate, installAppUpdate, announceUpdate } from "../../updater";
 import type { ThemeMode } from "@shared/types";
 import WhatsNewCard from "../WhatsNewCard";
+import HotkeysCard from "../HotkeysCard";
+
+/**
+ * Accent auto-shade control: toggle + strength slider in one row block.
+ * Off = raw source colors (hardware/screen colors reach the UI untouched,
+ * which can be hard to read on either theme). On = the shade corrector
+ * lifts/darkens the accent until it clears the legibility floor, with the
+ * slider dialing how far toward that correction the UI commits.
+ */
+function AccentAutoShadeRow({ value }: { value: number }) {
+  const on = value > 0.001;
+  return (
+    <div>
+      <Toggle
+        label="Auto-adjust accent for readability"
+        description="Dark wallpaper tones and dim colors are lifted (light accents deepened in light theme) until they read clearly on the dashboard. Hardware lighting is never affected — this only changes the interface accent."
+        checked={on}
+        onChange={(v) =>
+          useStore.getState().save((c) => (c.general.accentAutoShade = v ? 1 : 0))
+        }
+      />
+      {on && (
+        <Slider
+          label="Adjustment strength"
+          value={Math.round(value * 100)}
+          min={25}
+          max={100}
+          step={5}
+          format={(v) => `${v}%`}
+          onChange={(v) =>
+            useStore.getState().save((c) => (c.general.accentAutoShade = v / 100))
+          }
+        />
+      )}
+    </div>
+  );
+}
 
 export default function GeneralTab() {
   const { cfg, save, wallpaperPaused, updateAvailable, setUpdateAvailable } =
@@ -88,6 +125,7 @@ export default function GeneralTab() {
           checked={cfg.general.accentSyncEnabled}
           onChange={(v) => save((c) => (c.general.accentSyncEnabled = v))}
         />
+        <AccentAutoShadeRow value={cfg.general.accentAutoShade ?? 1} />
         <Toggle
           label="Lock screen follows wallpaper"
           description="Also apply wallpaper changes to the Windows lock screen. Off by default, so you can keep a personal lock image while your desktop stays dynamic."
@@ -148,6 +186,8 @@ export default function GeneralTab() {
           </div>
         )}
       </Card>
+
+      <HotkeysCard />
 
       <Card title="Playback engine">
         <Toggle

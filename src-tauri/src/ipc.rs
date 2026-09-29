@@ -130,6 +130,9 @@ fn apply_side_effects_now(app: &AppHandle, cfg: &Config) {
     }
     // Topmost sticker windows track their per-sticker onTop flag.
     crate::sticker_windows::sync(app);
+    // Re-bind system-wide hotkeys when the binding set changed. Cheap no-op
+    // otherwise, so it is safe on every (heavily debounced) config save.
+    crate::hotkeys::sync(app, &cfg.general.hotkeys);
     log::debug!(
         "side effects applied (wallpaper={}, stickers={})",
         cfg.general.wallpaper_enabled,
@@ -1477,6 +1480,60 @@ pub fn media_transport(action: String) -> Result<(), String> {
     crate::media_session::transport(&action)
 }
 
+/// Seek the current SMTC session to the given position (seconds).
+#[tauri::command]
+pub fn media_seek(position_sec: f64) -> Result<(), String> {
+    crate::media_session::seek(position_sec)
+}
+
+/// Toggle shuffle on the current SMTC session.
+#[tauri::command]
+pub fn media_shuffle(active: bool) -> Result<(), String> {
+    crate::media_session::set_shuffle(active)
+}
+
+/// Cycle repeat mode (off -> track -> list -> off) on the current session.
+#[tauri::command]
+pub fn media_repeat(current: Option<u8>) -> Result<(), String> {
+    crate::media_session::cycle_repeat(current)
+}
+
+/// System master volume (0..100) + mute state, for the player card.
+#[tauri::command]
+pub fn volume_get() -> Result<[f32; 2], String> {
+    #[cfg(windows)]
+    {
+        Ok([
+            crate::volume::get()? * 100.0,
+            if crate::volume::muted()? { 1.0 } else { 0.0 },
+        ])
+    }
+    #[cfg(not(windows))]
+    Ok([0.0, 0.0])
+}
+
+/// Set the system master volume (0..100).
+#[tauri::command]
+pub fn volume_set(percent: f32) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        crate::volume::set(percent / 100.0)
+    }
+    #[cfg(not(windows))]
+    Ok(())
+}
+
+/// Toggle system mute; returns the new state.
+#[tauri::command]
+pub fn volume_mute_toggle() -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        crate::volume::toggle_mute()
+    }
+    #[cfg(not(windows))]
+    Ok(false)
+}
+
 /// Current media session snapshot, for the dashboard's initial render before
 /// the first `media-session` event arrives (poller only emits on change).
 #[tauri::command]
@@ -1489,4 +1546,12 @@ pub fn media_current() -> Option<crate::media_session::MediaInfo> {
 #[tauri::command]
 pub fn system_accent() -> Option<[u8; 3]> {
     crate::sys_theme::get_system_accent()
+}
+
+/// Parse-check a hotkey accelerator without binding it. The settings UI calls
+/// this the moment the user finishes recording a combo, so a combo the OS
+/// could never accept is caught before it is written to the config.
+#[tauri::command]
+pub fn hotkey_validate(accelerator: String) -> Result<(), String> {
+    crate::hotkeys::validate(&accelerator)
 }

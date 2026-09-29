@@ -393,6 +393,36 @@ export function chipStyle(on: boolean): string {
   return `${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`;
 }
 
+/**
+ * Canonical icon-button tokens, derived from the chip language: same accent
+ * values as CHIP_ON/OFF, but square-ish (rounded-lg, matching Btn) and
+ * icon-sized. Contained like every other button in the app — a quiet panel
+ * chip at rest, not a floating ghost. Exported for the Overview player.
+ */
+export const ICON_BTN =
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-[5px] border transition-all duration-150 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.5)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100";
+export const ICON_BTN_IDLE =
+  "border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)] hover:border-[var(--line-strong)] hover:text-[var(--text)]";
+export const ICON_BTN_ACTIVE = CHIP_ON;
+/** The one primary control in a row: filled accent, slightly larger. */
+export const ICON_BTN_PRIMARY =
+  "h-9 w-9 border-transparent bg-[rgb(var(--glow))] text-black glow-fill hover:brightness-110";
+
+/**
+ * Micro command button: the tiny uppercase mono label ("manage", "apply")
+ * used inside card headers. One token so every header action matches.
+ */
+export const MINI_BTN =
+  "inline-flex select-none items-center gap-1 rounded-md border border-[var(--line)] px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] transition-all hover-glow active:scale-95";
+
+/**
+ * Icon button that sits on top of imagery (gallery thumbnails, previews):
+ * dark scrim + blur instead of the panel palette, white icon. Radius and
+ * hit area stay identical to ICON_BTN so overlays feel native to the UI.
+ */
+export const OVERLAY_ICON_BTN =
+  "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-black/60 text-white/70 backdrop-blur-sm transition-colors hover:text-white";
+
 /** Pill-shaped selectable chip (collections, devices, playlists, tags). */
 export function SelectChip({
   children,
@@ -979,21 +1009,16 @@ export function RefreshBtn({
   label?: string;
   variant?: "ghost" | "default";
 }) {
-  const base =
-    variant === "ghost"
-      ? "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
-      : "border border-[var(--line)] bg-[var(--panel-strong)] text-[var(--text)] hover:border-[var(--line-strong)] hover:brightness-110";
+  // Reuses Btn for one consistent shape (rounded-lg, same paddings) — this
+  // used to be a lone rounded-xl oddball next to normal buttons.
   return (
-    <button
-      onClick={() => {
-        // Lazy import to avoid circular deps.
-        import("../store").then(({ useStore }) => useStore.getState().load());
-      }}
-      className={`inline-flex select-none items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all active:scale-[0.97] ${base}`}
-    >
+    <Btn variant={variant} size="sm" onClick={() => {
+      // Lazy import to avoid circular deps.
+      import("../store").then(({ useStore }) => useStore.getState().load());
+    }}>
       <IconRefresh className="h-4 w-4" />
       {label}
-    </button>
+    </Btn>
   );
 }
 
@@ -1052,7 +1077,21 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
               {/* live wallpaper thumb: video plays muted, images/shaders static */}
               <div className="relative h-16 w-full overflow-hidden bg-black">
                 {kind === "video" && mediaUrl ? (
-                  <video key={mediaUrl} src={mediaUrl} autoPlay loop muted playsInline preload="metadata" className="h-full w-full object-cover" />
+                  <video
+                    key={mediaUrl}
+                    src={mediaUrl}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    preload="metadata"
+                    className="h-full w-full object-cover"
+                    // Perf: stop decoding while the app is hidden/tray-minimized.
+                    ref={(el) => {
+                      if (!el) return;
+                      if (document.hidden && !el.paused) el.pause();
+                    }}
+                  />
                 ) : kind === "image" && mediaUrl ? (
                   <img src={mediaUrl} alt="" className="h-full w-full object-cover" />
                 ) : kind === "shader" && source ? (
