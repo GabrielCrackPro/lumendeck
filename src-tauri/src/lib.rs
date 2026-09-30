@@ -30,6 +30,7 @@ pub mod wallpaper;
 pub mod volume;
 pub mod wallpaper_bg;
 pub mod win32;
+pub mod window_chrome;
 pub mod window_utils;
 pub mod workerw;
 
@@ -566,6 +567,9 @@ pub fn run() {
                 main_window_builder = main_window_builder.icon(icon.clone())?;
             }
             let main_window = main_window_builder.build()?;
+            // Frameless windows lose the rounded corners Windows gives
+            // decorated ones for free; ask DWM for them back. Non-fatal.
+            crate::window_chrome::apply(&main_window);
             if let Err(e) = taskbar_thumbnail::attach(&main_window) {
                 log::warn!("taskbar thumbnail buttons unavailable: {e}");
             }
