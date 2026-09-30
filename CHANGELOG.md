@@ -7,11 +7,14 @@ and it lands under that release's heading.
 ## 0.2.7 — 2026-09-30
 
 ### Added
+- round the frameless dashboard window's corners (`6fd1b7f`)
+- rebuild the lighting engine card, the device list and the sidebar (`3d7a8a5`)
 - app icon on the startup notification, a redesigned settings page, and a theme that follows the OS (`2a9004c`)
 - blink the keyboard backlight when a hotkey fires (`1e469c7`)
 - master switch for global hotkeys; fix a hard crash in the wallpaper snapshot (`44a1bcb`)
 
 ### Fixed
+- stop the changelog generator from dropping release notes (`63358b3`)
 - stop re-reporting an unchanged hotkey conflict (`0df48cb`)
 
-_2 internal._
+_4 internal._
