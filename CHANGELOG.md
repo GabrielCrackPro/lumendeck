@@ -15,8 +15,11 @@ and it lands under that release's heading.
 - blink the keyboard backlight when a hotkey fires (`1e469c7`)
 - master switch for global hotkeys; fix a hard crash in the wallpaper snapshot (`44a1bcb`)
 
+### Changed
+- stop hand-rolling what Tauri already ships (`27a7d8e`)
+
 ### Fixed
 - stop the changelog generator from dropping release notes (`63358b3`)
 - stop re-reporting an unchanged hotkey conflict (`0df48cb`)
 
-_8 internal._
+_9 internal._
