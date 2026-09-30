@@ -845,17 +845,95 @@ pub fn gallery_set_opts(
 ///
 /// `/select,` is what makes it a "show me where this lives" rather than a
 /// folder open that leaves you to hunt for the file yourself.
+/// The clipboard's text, if it is a bare http(s) URL.
+///
+/// This exists because a `paste` event is the *wrong* trigger for a button. A
+/// paste only works where the user is already typing, which is why the window
+/// listener has to work so hard: bail on every input, bail on any text that is
+/// not exactly a URL. A "Paste link" button has no such ambiguity — the user
+/// asked for the clipboard, so anything non-URL is simply nothing to do.
+///
+/// Returns `Ok(None)` rather than an error for the same reason. A clipboard
+/// holding a half-typed sentence is the normal state of a clipboard, not a
+/// failure worth a red toast.
+#[tauri::command]
+pub fn clipboard_url() -> Option<String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    let app = crate::app_handle()?;
+    let text = app.clipboard().read_text().ok()?;
+    let trimmed = text.trim();
+    if !is_bare_http_url(trimmed) {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+/// Whether a string is exactly one http(s) URL and nothing else.
+///
+/// A URL cannot contain whitespace, so that single test rejects the "paragraph
+/// that happens to include a link" case that would otherwise start a download
+/// because someone pressed the wrong button. `URL::parse` accepts a trailing
+/// newline on some inputs, hence the trim at the call site.
+fn is_bare_http_url(s: &str) -> bool {
+    if s.is_empty() || s.chars().any(char::is_whitespace) {
+        return false;
+    }
+    match url::Url::parse(s) {
+        Ok(u) => u.scheme() == "http" || u.scheme() == "https",
+        Err(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod url_guard_tests {
+    use super::is_bare_http_url;
+
+    #[test]
+    fn accepts_a_plain_wallpaper_link() {
+        assert!(is_bare_http_url("https://example.com/wallpaper.mp4"));
+        assert!(is_bare_http_url("http://example.com/a.png"));
+    }
+
+    #[test]
+    fn rejects_a_scheme_that_is_not_http() {
+        // Otherwise "paste this" would execute something, which is a very
+        // different thing from downloading a wallpaper.
+        assert!(!is_bare_http_url("file:///C:/Windows/System32/cmd.exe"));
+        assert!(!is_bare_http_url("javascript:alert(1)"));
+    }
+
+    #[test]
+    fn rejects_prose_that_merely_contains_a_link() {
+        // The case the whole check exists for.
+        assert!(!is_bare_http_url(
+            "here is my wallpaper https://example.com/a.mp4 enjoy"
+        ));
+        assert!(!is_bare_http_url("https://example.com/a.mp4 https://b.com/c.mp4"));
+    }
+
+    #[test]
+    fn rejects_nothing_at_all() {
+        assert!(!is_bare_http_url(""));
+        assert!(!is_bare_http_url("not a url"));
+    }
+}
+
 #[tauri::command]
 pub fn reveal_in_folder(path: String) -> Result<(), String> {
     let p = std::path::PathBuf::from(&path);
     if !p.exists() {
         return Err(format!("not found: {path}"));
     }
-    std::process::Command::new("explorer")
-        .arg(format!("/select,{}", p.display()))
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("explorer: {e}"))
+    // Was `Command::new("explorer").arg("/select,...")`: a subprocess spawned
+    // for something the platform already does properly.
+    use tauri_plugin_opener::OpenerExt;
+    let Some(app) = crate::app_handle() else {
+        return Err("app not ready".into());
+    };
+    app.opener()
+        .reveal_item_in_dir(&p)
+        .map_err(|e| format!("explorer: {e}"))?;
+    Ok(())
 }
 
 /// Gallery entry ids whose file is no longer on disk.

@@ -805,6 +805,8 @@
     "added-{n}-items-not-applied": "Se añadieron {n} elementos — no se aplicó ninguno",
     "downloaded-not-applied": "Descargado {name} — no se aplicó",
     "view-wallpapers": "Fondos",
-    "view-collections": "Colecciones"
+    "view-collections": "Colecciones",
+    "paste-link": "Pegar enlace",
+    "clipboard-has-no-link": "No hay ningún enlace en el portapapeles"
   }
 }

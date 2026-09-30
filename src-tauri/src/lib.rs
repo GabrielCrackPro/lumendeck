@@ -1,7 +1,7 @@
 //! LumenDeck backend library: wallpaper-driven RGB, live wallpapers, stickers.
 
+pub mod notify;
 pub mod bgremove;
-pub mod balloon;
 pub mod config;
 pub mod config_store;
 pub mod config_watch;
@@ -23,8 +23,7 @@ rust_i18n::i18n!("../locales");
 
 pub mod i18n;
 pub mod media;
-pub mod media_session;
-pub mod mouse_hook;
+pub mod media_session;pub mod mouse_hook;
 pub mod pause;
 pub mod placement_overlay;
 pub mod playlist;
@@ -83,15 +82,8 @@ fn first_hidden_start_hint(app: &tauri::AppHandle) {
         log::warn!("startup hint: could not record that it was shown: {e}");
     }
 
-    let app = app.clone();
     let title = crate::i18n::t("tray.balloon-title");
-    balloon::spawn(&title, &body, move || {
-        if let Some(main) = app.get_webview_window("main") {
-            let _ = main.unminimize();
-            let _ = main.show();
-            let _ = main.set_focus();
-        }
-    });
+    crate::notify::notify(&app, &title, &body);
 }
 
 /// The balloon's body line, as a catalog key. Pure, so the wording can be
@@ -167,155 +159,91 @@ fn disable_video_overlays() {
     }
 }
 
-/// Dual logger: stderr (visible in `tauri dev`) plus a log file next to the
-/// config (`%APPDATA%/LumenDeck/lumendeck.log`) so behavior is always
-/// observable, even for packaged runs.
-fn init_logging() {
-    use std::fs::OpenOptions;
-    use std::io::Write as _;
-    use std::sync::Mutex;
-    use std::sync::atomic::AtomicU64;
+/// Logging: a file next to the config, plus stderr for `tauri dev`.
+///
+/// This used to be a hand-rolled `log::Log` impl with its own ANSI colouring,
+/// byte counter and size-triggered rotation, all of which
+/// `tauri-plugin-log` does natively. The real argument was not the line count:
+/// the plugin also forwards the webview's `console.log` into the same file.
+/// Before, a bug report from a user carried only the Rust half of the story,
+/// because anything logged in the frontend went to devtools, which a user
+/// cannot open.
+///
+/// Two things are deliberately preserved, because both are load-bearing:
+///
+/// - The file stays at `%APPDATA%/LumenDeck/lumendeck.log`. That path is what
+///   people are told to attach, and moving it would strand every existing log.
+/// - One generation is kept, at 5 MB. `RotationStrategy::KeepOne` is exactly
+///   the old rename-to-.old behaviour; `KeepSome` would quietly accumulate.
+///
+/// The per-line format is set by [LogFormat] rather than left at the plugin
+/// default, because the short module name and the fixed-width level are what
+/// make this file readable when you are grepping it at 3am.
+fn init_logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use tauri_plugin_log::{Target, TargetKind};
 
-    /// Max log size before rotating (5 MB), shared by startup and runtime checks.
-    pub const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
+    let dir = config_store::config_path()
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let _ = std::fs::create_dir_all(&dir);
 
-    struct DualLog {
-        file: Mutex<Option<std::fs::File>>,
-        /// Bytes written since the last size check (cheaper than stat per line).
-        written: AtomicU64,
-    }
-
-    impl DualLog {
-        /// Rotate when the file has grown past the cap. Called at most every
-        /// ~256 KB of written output, not per line.
-        fn maybe_rotate(&self) {
-            let written = self.written.load(std::sync::atomic::Ordering::Relaxed);
-            if written < 256 * 1024 {
-                return;
-            }
-            self.written.store(0, std::sync::atomic::Ordering::Relaxed);
-            let Some(dir) = config_store::config_path().parent().map(|p| p.to_path_buf()) else {
-                return;
-            };
-            let path = dir.join("lumendeck.log");
-            let Ok(meta) = std::fs::metadata(&path) else {
-                return;
-            };
-            if meta.len() <= MAX_LOG_BYTES {
-                return;
-            }
-            // Reopen: rotate_log_if_large renames the file; keep writing to a
-            // fresh handle so the old file stays self-contained for inspection.
-            if rotate_log_if_large(&dir) {
-                if let Ok(new) = OpenOptions::new().create(true).append(true).open(&path) {
-                    if let Ok(mut slot) = self.file.lock() {
-                        *slot = Some(new);
-                    }
-                }
-            }
-        }
-    }
-
-    impl log::Log for DualLog {
-        fn enabled(&self, metadata: &log::Metadata) -> bool {
-            metadata.level() <= log::max_level()
-        }
-        fn log(&self, record: &log::Record) {
-            if !self.enabled(record.metadata()) {
-                return;
-            }
-            self.maybe_rotate();
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default();
-            let secs = now.as_secs();
-            let millis = now.subsec_millis();
-
-            // Short module: last segment only ("lumendeck_lib::ipc" → "ipc")
-            let target = record
+    tauri_plugin_log::Builder::new()
+        .targets([
+            // stderr keeps `tauri dev` useful, exactly as the old dual sink did.
+            Target::new(TargetKind::Stdout),
+            Target::new(TargetKind::Folder {
+                path: dir,
+                file_name: Some("lumendeck.log".into()),
+            }),
+        ])
+        .max_file_size(MAX_LOG_BYTES)
+        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+        // The per-line format, kept from the hand-rolled logger. Two details are
+        // load-bearing rather than cosmetic: the target is shortened to its last
+        // segment (`lumendeck_lib::ipc` reads as `ipc`, which is what you grep
+        // for), and the level is padded to five columns so INFO and ERROR line up
+        // when you scan a wall of startup output.
+        .format(|out, message, record| {
+            let short_target = record
                 .target()
                 .rsplit_once("::")
                 .map_or(record.target(), |(_, s)| s);
-
-            let ts = format!(
-                "{}.{:03}",
-                chrono_datetime(secs),
-                millis,
-            );
-
-            let line = format!(
-                "[{ts} {:<5} {target}] {}\n",
+            out.finish(format_args!(
+                "[{} {:<5} {}] {}",
+                chrono_datetime(now_secs()),
                 record.level(),
-                record.args(),
-            );
-
-            // stderr with ANSI colors
-            let colored = match record.level() {
-                log::Level::Info  => format!("[\x1b[36m{ts}\x1b[0m \x1b[32mINFO \x1b[0m \x1b[90m{target}\x1b[0m] {}\n", record.args()),
-                log::Level::Warn  => format!("[\x1b[36m{ts}\x1b[0m \x1b[33mWARN \x1b[0m \x1b[90m{target}\x1b[0m] {}\n", record.args()),
-                log::Level::Error => format!("[\x1b[36m{ts}\x1b[0m \x1b[31mERROR\x1b[0m \x1b[90m{target}\x1b[0m] {}\n", record.args()),
-                log::Level::Debug => format!("[\x1b[36m{ts}\x1b[0m \x1b[35mDEBUG\x1b[0m \x1b[90m{target}\x1b[0m] {}\n", record.args()),
-                _ => line.clone(),
-            };
-            eprint!("{colored}");
-
-            if let Ok(mut guard) = self.file.lock() {
-                if let Some(f) = guard.as_mut() {
-                    let _ = f.write_all(line.as_bytes());
-                    self.written.fetch_add(line.len() as u64, std::sync::atomic::Ordering::Relaxed);
-                }
-            }
-        }
-        fn flush(&self) {}
-    }
-
-    let file = config_store::config_path()
-        .parent()
-        .map(|dir| {
-            let _ = std::fs::create_dir_all(dir);
-            rotate_log_if_large(dir);
-            OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(dir.join("lumendeck.log"))
-                .ok()
+                short_target,
+                message
+            ))
         })
-        .flatten();
-
-    let level = std::env::var("RUST_LOG")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(log::LevelFilter::Info);
-    log::set_max_level(level);
-    let _ = log::set_boxed_logger(Box::new(DualLog {
-        file: Mutex::new(file),
-        written: std::sync::atomic::AtomicU64::new(0),
-    }));
+        // RUST_LOG still wins, so `RUST_LOG=debug` keeps working for a bug
+        // report without anyone editing code.
+        .level(
+            std::env::var("RUST_LOG")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(log::LevelFilter::Info),
+        )
+        .build()
 }
 
-/// Keep the log bounded: past the cap, the current file becomes `.old` (one
-/// generation kept) and a fresh log starts. Returns true when a rotation
-/// happened (the logger then reopens its handle).
-fn rotate_log_if_large(dir: &std::path::Path) -> bool {
-    let path = dir.join("lumendeck.log");
-    let Ok(meta) = std::fs::metadata(&path) else {
-        return false;
-    };
-    if meta.len() <= 5 * 1024 * 1024 {
-        return false;
-    }
-    let old = dir.join("lumendeck.log.old");
-    let _ = std::fs::remove_file(&old);
-    match std::fs::rename(&path, &old) {
-        Ok(()) => {
-            eprintln!("[lumendeck] log rotated ({} MB) -> lumendeck.log.old", meta.len() / 1024 / 1024);
-            true
-        }
-        Err(_) => false,
-    }
+/// Max log size before rotating. Shared by the plugin's size check and by the
+/// support instructions a user is pointed at; keep the two in step.
+pub const MAX_LOG_BYTES: u128 = 5 * 1024 * 1024;
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default()
 }
 
-/// Convert unix epoch seconds to `HH:MM:SS` (UTC) without pulling in chrono.
+/// Unix epoch seconds to `YYYY-MM-DD HH:MM:SS` (UTC), without pulling in chrono.
+///
+/// The plugin can stamp lines itself, but only in its own format. This keeps the
+/// timestamp identical to the one the hand-rolled logger wrote, because that
+/// format is what every existing log file uses and people grep for it.
 fn chrono_datetime(secs: u64) -> String {
     let days = secs / 86400;
     let time = secs % 86400;
@@ -346,7 +274,7 @@ pub fn app_handle() -> Option<tauri::AppHandle> {
 
 pub fn run() {
     let boot = std::time::Instant::now();
-    init_logging();
+    let logger = init_logging();
     let _ = config_store::init();
     // Must run before any WebView2 environment is created (and after config
     // init so the software-decode preference can be read from disk).
@@ -369,6 +297,9 @@ pub fn run() {
     log::info!("startup: pre-tauri init done in {:?}", boot.elapsed());
 
     tauri::Builder::default()
+        // Installed before every other plugin so their startup logs land in the
+        // file rather than only on stderr. Takes the Logger by value, which is
+        // what captures the webview's console output as well.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(main) = app.get_webview_window("main") {
                 // The first instance may be sitting in the tray (autostart,
@@ -388,6 +319,22 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Installed before every other plugin so their startup logs land in the
+        // file rather than only on stderr. Takes the Logger by value, which is
+        // what captures the webview's console output as well.
+        .plugin(logger)
+        // Startup notifications, via WinRT toasts. Replaces a hand-written
+        // Shell_NotifyIcon balloon that had to mint its own hidden tray icon,
+        // hidden window and message-pump thread on every call — see `notify`.
+        .plugin(tauri_plugin_notification::init())
+        // Revealing a wallpaper in Explorer. The old implementation spawned
+        // `explorer /select,` by hand, which is a subprocess for something the
+        // platform already does properly.
+        .plugin(tauri_plugin_opener::init())
+        // Read-on-demand clipboard, for the "paste link" button. The window
+        // paste listener needs none of this: it is driven by the user pressing
+        // Ctrl+V, so the text arrives with the event.
+        .plugin(tauri_plugin_clipboard_manager::init())
         // System-wide hotkeys. No shortcuts are registered by the plugin
         // itself; `hotkeys::sync` applies the user's bindings once the
         // dashboard and tray exist.
@@ -422,6 +369,7 @@ pub fn run() {
             ipc::gallery_set_opts,
             ipc::gallery_set_favorite,
             ipc::reveal_in_folder,
+            ipc::clipboard_url,
             ipc::vault_missing,
             ipc::gallery_regenerate_thumb,
             ipc::pick_image_file,

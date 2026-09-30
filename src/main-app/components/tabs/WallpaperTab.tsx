@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
 import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section, InfoNote, chipStyle, ItemTitle, displayName } from "../ui";
 import { Modal } from "../Modal";
-import { IconImage, IconGlobe, IconFolder, IconPlus, IconTrash } from "../icons";
+import { IconImage, IconGlobe, IconFolder, IconPlus, IconTrash, IconClipboard } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
 import type { Config, EntryOptions, GalleryEntry, ZoneDef } from "@shared/types";
 import { api } from "../../ipc";
@@ -1074,7 +1074,34 @@ export default function WallpaperTab() {
                 <p className="text-dim-sm">
                   {t("common.direct-link-to-an-mp4-webm-video-or-png-jpg-webp")}
                 </p>
-                <div className="flex items-center justify-end gap-2 pt-1">
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  {/* The clipboard button, for the case the window paste
+                      listener cannot cover: the user copied a link, opened the
+                      dialog, and never pressed Ctrl+V. */}
+                  <Btn
+                    onClick={() => {
+                      api
+                        .clipboardUrl()
+                        .then((url) => {
+                          if (!url) {
+                            toast("info", t("gallery.clipboard-has-no-link"));
+                            return;
+                          }
+                          setUrlDraft(url);
+                          setUrlNameDraft("");
+                        })
+                        .catch((e) =>
+                          toast(
+                            "error",
+                            t("common.failed-{error}", { error: truncateError(e) }),
+                          ),
+                        );
+                    }}
+                    disabled={busy}
+                  >
+                    <IconClipboard className="h-4 w-4" />
+                    {t("gallery.paste-link")}
+                  </Btn>
                   <Btn type="submit" variant="primary" disabled={busy || !urlDraft.trim()}>
                     {t("common.download")}
                   </Btn>

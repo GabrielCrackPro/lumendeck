@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity
+    type="win32"
+    name="LumenDeck"
+    version="0.2.7.0"
+    processorArchitecture="amd64" />
+  <dependency>
+    <dependentAssembly>
+      <!--
+        Common Controls v6, requested so `comctl32.dll` resolves to the
+        side-by-side v6 assembly instead of the v5 copy in System32.
+
+        This is not cosmetic. Windows ships two comctl32: System32 holds v5
+        (5.82), which does NOT export TaskDialogIndirect, while v6 lives in
+        WinSxS and is only reachable by a binary that declares the dependency.
+        `tauri-plugin-notification` imports TaskDialogIndirect transitively via
+        tauri-winrt-notification, so without this the process fails to start
+        with STATUS_ENTRYPOINT_NOT_FOUND - the loader finds System32's v5 and
+        the symbol is simply not there.
+
+        The app binary always had Tauri embed a manifest, which is why it ran
+        fine; the *test* binary is built by cargo-test without one, which is why
+        `cargo test` crashed while `cargo run` did not. Embedding it from
+        build.rs applies it to both.
+      -->
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="amd64"
+        publicKeyToken="6595b64144ccf1df"
+        language="*" />
+    </dependentAssembly>
+  </dependency>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <!-- LumenDeck drives OpenRGB on a local socket and draws its own
+             wallpaper windows; it needs no elevation. -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <!-- Per-monitor DPI awareness. Without it Windows bitmap-stretches the
+           dashboard and the wallpaper windows on a scaled display. -->
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+    </windowsSettings>
+  </application>
+</assembly>

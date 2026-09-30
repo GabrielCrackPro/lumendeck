@@ -86,6 +86,13 @@ export const IconTrash = (props: P) => (
   </svg>
 );
 
+export const IconClipboard = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M9 4.5h6M9.5 3h5A1.5 1.5 0 0 1 16 4.5V6H8V4.5A1.5 1.5 0 0 1 9.5 3Z" />
+    <path d="M8 6H6.5A1.5 1.5 0 0 0 5 7.5v11A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-11A1.5 1.5 0 0 0 17.5 6H16" />
+  </svg>
+);
+
 export const IconLayers = (props: P) => (
   <svg {...base(props)}>
     <path d="m12 3 9 5-9 5-9-5z" />

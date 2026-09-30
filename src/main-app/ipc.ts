@@ -55,6 +55,13 @@ export const api = {
   /** Ids whose file is no longer on disk. Web/shader entries are never listed. */
   vaultMissing: () => invoke<string[]>("vault_missing"),
   revealInFolder: (path: string) => invoke<void>("reveal_in_folder", { path }),
+  /**
+   * The clipboard's text, when it is exactly one http(s) URL.
+   *
+   * Null rather than an error for anything else: a clipboard holding ordinary
+   * text is the normal case, not a failure.
+   */
+  clipboardUrl: () => invoke<string | null>("clipboard_url"),
 
   collectionCreate: (name: string) =>
     invoke<WallpaperCollection>("collection_create", { name }),

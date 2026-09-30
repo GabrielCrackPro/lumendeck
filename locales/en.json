@@ -805,6 +805,8 @@
     "added-{n}-items-not-applied": "Added {n} items — nothing applied",
     "downloaded-not-applied": "Downloaded {name} — nothing applied",
     "view-wallpapers": "Wallpapers",
-    "view-collections": "Collections"
+    "view-collections": "Collections",
+    "paste-link": "Paste link",
+    "clipboard-has-no-link": "No link on the clipboard"
   }
 }
