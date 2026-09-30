@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "../ipc";
+import { AppMark, AppWordmark, DevBadge } from "./ui";
 
 const win = getCurrentWindow();
 
@@ -80,12 +81,9 @@ export default function TitleBar() {
         className="flex h-full flex-1 items-center gap-2"
         onDoubleClick={() => win.toggleMaximize()}
       >
-        <img
-          src="/app-icon.png"
-          alt=""
-          className="h-4 w-4 rounded-[5px] border border-[rgb(var(--glow)/0.4)]"
-        />
-        <span className="kicker select-none">lumendeck</span>
+        <AppMark size={16} />
+        <AppWordmark size={16} className="select-none" />
+        <DevBadge />
       </div>
       <Controls />
     </div>

@@ -362,6 +362,24 @@ export function IconDevice({ type, ...props }: { type: string } & P) {
   return <svg {...base(props)}>{glyph}</svg>;
 }
 
+/** Lit device / included in the light show. */
+export const IconEye = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" />
+    <circle cx="12" cy="12" r="2.6" />
+  </svg>
+);
+
+/** Muted device — same shape, struck through, so the pair reads as one toggle. */
+export const IconEyeOff = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M4.2 5.6C3 7 2 9 2 9s3.5 6 9.5 6c1.6 0 3-.4 4.2-1M20 9s-.7 1.2-1.9 2.4" />
+    <path d="M9.6 6.2A8.7 8.7 0 0 1 12 6c6 0 9.5 6 9.5 6a15 15 0 0 1-2.6 3.2" />
+    <path d="M3.5 3.5l17 17" />
+    <path d="M9.9 10a2.6 2.6 0 0 0 3.6 3.7" />
+  </svg>
+);
+
 /**
  * Media-player brand glyphs (line style, stroke-inherited) used when the OS
  * cannot supply the sender's real icon — most SMTC senders are packaged apps

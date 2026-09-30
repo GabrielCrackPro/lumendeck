@@ -5,6 +5,7 @@ import { checkForAppUpdate, announceUpdate } from "./updater";
 import Shell from "./components/Shell";
 import Onboarding from "./components/Onboarding";
 import { IconRefresh } from "./components/icons";
+import { AppMark, AppWordmark } from "./components/ui";
 import { GLOW_TEXT_DARK } from "@shared/constants";
 
 /**
@@ -184,17 +185,9 @@ function Splash({ stage, streaming }: { stage: Stage; streaming: boolean }) {
     <div className="grain relative flex h-screen items-center justify-center overflow-hidden">
       <div className="aura" />
       <div className="relative z-10 flex flex-col items-center gap-7">
-        <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-[1.4rem] border border-[rgb(var(--glow)/0.45)]">
-          <img
-            src="/app-icon.png"
-            alt=""
-            className="h-full w-full object-cover animate-[lbreath_2.4s_ease-in-out_infinite]"
-          />
-        </div>
+        <AppMark size={80} pulse />
         <div className="flex flex-col items-center">
-          <div className="lednum text-xl tracking-[0.16em] text-[var(--text)]">
-            LUMEN&nbsp;DECK
-          </div>
+          <AppWordmark size={44} />
           <div className="kicker mt-1.5 h-4 transition-all" key={stage}>
             {STAGE_LABEL[stage]}
           </div>

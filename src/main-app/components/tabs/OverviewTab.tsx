@@ -1,10 +1,11 @@
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useState, useRef, type CSSProperties, type ReactNode } from "react";
 import { useStore } from "../../store";
-import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, ItemTitle, SwitchBtn, chipStyle, ICON_BTN, ICON_BTN_IDLE, ICON_BTN_ACTIVE, ICON_BTN_PRIMARY, MINI_BTN } from "../ui";
+import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, ItemTitle, SwitchBtn, Segmented, ICON_BTN, ICON_BTN_IDLE, ICON_BTN_ACTIVE, ICON_BTN_PRIMARY, MINI_BTN } from "../ui";
+import { DeviceRow } from "../DeviceRow";
 import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause, IconNext, IconPrevious, IconWave, IconSun, IconZap, IconChevronRight, IconMediaApp, IconShuffle, IconRepeat } from "../icons";
 import { SHADERS, SHADER_ART, RGB_MODES, ANIMATION_MODES } from "@shared/constants";
-import type { Config, MediaInfo, RgbDeviceInfo, DeviceColor } from "@shared/types";
+import type { Config, MediaInfo, RgbMode } from "@shared/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { basename } from "../../utilities";
 import { api } from "../../ipc";
@@ -771,124 +772,44 @@ function TransportButtons({
 }
 
 /**
- * Per-device LED lanes: each device gets its own row of discrete glowing
- * dots sampled from the engine's live per-LED colors — reads as hardware,
- * not a gradient slab. Muted devices render dark dots.
+ * The eight lighting modes, split into the two families they actually belong
+ * to. As one flat row of eight pills they read as a wall of labels with no
+ * hint of what any of them do; grouped, the split is the useful one — the
+ * first group tracks the wallpaper, the second runs on its own.
  */
-function LedBand({
-  devices,
-  colors,
-  excluded,
+function ModePicker({
+  mode,
+  onSelect,
 }: {
-  devices: RgbDeviceInfo[];
-  colors: Record<number, DeviceColor>;
-  excluded: Set<number>;
+  mode: string;
+  onSelect: (m: (typeof RGB_MODES)[number]["id"]) => void;
 }) {
+  const groups = [
+    { id: "reactive", label: "Follows the wallpaper" },
+    { id: "animation", label: "Runs on its own" },
+  ] as const;
+  const active = RGB_MODES.find((m) => m.id === mode);
   return (
-    <div className="flex h-full w-full flex-col justify-center gap-1.5 px-3 py-2.5">
-      {devices.map((d) => (
-        <LedLaneRow
-          key={d.id}
-          name={d.typeName}
-          leds={d.leds}
-          ledColors={colors[d.id]?.ledColors ?? null}
-          muted={excluded.has(d.id)}
-        />
+    <div className="space-y-3">
+      {groups.map((g) => (
+        <div key={g.id}>
+          <div className="kicker mb-1.5">{g.label}</div>
+          <Segmented
+            label={`${g.label} lighting modes`}
+            // Only the group holding the active mode shows a pressed button;
+            // the other has nothing selected, which is the honest state.
+            value={active?.group === g.id ? active.id : ""}
+            onChange={(v) => onSelect(v as RgbMode)}
+            options={RGB_MODES.filter((m) => m.group === g.id).map((m) => ({
+              id: m.id as string,
+              label: m.label,
+            }))}
+          />
+        </div>
       ))}
-    </div>
-  );
-}
-
-/** One device lane: name + a row of discrete LED dots (sampled, capped). */
-function LedLaneRow({
-  name,
-  leds,
-  ledColors,
-  muted,
-}: {
-  name: string;
-  leds: number;
-  ledColors: [number, number, number][] | null;
-  muted: boolean;
-}) {
-  const ref = useRef<HTMLCanvasElement | null>(null);
-  // Cap the dot count per lane: 64 dots read as an LED strip while staying
-  // cheap; devices with more LEDs just get a denser row.
-  const DOTS = Math.min(64, Math.max(12, leds));
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    // Perf: the preview only needs ~30fps (the store coalesces frames to
-    // 12.5Hz anyway), and a redraw is pointless when the color data hasn't
-    // changed. Skipping unchanged frames keeps N device lanes from repainting
-    // 60x/second while the engine pushes a static color.
-    let raf = 0;
-    let lastDraw = 0;
-    let lastSig = "";
-    let lastW = 0;
-    const FRAME_MS = 1000 / 30;
-    const draw = (now: number) => {
-      raf = requestAnimationFrame(draw);
-      if (now - lastDraw < FRAME_MS) return;
-      const sig = `${ledColors?.length ?? 0}:${ledColors?.[0]?.join(",") ?? ""}:${
-        ledColors?.length ? ledColors[Math.floor(ledColors.length / 2)]!.join(",") : ""
-      }:${
-        ledColors?.length ? ledColors[ledColors.length - 1]!.join(",") : ""
-      }:${muted}`;
-      if (sig === lastSig && canvas.offsetWidth === lastW) return;
-      lastDraw = now;
-      lastSig = sig;
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      lastW = canvas.offsetWidth;
-      const W = (canvas.width = lastW * dpr);
-      const H = (canvas.height = canvas.offsetHeight * dpr);
-      ctx.clearRect(0, 0, W, H);
-      const gap = 2 * dpr;
-      const dot = Math.min((W - (DOTS - 1) * gap) / DOTS, H);
-      const rowW = DOTS * dot + (DOTS - 1) * gap;
-      const x0 = (W - rowW) / 2;
-      const y = (H - dot) / 2;
-      for (let i = 0; i < DOTS; i++) {
-        // Sample the engine's per-LED colors evenly across the row. A
-        // single-entry array means a flat reactive color — every dot the
-        // same; a multi-entry array is a gradient/animation to sample.
-        const src = ledColors && ledColors.length > 0
-          ? ledColors.length === 1
-            ? ledColors[0]
-            : ledColors[Math.min(ledColors.length - 1, Math.floor((i / DOTS) * ledColors.length))]
-          : null;
-        const [r, g, b] = muted || !src ? [30, 32, 36] : src;
-        const cx = x0 + i * (dot + gap) + dot / 2;
-        // glow halo
-        ctx.beginPath();
-        ctx.arc(cx, y + dot / 2, dot * 0.85, 0, Math.PI * 2);
-        ctx.fillStyle = `rgb(${r} ${g} ${b} / 0.28)`;
-        ctx.fill();
-        // dot body
-        ctx.beginPath();
-        ctx.arc(cx, y + dot / 2, dot * 0.46, 0, Math.PI * 2);
-        ctx.fillStyle = `rgb(${r} ${g} ${b})`;
-        ctx.fill();
-      }
-    };
-    raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
-  }, [ledColors, muted, DOTS]);
-  return (
-    <div className="flex items-center gap-2.5">
-      <span
-        className={`w-20 shrink-0 truncate text-right font-mono text-[9px] uppercase tracking-wider ${
-          muted ? "text-[var(--text-faint)] line-through" : "text-[var(--text-dim)]"
-        }`}
-      >
-        {name}
-      </span>
-      <canvas ref={ref} className="h-3.5 min-w-0 flex-1" />
-      <span className="w-10 shrink-0 font-mono text-[9px] tabular-nums text-[var(--text-faint)]">
-        {leds.toLocaleString()}
-      </span>
+      {active && (
+        <p className="text-xs leading-relaxed text-[var(--text-faint)]">{active.hint}</p>
+      )}
     </div>
   );
 }
@@ -914,6 +835,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
   const excluded = new Set(cfg.rgb.excludedDevices);
   const activeDevices = rgb.devices.filter((d) => !excluded.has(d.id));
   const ledActive = activeDevices.reduce((n, d) => n + d.leds, 0);
+  const ledTotal = rgb.devices.reduce((n, d) => n + d.leds, 0);
   const isAnimatedMode = (ANIMATION_MODES as ReadonlySet<string>).has(cfg.rgb.mode);
   const paused = !cfg.general.wallpaperEnabled || wallpaperPaused;
   const idleOn = cfg.rgb.idleTimeoutSec > 0;
@@ -1016,15 +938,21 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
           </AudioPulse>
         </Card>
 
-        {/* Engine — spans 7. SignalRGB-style: hero LED preview with device
-            labels, one control bar (brightness + speed), mode pills, and
-            devices as compact mute-chips. */}
+        {/* Engine — spans 7. The device list is the hero: it carries the live
+            LEDs, the device identity and the mute control in one place, so no
+            other part of the card has to repeat the same counts. */}
         <Card
           title="Lighting engine"
           icon={<IconBulb />}
           className="xl:col-span-7"
           right={
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
+              {rgb.devices.length > 0 && (
+                <span className="hidden font-mono text-[10px] text-[var(--text-faint)] sm:inline">
+                  {activeDevices.length}/{rgb.devices.length} devices · {ledActive.toLocaleString()}
+                  /{ledTotal.toLocaleString()} LEDs
+                </span>
+              )}
               <Chip tone={rgb.connected ? "ok" : "danger"} pulse={rgb.connected}>
                 {rgb.connected ? "connected" : "offline"}
               </Chip>
@@ -1036,45 +964,59 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             </div>
           }
         >
-          {/* hero LED preview: one lane of glowing dots per device */}
           <div
-            className="relative w-full overflow-hidden rounded-xl border border-[var(--line)] bg-black"
+            className="relative"
             style={{
               // Audio-reactive halo, matching the wallpaper stage.
-              boxShadow:
-                "0 0 calc(6px + var(--al, 0) * 34px) rgb(var(--glow) / calc(0.05 + var(--al, 0) * 0.26 + var(--beat, 0) * 0.2))",
+              boxShadow: cfg.rgb.enabled
+                ? "0 0 calc(6px + var(--al, 0) * 34px) rgb(var(--glow) / calc(0.05 + var(--al, 0) * 0.26 + var(--beat, 0) * 0.2))"
+                : undefined,
             }}
           >
-            {rgb.connected && rgb.devices.length > 0 ? (
-              <LedBand devices={rgb.devices} colors={deviceColors} excluded={excluded} />
+            {rgb.devices.length > 0 ? (
+              <ul className="space-y-2">
+                {rgb.devices.map((d) => (
+                  <DeviceRow
+                    key={d.id}
+                    device={d}
+                    live={deviceColors[d.id]}
+                    muted={excluded.has(d.id)}
+                    onToggleMute={() =>
+                      save((cc) => {
+                        const set = new Set(cc.rgb.excludedDevices);
+                        if (set.has(d.id)) set.delete(d.id);
+                        else set.add(d.id);
+                        cc.rgb.excludedDevices = [...set];
+                      })
+                    }
+                  />
+                ))}
+              </ul>
             ) : (
-              <div className="flex h-20 w-full items-center justify-center text-[var(--text-faint)]">
+              <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-[var(--line-strong)] py-8 text-[var(--text-faint)]">
                 <IconBulb className="h-5 w-5" />
+                <span className="text-xs">
+                  {rgb.connected ? "Connected, but no devices reported yet." : "OpenRGB is offline."}
+                </span>
+                {!rgb.connected && (
+                  <span className="font-mono text-[10px]">
+                    Start OpenRGB, then refresh from the Lighting tab.
+                  </span>
+                )}
               </div>
             )}
-            {!cfg.rgb.enabled && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[2px]">
-                <span className="flex items-center gap-1.5 rounded-md bg-black/60 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-amber-300">
+
+            {!cfg.rgb.enabled && rgb.devices.length > 0 && (
+              <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/45 backdrop-blur-[2px]">
+                <span className="rounded-md bg-black/60 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-amber-300">
                   lighting off
                 </span>
               </div>
             )}
           </div>
 
-          {/* automation flags: inline under the lanes */}
-          {(nightOn || idleOn) && (
-            <div className="mt-2 flex gap-1.5">
-              {nightOn && (
-                <Chip tone="accent">
-                  night {cfg.rgb.nightStart}–{cfg.rgb.nightEnd}
-                </Chip>
-              )}
-              {idleOn && <Chip tone="idle">idle {cfg.rgb.idleTimeoutSec}s</Chip>}
-            </div>
-          )}
-
           {/* control bar: brightness + speed sliders share one row */}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-5 gap-y-2">
+          <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-2">
             {cfg.rgb.enabled ? (
               <>
                 <QuickSlider
@@ -1097,65 +1039,27 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                 engine off — flip the switch to wake your lights
               </span>
             )}
-            <span className="font-mono text-[10px] text-[var(--text-faint)]">
-              {activeDevices.length}/{rgb.devices.length} devices · {ledActive.toLocaleString()} LEDs
-            </span>
+
+            {(nightOn || idleOn) && (
+              <div className="ml-auto flex gap-1.5">
+                {nightOn && (
+                  <Chip tone="accent">
+                    night {cfg.rgb.nightStart}–{cfg.rgb.nightEnd}
+                  </Chip>
+                )}
+                {idleOn && <Chip tone="idle">idle {cfg.rgb.idleTimeoutSec}s</Chip>}
+              </div>
+            )}
           </div>
 
-          {/* mode pills: one-click switch between all 8 modes. Uses the
-              shared chip language (chipStyle) — same selected look as every
-              other selectable control in the app. */}
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {RGB_MODES.map((m) => {
-              const active = cfg.rgb.enabled && cfg.rgb.mode === m.id;
-              return (
-                <button
-                  key={m.id}
-                  title={m.hint}
-                  onClick={() => save((c) => { c.rgb.enabled = true; c.rgb.mode = m.id; })}
-                  className={chipStyle(active) + " rounded-lg px-2.5 py-1 text-[11px]"}
-                >
-                  {m.label}
-                </button>
-              );
-            })}
+          {/* modes: grouped into the two families they belong to, with the
+              active mode's description always visible rather than hover-only. */}
+          <div className="mt-3.5">
+            <ModePicker
+              mode={cfg.rgb.mode}
+              onSelect={(m) => save((c) => { c.rgb.enabled = true; c.rgb.mode = m; })}
+            />
           </div>
-
-          {/* devices: compact mute-chips instead of a tall list */}
-          {rgb.devices.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {rgb.devices.map((d) => {
-                const muted = excluded.has(d.id);
-                const c = deviceColors[d.id]?.rgb;
-                return (
-                  <button
-                    key={d.id}
-                    title={`${muted ? "Include" : "Mute"} ${d.name} (${d.leds} LEDs)`}
-                    onClick={() =>
-                      save((cc) => {
-                        const set = new Set(cc.rgb.excludedDevices);
-                        if (set.has(d.id)) set.delete(d.id);
-                        else set.add(d.id);
-                        cc.rgb.excludedDevices = [...set];
-                      })
-                    }
-                    className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium ${chipStyle(false)}`}                   
-                    style={muted ? { opacity: 0.55 } : undefined}
-                  >
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full transition-colors duration-500"
-                      style={{
-                        background: c && !muted ? `rgb(${c[0]} ${c[1]} ${c[2]})` : "var(--panel-sunken)",
-                        boxShadow: c && !muted ? `0 0 6px rgb(${c[0]} ${c[1]} ${c[2]} / 0.8)` : undefined,
-                      }}
-                    />
-                    <span className={`max-w-36 truncate ${muted ? "line-through" : ""}`}>{d.name}</span>
-                    <span className="font-mono text-[9px] text-[var(--text-faint)]">{d.leds}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </Card>
       </div>
 

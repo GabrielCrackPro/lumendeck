@@ -2,11 +2,14 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { api } from "../ipc";
-import { IconBulb, IconImage, IconSticker, IconGear, IconPause, IconZap, IconRailCollapse, IconSearch, IconCheck, IconAlert, IconInfo } from "./icons";
+import { IconPause, IconCheck, IconAlert, IconInfo } from "./icons";
 import { DEFAULT_GLOW } from "@shared/constants";
 import { readableOnTheme } from "../accent";
 import { useEffectiveTheme } from "../theme";
 import TitleBar from "./TitleBar";
+import { AppMark } from "./ui";
+import Sidebar, { SETTINGS_TAB, TABS, shortcutRows } from "./Sidebar";
+import type { TabId } from "./Sidebar";
 
 /** Read the --glow triplet currently on :root, or null when unparsable. */
 function currentGlow(): [number, number, number] | null {
@@ -24,27 +27,6 @@ const RgbTab = lazy(() => import("./tabs/RgbTab"));
 const WallpaperTab = lazy(() => import("./tabs/WallpaperTab"));
 const StickersTab = lazy(() => import("./tabs/StickersTab"));
 const GeneralTab = lazy(() => import("./tabs/GeneralTab"));
-
-type TabId = "overview" | "rgb" | "wallpaper" | "stickers" | "general";
-
-const TABS: {
-  id: TabId;
-  label: string;
-  blurb: string;
-  icon: React.FC<React.SVGProps<SVGSVGElement>>;
-}[] = [
-  { id: "overview", label: "Overview", blurb: "At a glance", icon: IconZap },
-  { id: "rgb", label: "Lighting", blurb: "RGB engine", icon: IconBulb },
-  { id: "wallpaper", label: "Wallpaper", blurb: "Sources & zones", icon: IconImage },
-  { id: "stickers", label: "Stickers", blurb: "Overlays", icon: IconSticker },
-];
-
-const SETTINGS_TAB: {
-  id: TabId;
-  label: string;
-  blurb: string;
-  icon: React.FC<React.SVGProps<SVGSVGElement>>;
-} = { id: "general", label: "Settings", blurb: "App & system", icon: IconGear };
 
 /**
  * Resolve the UI accent glow. Priority: the wallpaper's own dominant color
@@ -144,11 +126,7 @@ function useGlow() {
 function BootSplash() {
   return (
     <div className="relative z-10 flex h-full w-full flex-col items-center justify-center gap-5">
-      <img
-        src="/app-icon.png"
-        alt=""
-        className="h-14 w-14 animate-[lbreath_2.4s_ease-in-out_infinite] rounded-xl border border-[rgb(var(--glow)/0.5)]"
-      />
+      <AppMark size={56} pulse />
       <div className="flex flex-col items-center gap-3">
         <div className="flex items-center gap-1.5">
           {[0, 1, 2].map((i) => (
@@ -332,16 +310,7 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const rows: { keys: string[]; what: string }[] = [
-    { keys: ["Ctrl", "K"], what: "Command palette" },
-    ...TABS.map((t, i) => ({
-      keys: ["Ctrl", String(i + 1)],
-      what: t.label,
-    })),
-    { keys: ["Ctrl", "5"], what: SETTINGS_TAB.label },
-    { keys: ["?"], what: "This list" },
-    { keys: ["Esc"], what: "Close / go back" },
-  ];
+  const rows = shortcutRows();
 
   return (
     <div
@@ -415,66 +384,6 @@ function TabSkeleton() {
       </div>
     </div>
   );
-}
-
-/** One sidebar entry — shared by the main tabs and the pinned Settings item. */
-function NavItem({
-  item,
-  active,
-  collapsed,
-  dim,
-  onClick,
-}: {
-  item: (typeof TABS)[number];
-  active: boolean;
-  collapsed: boolean;
-  dim: boolean;
-  onClick: () => void;
-}) {
-  const Icon = item.icon;
-  return (
-    <button
-      onClick={onClick}
-      title={item.blurb}
-      className={`group relative flex w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-[7px] text-left transition-all duration-150 ${
-        active
-          ? "bg-[rgb(var(--glow)/0.13)] text-[rgb(var(--glow))]"
-          : dim
-            ? "text-[var(--text-faint)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
-            : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
-      } ${collapsed ? "justify-center" : ""}`}
-    >
-      {/* active marker: full-height accent bar on the left edge */}
-      {active && (
-        <span className="absolute inset-y-[3px] left-0 w-[3px] rounded-r-sm bg-[rgb(var(--glow))]" />
-      )}
-      <Icon className={`h-[16px] w-[16px] shrink-0 ${active ? "" : "opacity-80"}`} />
-      {!collapsed && (
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium tracking-tight">
-          {item.label}
-        </span>
-      )}
-      {!collapsed && (
-        <kbd className="rounded-[3px] border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--text-faint)] opacity-0 transition-opacity group-hover:opacity-100">
-          {(TABS.findIndex((t) => t.id === item.id) + 1) || 5}
-        </kbd>
-      )}
-    </button>
-  );
-}
-
-/** Rail footer pulse: a heartbeat that proves the engine loop is streaming. */
-function EnginePulse() {
-  const rgb = useStore((s) => s.rgb);
-  const live = Object.values(useStore((s) => s.deviceColors)).some(
-    (c) => c.rgb.some((v) => v > 0),
-  );
-  const tone = !rgb.connected
-    ? "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.8)]"
-    : live
-      ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-[lpulse_2s_ease-in-out_infinite]"
-      : "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.7)]";
-  return <span className={`h-2 w-2 shrink-0 rounded-full ${tone}`} />;
 }
 
 export default function Shell() {
@@ -578,6 +487,13 @@ export default function Shell() {
         setPaletteOpen((v) => !v);
         return;
       }
+      // Ctrl+B folds the rail away — the sidebar eats ~216px of a laptop
+      // screen, and folding it is a two-finger keypress away.
+      if (e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        setCollapsed((v) => !v);
+        return;
+      }
       const n = Number(e.key);
       if (!Number.isInteger(n) || n < 1 || n > TABS.length + 1) return;
       e.preventDefault();
@@ -605,114 +521,14 @@ export default function Shell() {
 
       <div className="relative z-10 flex min-h-0 w-full flex-1 gap-2">
         {/* ---------- floating glass rail ---------- */}
-        <nav
-          className={`flex shrink-0 flex-col rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-[var(--shadow)] backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
-            collapsed ? "w-[60px]" : "w-[200px]"
-          }`}
-        >
-          {/* brand + collapse toggle */}
-          <div className={`flex items-center justify-between border-b border-[var(--line)] px-3 py-3 ${collapsed ? "flex-col gap-2" : ""}`}>
-            <div className={`flex items-center gap-2.5 ${collapsed ? "justify-center" : ""}`}>
-              <img
-                src="/app-icon.png"
-                alt="LumenDeck"
-                className="h-8 w-8 shrink-0 rounded-lg border border-[var(--line-strong)]"
-              />
-              {!collapsed && (
-                <div className="min-w-0">
-                  <div className="lednum truncate text-[12px] tracking-[0.1em] text-[var(--text)]">
-                    LUMENDECK
-                  </div>
-                  <div className="kicker mt-0.5 flex items-center gap-1.5">
-                    v{__APP_VERSION__}
-                    {__APP_BUILD_MODE__ === "dev" && (
-                      <span className="rounded-sm bg-amber-500/20 px-1 font-mono text-[8.5px] tracking-[0.15em] text-amber-400">
-                        DEV
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            {!collapsed && (
-              <button
-                onClick={() => setCollapsed((v) => !v)}
-                title="Collapse sidebar"
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
-              >
-                <IconRailCollapse
-                  className={`h-[14px] w-[14px] transition-transform duration-300 ${
-                    collapsed ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-            )}
-          </div>
-
-          {/* nav: grouped sections (spaces the eye; finds things faster) */}
-          <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2">
-            {!collapsed && <div className="kicker px-1 pb-1.5 pt-2">overview</div>}
-            <NavItem
-              item={TABS[0]!}
-              active={tab === TABS[0]!.id}
-              collapsed={collapsed}
-              dim={false}
-              onClick={() => setTab(TABS[0]!.id)}
-            />
-            {!collapsed && <div className="kicker px-1 pb-1.5 pt-3">customize</div>}
-            {TABS.filter((t) => t.id !== "overview").map((t) => (
-              <NavItem
-                key={t.id}
-                item={t}
-                active={tab === t.id}
-                collapsed={collapsed}
-                dim={false}
-                onClick={() => setTab(t.id)}
-              />
-            ))}
-            {!collapsed && <div className="kicker px-1 pb-1.5 pt-3">system</div>}
-            <NavItem
-              item={SETTINGS_TAB}
-              active={tab === SETTINGS_TAB.id}
-              collapsed={collapsed}
-              dim
-              onClick={() => setTab(SETTINGS_TAB.id)}
-            />
-          </div>
-          {/* rail footer: live engine pulse — glanceable without the header */}
-          <div className="border-t border-[var(--line)]">
-            <div
-              className={`flex items-center gap-2 px-4 py-2.5 ${
-                collapsed ? "justify-center" : ""
-              }`}
-            >
-              <EnginePulse />
-              {!collapsed && (
-                <span className="min-w-0 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--text-faint)]">
-                  engine live
-                </span>
-              )}
-              {!collapsed && (
-                <button
-                  onClick={() => setShortcutsOpen(true)}
-                  title="Keyboard shortcuts (?)"
-                  className="ml-auto rounded px-1 font-mono text-[10px] text-[var(--text-faint)] transition-colors hover:text-[rgb(var(--glow))]"
-                >
-                  ?
-                </button>
-              )}
-            </div>
-            {collapsed && (
-              <button
-                onClick={() => setCollapsed((v) => !v)}
-                title="Expand sidebar"
-                className="flex w-full items-center justify-center pb-2.5 text-[var(--text-faint)] transition-colors hover:text-[var(--text)]"
-              >
-                <IconRailCollapse className="h-[14px] w-[14px] rotate-180" />
-              </button>
-            )}
-          </div>
-        </nav>
+        <Sidebar
+          tab={tab}
+          onNavigate={setTab}
+          collapsed={collapsed}
+          onToggleCollapsed={() => setCollapsed((v) => !v)}
+          onSearch={() => setPaletteOpen(true)}
+          onShortcuts={() => setShortcutsOpen(true)}
+        />
 
         {/* ---------- workspace ---------- */}
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-[color-mix(in_srgb,var(--bg)_60%,var(--panel))] shadow-[var(--shadow)] backdrop-blur-xl">
@@ -728,17 +544,6 @@ export default function Shell() {
             </div>
             <div className="flex shrink-0 items-center gap-3">
               <HeaderStatus />
-              {/* Command palette trigger: same actions as Ctrl+K, visible for
-                  discoverability (the shortcut still works everywhere). */}
-              <button
-                onClick={() => setPaletteOpen(true)}
-                title="Search commands (Ctrl+K)"
-                className="flex h-7 w-44 items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--panel-sunken)] px-2.5 text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text-dim)]"
-              >
-                <IconSearch className="h-3.5 w-3.5 shrink-0" />
-                <span className="flex-1 truncate text-left text-[11px]">Search…</span>
-                <kbd className="shrink-0 font-mono text-[9px] tracking-widest">CTRL K</kbd>
-              </button>
             </div>
           </header>
 

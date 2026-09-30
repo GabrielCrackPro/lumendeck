@@ -8,6 +8,95 @@ import type { ThemeMode } from "@shared/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 /**
+ * The app mark — the one place the logo is drawn.
+ *
+ * Four call sites used to render /app-icon.png with four different radii
+ * (5px, 8px, 12px, 22px), two different border opacities and two different
+ * animations, so the same artwork read as four different logos depending on
+ * where you met it. Corner radius is now a fixed fraction of the size (a
+ * squircle that scales) and the accent ring is one value everywhere, so a
+ * 16px title-bar chip and an 80px splash are visibly the same object.
+ */
+export function AppMark({
+  size = 28,
+  pulse,
+  className = "",
+}: {
+  /** Edge length in px. Every size derives its radius from this. */
+  size?: number;
+  /** Slow accent breath — for splash screens, not for chrome. */
+  pulse?: boolean;
+  className?: string;
+}) {
+  return (
+    <span
+      style={{ width: size, height: size, borderRadius: Math.round(size * 0.26) }}
+      className={`inline-flex shrink-0 items-center justify-center overflow-hidden border border-[rgb(var(--glow)/0.45)] bg-[var(--panel-sunken)] ${
+        pulse ? "animate-[lbreath_2.4s_ease-in-out_infinite]" : ""
+      } ${className}`}
+    >
+      <img
+        src="/app-icon.png"
+        alt=""
+        draggable={false}
+        className="h-full w-full object-cover"
+      />
+    </span>
+  );
+}
+
+/**
+ * Release-only identity guard: renders nothing in a shipped build, and an
+ * amber chip in a dev build. It lives beside the title-bar wordmark rather
+ * than in the sidebar, because the rail collapses and the header is the one
+ * strip that is always on screen — a dev build should never be mistakable for
+ * the release one, whatever state the window is in.
+ *
+ * It carries the version too. The rail dropped its version line as noise, but
+ * for someone running a local build the version is not noise: it is the one
+ * thing that says which checkout they are looking at. The slow pulse is
+ * deliberately dim — visible across the room, ignorable when working.
+ */
+export function DevBadge() {
+  if (__APP_BUILD_MODE__ !== "dev") return null;
+  return (
+    <span
+      title="Development build — local changes, not a release"
+      className="inline-flex shrink-0 select-none items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-[1px] font-mono text-[9px] font-medium uppercase leading-[14px] tracking-[0.14em] text-amber-300"
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-[lpulse_1.8s_ease-in-out_infinite]" />
+      Dev
+      <span className="normal-case text-amber-400/70">v{__APP_VERSION__}</span>
+    </span>
+  );
+}
+
+/**
+ * The wordmark, in the same three sizes the mark appears at. Same type, same
+ * tracking, same casing everywhere the app names itself — the title bar used
+ * to lowercase it while the splash shouted LUMEN DECK, which read as two
+ * different products sharing an icon.
+ */
+export function AppWordmark({
+  size = 28,
+  className = "",
+}: {
+  /** Use the mark's size so the lockup scales as one unit. */
+  size?: number;
+  className?: string;
+}) {
+  const px = Math.max(10, Math.round(size * 0.46));
+  return (
+    <span
+      style={{ fontSize: px, letterSpacing: `${(px * 0.1).toFixed(2)}px` }}
+      className={`lednum truncate leading-none text-[var(--text)] ${className}`}
+    >
+      LUMENDECK
+    </span>
+  );
+}
+
+/**
  * Collapsible sub-section inside a Card: a one-line toggle header that folds
  * a group of related controls away. Default-open when `defaultOpen`, or when
  * it contains the most recently touched control.

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
 import { Card, Toggle, Slider, Btn, ColorInput, Dropdown, Section, Segmented, InfoNote, ItemTitle } from "../ui";
-import { IconRefresh, IconZap, IconWave, IconDevice, IconPlus, IconTrash } from "../icons";
+import { DeviceRow } from "../DeviceRow";
+import { IconRefresh, IconZap, IconWave, IconPlus, IconTrash } from "../icons";
 import { RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import { rgbToHex } from "../../utilities";
 import type { AudioLevel, DeviceColor, RgbMode } from "@shared/types";
@@ -661,6 +662,12 @@ export default function RgbTab() {
   const isAnimated = (ANIMATION_MODES as ReadonlySet<RgbMode>).has(rgbCfg.mode);
 
   const ledTotal = rgb.devices.reduce((n, d) => n + d.leds, 0);
+  const activeLeds = rgb.devices
+    .filter((d) => !rgbCfg.excludedDevices.includes(d.id))
+    .reduce((n, d) => n + d.leds, 0);
+  const mutedCount = rgb.devices.filter((d) =>
+    rgbCfg.excludedDevices.includes(d.id),
+  ).length;
   const activeMode = RGB_MODES.find((m) => m.id === rgbCfg.mode);
   const liveWallpaperColor = Object.values(deviceColors)[0]?.rgb ?? null;
 
@@ -752,106 +759,33 @@ export default function RgbTab() {
           right={
             rgb.connected ? (
               <span className="hint">
-                {ledTotal.toLocaleString()} leds
+                {rgb.devices.length} device{rgb.devices.length === 1 ? "" : "s"} ·{" "}
+                {activeLeds.toLocaleString()} of {ledTotal.toLocaleString()} LEDs
               </span>
             ) : undefined
           }
         >
           {rgb.connected ? (
-            <ul className="mt-5 space-y-2.5">
-              {rgb.devices.filter((d) => !rgbCfg.excludedDevices.includes(d.id)).map((d) => {
-                const live = useStore.getState().deviceColors[d.id];
-                const hex = live ? rgbToHex(live.rgb as [number, number, number]) : null;
+            <ul className="space-y-2">
+              {rgb.devices.map((d) => {
+                const muted = rgbCfg.excludedDevices.includes(d.id);
                 return (
-                  <li
+                  <DeviceRow
                     key={d.id}
-                    className="flex items-center justify-between gap-3 panel-inset px-3.5 py-3 transition-colors duration-200 hover:border-[var(--line-strong)]"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span
-                        className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)]"
-                        style={
-                          live
-                            ? {
-                                color: `rgb(${live.rgb[0]} ${live.rgb[1]} ${live.rgb[2]})`,
-                                boxShadow: `inset 0 0 14px -4px rgb(${live.rgb[0]} ${live.rgb[1]} ${live.rgb[2]} / 0.8)`,
-                              }
-                            : undefined
-                        }
-                      >
-                        <IconDevice type={d.typeName} className="h-5 w-5" />
-                      </span>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <ItemTitle className="truncate">{d.name || `Device ${d.id}`}</ItemTitle>
-                        </div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                          <span className="truncate text-[11px] capitalize text-[var(--text-faint)]">
-                            {d.typeName.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase()}
-                          </span>
-                          <span className="h-0.5 w-0.5 rounded-full bg-[var(--line-strong)]" />
-                          <span className="font-mono text-[11px] text-[var(--text-dim)]">
-                            {d.leds} LEDs
-                          </span>
-                          {d.zones.length > 0 && (
-                            <>
-                              <span className="h-0.5 w-0.5 rounded-full bg-[var(--line-strong)]" />
-                              <span className="truncate text-dim-sm">
-                                {d.zones.length} zone{d.zones.length === 1 ? "" : "s"}: {d.zones.slice(0, 2).join(", ")}
-                                {d.zones.length > 2 ? ` +${d.zones.length - 2}` : ""}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      {hex && (
-                        <>
-                          <span className="hidden font-mono text-[10px] uppercase text-[var(--text-faint)] sm:block">
-                            {hex}
-                          </span>
-                          <span
-                            className="h-5 w-5 rounded-lg border border-[rgb(255_255_255/0.14)] shadow-[0_0_10px_-2px_rgb(255_255_255/0.25)]"
-                            style={{
-                              background: `rgb(${live!.rgb[0]} ${live!.rgb[1]} ${live!.rgb[2]})`,
-                            }}
-                          />
-                        </>
-                      )}
-                      <Toggle
-                      label=""
-                      checked={true}
-                      onChange={() =>
-                        save((c) => {
-                          c.rgb.excludedDevices = [...c.rgb.excludedDevices, d.id];
-                        })
-                      }
-                    />
-                    </div>
-                  </li>
+                    device={d}
+                    live={deviceColors[d.id]}
+                    muted={muted}
+                    onToggleMute={() =>
+                      save((c) => {
+                        const set = new Set(c.rgb.excludedDevices);
+                        if (set.has(d.id)) set.delete(d.id);
+                        else set.add(d.id);
+                        c.rgb.excludedDevices = [...set];
+                      })
+                    }
+                  />
                 );
               })}
-              {rgb.devices.filter((d) => !rgbCfg.excludedDevices.includes(d.id)).length === 0 && (
-                <li className="flex items-center justify-between gap-3 panel-inset px-3.5 py-3 text-sm text-[var(--text-faint)]">
-                  {rgb.devices.length > 0
-                    ? "All devices excluded. Toggle them on from Settings."
-                    : "Connected, but no devices reported yet."}
-                  <Btn onClick={() => useStore.getState().load()}>
-                    <IconRefresh className="h-4 w-4" />
-                    Refresh
-                  </Btn>
-                </li>
-              )}
-              {rgb.devices.length === 0 && (
-                <li className="flex items-center justify-between gap-3 panel-inset px-3.5 py-3 text-sm text-[var(--text-faint)]">
-                  Connected, but no devices reported yet.
-                  <Btn onClick={() => useStore.getState().load()}>
-                    <IconRefresh className="h-4 w-4" />
-                    Refresh
-                  </Btn>
-                </li>
-              )}
             </ul>
           ) : (
             <div className="mt-5 space-y-3.5 text-sm text-[var(--text-dim)]">
@@ -877,6 +811,14 @@ export default function RgbTab() {
                 Retry
               </Btn>
             </div>
+          )}
+          {/* Muted devices stay listed — the engine simply stops writing to
+              them, so the count is worth stating plainly. */}
+          {rgb.connected && mutedCount > 0 && (
+            <p className="mt-2.5 text-xs leading-relaxed text-[var(--text-faint)]">
+              {mutedCount} device{mutedCount === 1 ? " is" : "s are"} muted. Muted hardware
+              keeps its last color; the engine just stops writing to it.
+            </p>
           )}
           {/* Everything that governs WHEN lights are on/off lives together:
               idle, night window, track flash — behavior over look. */}
