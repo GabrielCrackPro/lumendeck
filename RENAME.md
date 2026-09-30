@@ -14,11 +14,5 @@ run from a PowerShell prompt **outside** it (e.g. `C:\Users\Gabriel\Desktop\Gabr
 Rename-Item -Path .\sticker -NewName LumenDeck
 ```
 
-Or simply run the helper script from the parent folder:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\sticker\scripts\rename-to-lumendeck.ps1
-```
-
 Afterwards: `cd LumenDeck` and everything continues to work — no paths inside
 the repo are affected by the folder name.
