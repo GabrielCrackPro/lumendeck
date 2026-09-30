@@ -90,6 +90,11 @@ pub fn reload_if_changed() -> ConfigReload {
                     .unwrap_or(0);
                 events::emit_all(&app, events::CONFIG_RELOADED, &now_ms);
                 crate::ipc::apply_side_effects(&app, &cfg);
+                // The tray menu and tooltip are a mirror of the config, and
+                // this path bypasses `set` (which refreshes them), so an edit
+                // made outside the app would otherwise leave the notification
+                // area describing a state that no longer exists.
+                crate::tray::refresh(&app);
             }
             log::info!("config reloaded from disk");
             ConfigReload::Reloaded

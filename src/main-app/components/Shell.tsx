@@ -5,6 +5,7 @@ import { api } from "../ipc";
 import { IconBulb, IconImage, IconSticker, IconGear, IconPause, IconZap, IconRailCollapse, IconSearch, IconCheck, IconAlert, IconInfo } from "./icons";
 import { DEFAULT_GLOW } from "@shared/constants";
 import { readableOnTheme } from "../accent";
+import { useEffectiveTheme } from "../theme";
 import TitleBar from "./TitleBar";
 
 /** Read the --glow triplet currently on :root, or null when unparsable. */
@@ -62,7 +63,13 @@ function useGlow() {
   const devices = useStore((s) => s.rgb.devices);
   const accentDevice = useStore((s) => s.cfg?.rgb.accentDevice);
   const accentLive = useStore((s) => s.cfg?.general.accentLive);
-  const theme = useStore((s) => s.cfg?.general.theme ?? "dark");
+  // The *resolved* theme, not the preference: readableOnTheme below corrects
+  // the accent against a surface, so "system" on a light OS has to resolve to
+  // light or the whole UI is tinted against the wrong background. This used to
+  // fall back to "dark", which was invisible while dark was the default and
+  // wrong for every light-mode user the moment it was not.
+  const themePref = useStore((s) => s.cfg?.general.theme);
+  const theme = useEffectiveTheme(themePref);
   const autoShade = useStore((s) => s.cfg?.general.accentAutoShade ?? 1);
   const wallpaperColor = useStore((s) => s.wallpaperColor);
   // The user's Windows accent color, seeded once via IPC and kept live by the
@@ -94,7 +101,7 @@ function useGlow() {
     // steps toward white/black until the accent is legible on this theme.
     // Strength is user-tunable (Settings > Appearance); 0 = raw colors.
     const pick = (c: [number, number, number]) =>
-      readableOnTheme(c, theme === "light" ? "light" : "dark", Math.max(0, Math.min(1, autoShade)));
+      readableOnTheme(c, theme, Math.max(0, Math.min(1, autoShade)));
     const fallback =
       mode === "static" || mode === "breathe" ? staticColor : undefined;
     // Wallpaper color leads when present: the interface IS the wallpaper's

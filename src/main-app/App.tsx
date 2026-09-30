@@ -140,7 +140,7 @@ export default function App() {
 
   useEffect(() => {
     const root = document.documentElement;
-    const theme = cfg?.general.theme ?? "dark";
+    const theme = cfg?.general.theme ?? "system";
     const amoled = cfg?.general.amoled ?? false;
     // AMOLED only applies to the dark theme — light stays unchanged.
     root.classList.toggle("amoled", amoled && theme !== "light");

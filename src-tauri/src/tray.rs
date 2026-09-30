@@ -25,12 +25,45 @@ pub const ID_RESTORE_WP: &str = "restore-wallpaper";
 pub const ID_QUIT: &str = "quit";
 pub const ID_HOTKEYS: &str = "hotkeys";
 
+/// The tray tooltip for the current state. Pure, so the wording is testable
+/// without an AppHandle — the tooltip is the only thing the notification
+/// area says about us, and a wrong one is worse than a bare "LumenDeck".
+pub fn tooltip_text(wallpaper_on: bool, lights_on: bool, paused: bool) -> &'static str {
+    if paused {
+        return "LumenDeck - paused";
+    }
+    match (wallpaper_on, lights_on) {
+        (true, true) => "LumenDeck - wallpaper and lights are live",
+        (true, false) => "LumenDeck - wallpaper is live, lights are off",
+        (false, true) => "LumenDeck - lights are live, wallpaper is off",
+        (false, false) => "LumenDeck - idle",
+    }
+}
+
+/// [tooltip_text] for the live app state.
+pub fn current_tooltip() -> String {
+    let cfg = crate::config_store::get();
+    tooltip_text(
+        cfg.general.wallpaper_enabled,
+        cfg.rgb.enabled,
+        crate::wallpaper::is_paused(),
+    )
+    .to_string()
+}
+
 /// Rebuild the tray menu from current config/pause state.
 pub fn refresh(app: &tauri::AppHandle) {
     let tray = match app.tray_by_id("lumendeck-tray") {
         Some(t) => t,
         None => return,
     };
+    // Set from the same call sites as the menu below, so the tooltip cannot
+    // drift out of step with the checkmarks it sits next to.
+    let tooltip = current_tooltip();
+    if let Err(e) = tray.set_tooltip(Some(&tooltip)) {
+        log::warn!("tray set_tooltip failed: {e}");
+    }
+    log::debug!("tray tooltip -> {tooltip}");
     let menu = match build_menu(app) {
         Ok(m) => m,
         Err(e) => {
@@ -336,4 +369,50 @@ pub fn show_dashboard(app: &tauri::AppHandle) {
 /// closure. The builder closure in `lib.rs` calls this for unknown ids.
 pub fn on_menu_event(app: &tauri::AppHandle, id: &str) {
     handle(app, id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tooltip_leads_with_the_app_name_and_never_goes_blank() {
+        for wallpaper in [false, true] {
+            for lights in [false, true] {
+                assert!(tooltip_text(wallpaper, lights, false).starts_with("LumenDeck"));
+                assert!(tooltip_text(wallpaper, lights, true).starts_with("LumenDeck"));
+            }
+        }
+    }
+
+    #[test]
+    fn tooltip_describes_what_is_actually_running() {
+        assert_eq!(
+            tooltip_text(true, true, false),
+            "LumenDeck - wallpaper and lights are live"
+        );
+        assert_eq!(
+            tooltip_text(true, false, false),
+            "LumenDeck - wallpaper is live, lights are off"
+        );
+        assert_eq!(
+            tooltip_text(false, true, false),
+            "LumenDeck - lights are live, wallpaper is off"
+        );
+        assert_eq!(tooltip_text(false, false, false), "LumenDeck - idle");
+    }
+
+    #[test]
+    fn pause_wins_over_everything_else() {
+        // Whether the wallpaper is on, paused, or the whole app is idle, the
+        // one thing the user needs to know is that nothing is moving.
+        for wallpaper in [false, true] {
+            for lights in [false, true] {
+                assert_eq!(
+                    tooltip_text(wallpaper, lights, true),
+                    "LumenDeck - paused"
+                );
+            }
+        }
+    }
 }

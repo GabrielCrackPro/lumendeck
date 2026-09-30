@@ -41,6 +41,10 @@ pub enum ThemeMode {
 #[serde(rename_all = "camelCase", default)]
 pub struct GeneralConfig {
     pub autostart: bool,
+    /// Which palette to paint. Defaults to following the OS: an app that
+    /// fights the system theme on a light machine reads as broken, whatever
+    /// its own default once was. Only new configs are affected — anyone who
+    /// has already chosen keeps what they chose.
     pub theme: ThemeMode,
     pub pause_on_battery_saver: bool,
     pub pause_on_fullscreen: bool,
@@ -187,7 +191,7 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             autostart: false,
-            theme: ThemeMode::Dark,
+            theme: ThemeMode::System,
             // Off by default: a laptop user's first run should show a live
             // wallpaper, not a frozen frame just because the charger is
             // unplugged. Opt in from the General tab.
@@ -843,6 +847,25 @@ mod playlist_tests {
         let cfg: Config = serde_json::from_value(old).expect("pre-blink config must parse");
         assert_eq!(cfg.general.hotkey_blink_ms, default_hotkey_blink_ms());
         assert_eq!(cfg.general.hotkey_blink_color, [255, 255, 255]);
+    }
+
+    #[test]
+    fn a_new_config_follows_the_system_theme() {
+        // Light machines should not get a dark app they never asked for. The
+        // frontend resolves "system" against prefers-color-scheme, so the
+        // default has to be System rather than a hard palette.
+        assert_eq!(GeneralConfig::default().theme, ThemeMode::System);
+        assert_eq!(Config::default().general.theme, ThemeMode::System);
+    }
+
+    #[test]
+    fn an_explicit_theme_from_an_older_config_is_still_honoured() {
+        // Flipping the default must not reach forward and overwrite someone
+        // who already picked a palette: their config.json still says what it
+        // always said, and it has to win.
+        let old = serde_json::json!({ "version": 1, "general": { "theme": "dark" } });
+        let cfg: Config = serde_json::from_value(old).expect("pre-system config must parse");
+        assert_eq!(cfg.general.theme, ThemeMode::Dark);
     }
 
     #[test]

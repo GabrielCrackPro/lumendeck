@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { useStore } from "../store";
 import { truncateError } from "../utilities";
-import { Card, Btn, Section } from "./ui";
+import { Card, Btn, Section, CollapsibleCard } from "./ui";
 import {
   CHANGELOG,
   currentRelease,
@@ -67,7 +67,16 @@ function ReleaseBody({ release }: { release: ChangelogRelease }) {
   );
 }
 
-export default function WhatsNewCard() {
+/**
+ * Release notes for the running build.
+ *
+ * `compact` folds the body away behind a one-line summary, because this card
+ * used to sit second on the settings page — above the theme picker — taking a
+ * full screen of vertical space to announce a changelog nobody opened on
+ * purpose. A release you have not read still opens itself, so "new" can never
+ * be the thing that hides the news.
+ */
+export default function WhatsNewCard({ compact }: { compact?: boolean }) {
   const cfg = useStore((s) => s.cfg);
   const save = useStore((s) => s.save);
   const toast = useStore((s) => s.toast);
@@ -98,22 +107,11 @@ export default function WhatsNewCard() {
     }
   };
 
-  return (
-    <Card
-      title="What's new"
-      right={
-        <span className="flex items-center gap-2">
-          {unread && (
-            <span className="rounded-full bg-[rgb(var(--glow)/0.18)] px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--glow))]">
-              new
-            </span>
-          )}
-          <span className="font-mono text-[10px] tracking-wide text-[var(--text-faint)]">
-            v{version}
-          </span>
-        </span>
-      }
-    >
+  const changeCount =
+    release?.sections.reduce((n, s) => n + s.entries.length, 0) ?? 0;
+
+  const body = (
+    <>
       {release ? (
         <>
           <div onFocusCapture={markRead} onMouseDown={markRead}>
@@ -166,6 +164,53 @@ export default function WhatsNewCard() {
           </Section>
         </div>
       )}
+    </>
+  );
+
+  if (compact) {
+    return (
+      <CollapsibleCard
+        title="What's new"
+        defaultOpen={unread}
+        summary={
+          release ? (
+            <span className="flex items-center gap-2">
+              {unread && (
+                <span className="rounded-full bg-[rgb(var(--glow)/0.18)] px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--glow))]">
+                  new
+                </span>
+              )}
+              <span className="truncate">
+                v{version} — {changeCount} change{changeCount === 1 ? "" : "s"}
+              </span>
+            </span>
+          ) : (
+            <span className="truncate">v{version} — no bundled notes</span>
+          )
+        }
+      >
+        {body}
+      </CollapsibleCard>
+    );
+  }
+
+  return (
+    <Card
+      title="What's new"
+      right={
+        <span className="flex items-center gap-2">
+          {unread && (
+            <span className="rounded-full bg-[rgb(var(--glow)/0.18)] px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--glow))]">
+              new
+            </span>
+          )}
+          <span className="font-mono text-[10px] tracking-wide text-[var(--text-faint)]">
+            v{version}
+          </span>
+        </span>
+      }
+    >
+      {body}
     </Card>
   );
 }

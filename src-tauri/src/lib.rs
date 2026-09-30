@@ -61,30 +61,43 @@ fn start_hidden(general: &crate::config::GeneralConfig, at_login: bool) -> bool 
 /// obvious question — where did the window go? — has no answer. Shown once,
 /// ever; clicking it opens the dashboard.
 fn first_hidden_start_hint(app: &tauri::AppHandle) {
-    if config_store::get().general.startup_hint_shown {
+    let mut cfg = config_store::get();
+    if cfg.general.startup_hint_shown {
         return;
     }
     // Mark it before showing, not after: if the shell refuses the balloon,
     // nagging on every single boot is worse than never saying anything.
-    let mut cfg = config_store::get();
     cfg.general.startup_hint_shown = true;
+    let body = startup_hint_body(&cfg, crate::wallpaper::is_paused());
     if let Err(e) = config_store::set(cfg) {
         log::warn!("startup hint: could not record that it was shown: {e}");
     }
 
     let app = app.clone();
-    balloon::spawn(
-        "LumenDeck is running in the background",
-        "Your wallpaper and lights are live. Click here to open the dashboard, \
-         or turn on \"Show the dashboard at login\" in settings.",
-        move || {
-            if let Some(main) = app.get_webview_window("main") {
-                let _ = main.unminimize();
-                let _ = main.show();
-                let _ = main.set_focus();
-            }
-        },
-    );
+    balloon::spawn("LumenDeck is running", &body, move || {
+        if let Some(main) = app.get_webview_window("main") {
+            let _ = main.unminimize();
+            let _ = main.show();
+            let _ = main.set_focus();
+        }
+    });
+}
+
+/// The balloon's body line. It promises what is actually live rather than a
+/// fixed sentence: "your wallpaper and lights are live" is a lie on a machine
+/// with the lighting switched off, and a notification that is confidently
+/// wrong is worse than no notification at all.
+fn startup_hint_body(cfg: &crate::config::Config, paused: bool) -> String {
+    if paused {
+        return "Everything is paused. Click to open the dashboard.".to_string();
+    }
+    let state = match (cfg.general.wallpaper_enabled, cfg.rgb.enabled) {
+        (true, true) => "Your wallpaper and lights are live",
+        (true, false) => "Your wallpaper is live",
+        (false, true) => "Your lights are live",
+        (false, false) => "LumenDeck is ready in the notification area",
+    };
+    format!("{state}. Click to open the dashboard.")
 }
 
 use std::sync::OnceLock;
@@ -466,7 +479,9 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", "Quit LumenDeck", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&dashboard, &edit, &quit])?;
             let tray_builder = TrayIconBuilder::with_id("lumendeck-tray")
-                .tooltip("LumenDeck")
+                // refresh() below keeps this in step with the app state; this
+                // is only what shows in the sliver of time before it runs.
+                .tooltip(crate::tray::current_tooltip())
                 .menu(&menu);
             let tray_builder = if let Some(icon) = app.default_window_icon() {
                 tray_builder.icon(icon.clone())
@@ -629,5 +644,31 @@ mod tests {
         let mut loud = GeneralConfig::default();
         loud.show_dashboard_on_login = true;
         assert!(!start_hidden(&loud, true));
+    }
+
+    #[test]
+    fn startup_hint_only_claims_what_is_actually_running() {
+        let mut cfg = crate::config::Config::default();
+        for (wallpaper, lights) in [
+            (true, true),
+            (true, false),
+            (false, true),
+            (false, false),
+        ] {
+            cfg.general.wallpaper_enabled = wallpaper;
+            cfg.rgb.enabled = lights;
+            let body = startup_hint_body(&cfg, false);
+            assert!(body.ends_with("Click to open the dashboard."), "{body}");
+            assert_eq!(body.contains("wallpaper"), wallpaper, "{body}");
+            assert_eq!(body.contains("lights"), lights, "{body}");
+        }
+    }
+
+    #[test]
+    fn a_paused_start_says_nothing_is_moving() {
+        let cfg = crate::config::Config::default();
+        let body = startup_hint_body(&cfg, true);
+        assert!(!body.contains("live"), "{body}");
+        assert!(body.contains("paused"), "{body}");
     }
 }

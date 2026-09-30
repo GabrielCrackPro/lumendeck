@@ -9,10 +9,10 @@ import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
 import { api } from "../ipc";
-import { Btn, Toggle, Select, ItemTitle } from "./ui";
+import { Btn, Toggle, ThemePicker, ItemTitle } from "./ui";
 import { RGB_MODES } from "@shared/constants";
 import { basename, truncateError } from "../utilities";
-import type { RgbMode, ThemeMode } from "@shared/types";
+import type { RgbMode } from "@shared/types";
 
 const STEPS = ["Wallpaper", "Import", "Lighting", "Mood", "Config"] as const;
 
@@ -401,14 +401,10 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                 Settings later.
               </p>
               <div className="mt-4 space-y-0.5">
-                <Select<ThemeMode>
-                  label="Dashboard theme"
+                {/* The same picker as Settings, so the choice made here looks
+                    exactly like the one they will find later. */}
+                <ThemePicker
                   value={cfg.general.theme}
-                  options={[
-                    { id: "dark", label: "Dark" },
-                    { id: "light", label: "Light" },
-                    { id: "system", label: "Follow system" },
-                  ]}
                   onChange={(v) => save((c) => (c.general.theme = v))}
                 />
                 <Toggle

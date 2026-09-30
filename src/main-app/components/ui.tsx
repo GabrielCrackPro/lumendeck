@@ -4,6 +4,7 @@ import { IconRefresh, IconMonitor, IconCheck, IconPipette, IconChevronDown } fro
 import { rgbToHex } from "../utilities";
 import { useStore } from "../store";
 import { SHADER_ART } from "@shared/constants";
+import type { ThemeMode } from "@shared/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 /**
@@ -977,6 +978,187 @@ export function IconBox({
     >
       <span className={iconSize}>{children}</span>
     </span>
+  );
+}
+
+// ---------- Settings sub-pages ----------
+
+export type SettingsSectionDef = {
+  id: string;
+  label: string;
+  blurb: string;
+  icon: React.FC<React.SVGProps<SVGSVGElement>>;
+};
+
+// ---------- Theme picker ----------
+
+const THEME_OPTIONS: { id: ThemeMode; label: string }[] = [
+  { id: "dark", label: "Dark" },
+  { id: "light", label: "Light" },
+  { id: "system", label: "Follow system" },
+];
+
+/**
+ * Theme as a segmented control, not a dropdown.
+ *
+ * The app already has one way of asking "pick one of these" — Segmented, used
+ * for the minimize-button behaviour two cards down. A bespoke tile grid here
+ * made the theme the only control on the page that looked like it came from
+ * somewhere else, and it needed three hardcoded colours to draw previews that
+ * could not be kept in step with index.css. This reuses the house control, so
+ * the option list stays in one place for Settings and Onboarding to share and
+ * the palette stays entirely in tokens.
+ */
+export function ThemePicker({
+  value,
+  onChange,
+}: {
+  value: ThemeMode;
+  onChange: (v: ThemeMode) => void;
+}) {
+  return (
+    <div className="py-3">
+      <div className="mb-2 text-sm font-medium text-[var(--text)]">Theme</div>
+      <Segmented label="Theme" options={THEME_OPTIONS} value={value} onChange={onChange} />
+      <p className="mt-2 text-xs leading-relaxed text-[var(--text-faint)]">
+        Follow system tracks your Windows light or dark setting and switches
+        with it.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Two-column frame for the settings page: a sticky section index beside one
+ * continuous column of cards.
+ *
+ * The measure is the point. Settings used to be one column capped at 1120px,
+ * which put a toggle's label at x=127 and its switch at x=1193 — over a
+ * thousand pixels of eye travel per row, with descriptions running to 150
+ * characters. At this cap a description lands near 80 characters and the
+ * control sits a short glance from the thing it controls, which is what makes
+ * a settings page scannable instead of a wall.
+ *
+ * Everything still lives on one screen, in reading order; the index is an
+ * anchor list, not a router. `active` and `onSelect` are supplied by the
+ * caller so the highlight can follow the scroll position.
+ *
+ * Below `lg` the index lies down and scrolls sideways, because a 190px rail
+ * plus a readable column does not fit a half-width window.
+ */
+export function SettingsLayout({
+  sections,
+  active,
+  onSelect,
+  children,
+}: {
+  sections: SettingsSectionDef[];
+  active: string;
+  onSelect: (id: string) => void;
+  children: ReactNode;
+}) {
+  const navItems = (on: string) =>
+    sections.map((s) => {
+      const isActive = s.id === on;
+      const Icon = s.icon;
+      return (
+        <button
+          key={s.id}
+          type="button"
+          onClick={() => onSelect(s.id)}
+          aria-current={isActive ? "true" : undefined}
+          title={s.blurb}
+          className={`flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors ${
+            isActive
+              ? "bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]"
+              : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
+          }`}
+        >
+          <Icon className="h-4 w-4 shrink-0" />
+          <span className="whitespace-nowrap">{s.label}</span>
+        </button>
+      );
+    });
+
+  return (
+    <div className="mx-auto w-full max-w-[860px]">
+      {/* Narrow windows: the index lies down and scrolls sideways. It is
+          still sticky, or it would scroll away and take the only way back to
+          the top of a 3800px page with it. The band needs an opaque base:
+          --panel is a translucent token, so on its own a card header scrolls
+          visibly through the index. */}
+      <div className="relative sticky top-0 z-10 -mx-5 mb-4 border-b border-[var(--line)] bg-[var(--bg)] lg:hidden">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[var(--panel)]"
+        />
+        <nav
+          aria-label="Settings sections"
+          className="relative flex gap-1 overflow-x-auto px-5 py-2"
+        >
+          {navItems(active)}
+        </nav>
+      </div>
+      <div className="flex items-start gap-5">
+        <nav
+          aria-label="Settings sections"
+          className="sticky top-0 hidden w-[190px] shrink-0 space-y-0.5 lg:block"
+        >
+          {navItems(active)}
+        </nav>
+        <div className="min-w-0 flex-1">
+          <div className="stagger space-y-6">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One-line summary of a card's contents, for a card whose detail is rarely
+ * needed. Click to expand the full body.
+ */
+export function CollapsibleCard({
+  title,
+  icon,
+  summary,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  icon?: ReactNode;
+  summary: ReactNode;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="glass overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--panel-sunken)]"
+      >
+        <h2 className="kicker flex shrink-0 items-center gap-2 !text-[var(--text-dim)]">
+          {icon && (
+            <span className="text-[rgb(var(--glow))] [&>svg]:h-3.5 [&>svg]:w-3.5">
+              {icon}
+            </span>
+          )}
+          {title}
+        </h2>
+        <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-faint)]">
+          {summary}
+        </span>
+        <IconChevronDown
+          className={`h-3.5 w-3.5 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${
+            open ? "" : "-rotate-90"
+          }`}
+        />
+      </button>
+      {open && <div className="relative border-t border-[var(--line)] p-4">{children}</div>}
+    </section>
   );
 }
 
