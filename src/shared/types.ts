@@ -177,6 +177,13 @@ export interface GeneralConfig {
   hotkeysEnabled: boolean;
   /** System-wide key bindings; see HOTKEY_ACTIONS for the available actions. */
   hotkeys: HotkeyConfig;
+  /**
+   * Blink the keyboard backlight when a binding fires: duration in ms,
+   * 0 = disabled. Ignored while `hotkeysEnabled` is false.
+   */
+  hotkeyBlinkMs: number;
+  /** Colour of that blink. */
+  hotkeyBlinkColor: [number, number, number];
 }
 
 /**

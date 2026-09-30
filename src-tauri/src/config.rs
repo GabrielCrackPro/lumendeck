@@ -96,6 +96,17 @@ pub struct GeneralConfig {
     /// System-wide key bindings, applied by `crate::hotkeys` from the tray
     /// process so they keep working while the dashboard is hidden.
     pub hotkeys: HotkeyConfig,
+    /// Blink the keyboard backlight when a binding fires, so a combo can be
+    /// confirmed with your eyes on the wallpaper rather than the tray. 0 =
+    /// disabled; otherwise the total blink duration in milliseconds
+    /// (150..1000). Ignored while `hotkeys_enabled` is false — nothing can
+    /// fire to trigger it.
+    #[serde(default = "default_hotkey_blink_ms")]
+    pub hotkey_blink_ms: u64,
+    /// Colour of that blink. White by default because it reads against any
+    /// wallpaper accent; a hue can vanish into a room lit that colour.
+    #[serde(default = "default_hotkey_blink_color")]
+    pub hotkey_blink_color: [u8; 3],
 }
 
 /// One configurable system-wide shortcut.
@@ -200,6 +211,8 @@ impl Default for GeneralConfig {
             // Unbound by default; see HotkeyBinding.
             hotkeys: HotkeyConfig::default(),
             hotkeys_enabled: true,
+            hotkey_blink_ms: default_hotkey_blink_ms(),
+            hotkey_blink_color: default_hotkey_blink_color(),
         }
     }
 }
@@ -396,6 +409,19 @@ pub struct RgbConfig {
     /// milliseconds (150..1000).
     #[serde(default)]
     pub track_flash_ms: u64,
+}
+
+/// Blink length for a fresh install. Not zero: confirming that a hotkey fired
+/// is the whole point, and nothing else on screen is visible while the
+/// dashboard is closed.
+fn default_hotkey_blink_ms() -> u64 {
+    450
+}
+
+/// Blink colour for a fresh install. Also the fallback for a config saved
+/// before the blink colour was user-settable.
+fn default_hotkey_blink_color() -> [u8; 3] {
+    [255, 255, 255]
 }
 
 /// A named lighting profile bundling the most-tweaked RGB knobs.
@@ -805,6 +831,29 @@ mod playlist_tests {
             cfg.general.hotkeys_enabled,
             "upgrading must not silently disable existing hotkeys"
         );
+    }
+
+    #[test]
+    fn blink_settings_survive_an_old_config_without_them() {
+        // A config written before the blink existed has neither the duration
+        // nor the colour. Both must default rather than fail the parse: the
+        // duration to on (the blink is the useful default) and the colour to
+        // white, which reads against any wallpaper accent.
+        let old = serde_json::json!({ "version": 1, "general": { "theme": "dark" } });
+        let cfg: Config = serde_json::from_value(old).expect("pre-blink config must parse");
+        assert_eq!(cfg.general.hotkey_blink_ms, default_hotkey_blink_ms());
+        assert_eq!(cfg.general.hotkey_blink_color, [255, 255, 255]);
+    }
+
+    #[test]
+    fn a_custom_blink_color_is_kept_through_a_roundtrip() {
+        let mut cfg = Config::default();
+        cfg.general.hotkey_blink_color = [0, 128, 255];
+        cfg.general.hotkey_blink_ms = 700;
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: Config = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.general.hotkey_blink_color, [0, 128, 255]);
+        assert_eq!(back.general.hotkey_blink_ms, 700);
     }
 
     #[test]

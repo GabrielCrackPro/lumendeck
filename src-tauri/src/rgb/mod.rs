@@ -7,7 +7,7 @@ pub mod palette;
 
 use crate::config::{RgbConfig, RgbMode};
 use openrgb::data::Color;
-use openrgb_client::RgbClientHandle;
+use openrgb_client::{DeviceInfo, RgbClientHandle};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -55,6 +55,112 @@ const MAX_LED_PREVIEW: usize = 96;
 /// When true, the engine pushes black (off) to all devices instead of normal
 /// output. Toggled by the idle timer on inactivity.
 static SLEEPING: AtomicBool = AtomicBool::new(false);
+
+/// A global hotkey fired and wants the backlight blinked. A plain flag, not a
+/// channel: the engine ticks at 25ms and coalescing is exactly right — several
+/// keys mashed in a row should read as one blink, not a stutter of them.
+static HOTKEY_BLINK_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// Ambient frames pushed per device, for restoring the lighting after a blink.
+static LAST_FRAMES: LastFrames = LastFrames::new();
+
+/// Number of on/off pulses a single hotkey press is drawn as.
+const HOTKEY_BLINK_PULSES: u64 = 3;
+
+/// Ask for a hotkey blink. Called from the hotkey dispatcher, so it must be
+/// cheap and non-blocking — the engine loop picks it up on its next tick.
+pub fn request_hotkey_blink() {
+    HOTKEY_BLINK_PENDING.store(true, Ordering::Relaxed);
+}
+
+/// Consume a pending blink request. One press, one blink.
+fn take_hotkey_blink() -> bool {
+    HOTKEY_BLINK_PENDING.swap(false, Ordering::Relaxed)
+}
+
+/// Is the blink's on-phase showing at `elapsed_ms` into a `total_ms` blink?
+///
+/// Pure so it can be tested without a clock. Duty cycle is 50%: short enough
+/// to read as a blink rather than a fade, long enough that a dropped frame
+/// does not swallow a whole pulse.
+fn blink_is_on(elapsed_ms: u64, total_ms: u64) -> bool {
+    let period = (total_ms / HOTKEY_BLINK_PULSES).max(1);
+    (elapsed_ms % period) * 2 < period
+}
+
+/// Should this device take part in a hotkey blink?
+///
+/// Only keyboards. The blink exists to acknowledge a keypress on the thing
+/// your fingers are on, so a headset, a light strip, or a laptop's dedicated
+/// mode key keeps showing its ambient colour instead of strobing along with
+/// something the user never touched.
+fn is_keyboard(dev: &DeviceInfo) -> bool {
+    dev.type_name.contains("Keyboard")
+}
+
+/// The last ambient frame pushed to each device.
+///
+/// This is what makes "the lights come back" true. A blink overwrites the
+/// hardware, and an LED holds whatever was last written to it, so the engine
+/// needs to remember what the lighting looked like *before* the blink in order
+/// to put it back if the ambient path cannot produce a frame of its own (a
+/// reactive mode whose wallpaper samples have expired, say).
+///
+/// Blink frames are deliberately never recorded, so what is always in here is
+/// the real lighting state and never the flash.
+#[derive(Default)]
+struct LastFrames {
+    // A Vec rather than a map: there are a handful of devices, and `Vec::new`
+    // is const so this can live in a `static` without lazy initialisation.
+    inner: std::sync::Mutex<Vec<(u32, Vec<[u8; 3]>)>>,
+}
+
+impl LastFrames {
+    /// `const` so the store can live in a `static` without lazy init.
+    const fn new() -> Self {
+        Self {
+            inner: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn record(&self, id: u32, frame: &[[u8; 3]]) {
+        let Ok(mut m) = self.inner.lock() else { return };
+        match m.iter_mut().find(|(k, _)| *k == id) {
+            Some(slot) => slot.1 = frame.to_vec(),
+            None => m.push((id, frame.to_vec())),
+        }
+    }
+
+    fn get(&self, id: u32) -> Option<Vec<[u8; 3]>> {
+        let m = self.inner.lock().ok()?;
+        m.iter().find(|(k, _)| *k == id).map(|(_, v)| v.clone())
+    }
+
+    /// Drop devices that have gone away, so a long uptime with hotplugged gear
+    /// does not accumulate frames forever.
+    fn retain(&self, live: &[u32]) {
+        if let Ok(mut m) = self.inner.lock() {
+            m.retain(|(id, _)| live.contains(id));
+        }
+    }
+}
+
+/// The frame to push when the ambient path had nothing, during a blink.
+///
+/// Reuses the remembered frame at the device's current LED count — a
+/// reconnected keyboard may report a different number of LEDs than the one
+/// that was recorded — and falls back to black when there is nothing to go
+/// back to. Black is the safe failure: an unlit key is never mistaken for a
+/// stuck flash.
+fn restore_frame(saved: Option<&[[u8; 3]]>, leds: usize) -> Vec<[u8; 3]> {
+    let mut out = vec![[0u8; 3]; leds];
+    if let Some(saved) = saved {
+        for (i, slot) in out.iter_mut().enumerate() {
+            *slot = saved[i % saved.len().max(1)];
+        }
+    }
+    out
+}
 
 /// (ms, color) of the last wallpaper-color broadcast: at most 1/sec and only
 /// on meaningful shifts, so UI glow + OS accent don't chase every frame.
@@ -483,6 +589,10 @@ async fn engine_loop(
     // bright white-ish pulse for track_flash_ms. Instant::now() would panic
     // before the epoch fix, but this loop only starts after boot time exists.
     let mut flash_until: Option<std::time::Instant> = None;
+    // Hotkey blink: arm on a key press, disarm when the window closes. Both
+    // bounds are kept because the phase is measured from the start, not from
+    // whenever the engine loop next happened to tick.
+    let mut blink_window: Option<(std::time::Instant, std::time::Instant)> = None;
     // Ensure audio capture + SMTC poller threads are spawned (idempotent).
     audio::ensure_started();
     crate::media_session::ensure_started();
@@ -505,7 +615,18 @@ async fn engine_loop(
             _ = ticker.tick() => {}
         }
 
-        let mut cfg: RgbConfig = cfg_rx.borrow_and_update().rgb.clone();
+        // One borrow for both halves: the blink settings live under `general`
+        // next to the bindings they belong to, but this loop only wants the
+        // lighting half cloned. The watch guard is dropped inside this block —
+        // holding it across the loop's awaits would make the future !Send.
+        let (mut cfg, blink_ms, blink_color) = {
+            let snapshot = cfg_rx.borrow_and_update();
+            (
+                snapshot.rgb.clone(),
+                snapshot.general.hotkey_blink_ms,
+                snapshot.general.hotkey_blink_color,
+            )
+        };
         // Real elapsed time for this tick. `tokio::time::interval` uses Burst
         // catch-up, so the nominal 25ms is not a reliable delta; anything
         // derived from it would drift whenever the loop is busy.
@@ -525,6 +646,36 @@ async fn engine_loop(
         if flash_until.is_some_and(|until| std::time::Instant::now() >= until) {
             flash_until = None;
         }
+
+        // Hotkey blink: arm on a press, disarm when the window closes.
+        let blink_requested = take_hotkey_blink();
+        if blink_requested && blink_ms > 0 {
+            let total = blink_ms.clamp(150, 1000);
+            let now = std::time::Instant::now();
+            log::info!("blink: arming hotkey blink for {total}ms");
+            blink_window = Some((
+                now,
+                now + std::time::Duration::from_millis(total),
+            ));
+        } else if blink_requested {
+            log::debug!("blink: requested but disabled (hotkey_blink_ms is 0)");
+        }
+        if blink_window.is_some_and(|(_, until)| std::time::Instant::now() >= until) {
+            blink_window = None;
+        }
+        // A key press must be acknowledged even with no wallpaper sample to
+        // colour from, and even in a non-animated mode — otherwise the one
+        // moment the user is watching the keyboard is the one moment the
+        // engine has decided there is nothing to do.
+        let blink_active = blink_window.is_some();
+        let blink_on = blink_window.is_some_and(|(start, until)| {
+            let now = std::time::Instant::now();
+            now < until
+                && blink_is_on(
+                    now.saturating_duration_since(start).as_millis() as u64,
+                    blink_ms.clamp(150, 1000),
+                )
+        });
 
         // Expire samples from displays that stopped pushing (3s of silence).
         if !latest.is_empty() {
@@ -606,17 +757,23 @@ async fn engine_loop(
 
         // Animations are self-generated and don't need wallpaper samples; the
         // reactive modes do (and otherwise shouldn't burn pushes with stale data).
-        if !sleeping && !cfg.mode.is_animation() && latest.is_empty() {
+        if !sleeping && !cfg.mode.is_animation() && latest.is_empty() && !blink_active {
             continue;
         }
 
         // Throttle device updates. Animations want fluid motion, so cap their
         // interval well below the default reactive 100ms.
-        let min_interval = if cfg.mode.is_animation() {
+        let mut min_interval = if cfg.mode.is_animation() {
             cfg.min_update_ms.min(33)
         } else {
             cfg.min_update_ms
         };
+        // A blink is short enough (default 450ms) that the normal reactive
+        // cadence can outlast a whole pulse and the flash looks like a
+        // flicker. Pin to the tick rate while blinking so each phase lands.
+        if blink_active {
+            min_interval = min_interval.min(25);
+        }
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
@@ -636,6 +793,8 @@ async fn engine_loop(
                 anim_frames.forget(cached);
             }
         }
+        let live_devices: Vec<u32> = status.devices.iter().map(|d| d.id).collect();
+        LAST_FRAMES.retain(&live_devices);
         let is_anim = cfg.mode.is_animation();
         let mut frame: Vec<DeviceColor> = Vec::new();
         for dev in &status.devices {
@@ -657,15 +816,25 @@ async fn engine_loop(
                 });
                 continue;
             }
-            let (rep, per_led) = if sleeping {
+            // The ambient frame is computed FIRST, every tick, blink or not.
+            //
+            // A blink used to short-circuit this, which quietly broke the
+            // "lights come back" promise in two ways: the smoothing and
+            // animation-crossfade state stopped advancing for the length of the
+            // blink (so a crossfade froze mid-way and then jumped when the
+            // window closed), and the off-phase had no ambient to fall back on
+            // in animation modes, which pushed black instead of the running
+            // animation. Computing ambient first means the blink is a pure
+            // overlay and the lighting is exactly where it left off.
+            let blink_this = blink_active && is_keyboard(dev);
+            let ambient: Option<Vec<[u8; 3]>> = if sleeping {
                 // Idle sleep: push black to turn off all LEDs.
-                let black = [0u8; 3];
-                (black, vec![black; n])
+                Some(vec![[0u8; 3]; n])
             } else if flash_until.is_some() {
                 // Track change: one bright pulse, same tint for every LED.
                 // Mirrors the mixer so brightness/saturation prefs apply.
                 let flash = palette::apply_mixer([235, 235, 235], cfg.mixer.brightness, cfg.mixer.saturation, cfg.mixer.gamma);
-                (flash, vec![flash; n])
+                Some(vec![flash; n])
             } else if is_anim {
                 // Accent for the frame: the primary display's live wallpaper
                 // color, so audio-reactive rides the screen's mood instead of
@@ -678,29 +847,61 @@ async fn engine_loop(
                     .or_else(|| latest.iter().find(|s| s.id == "all"))
                     .map(|s| s.rgb)
                     .or_else(|| palette::dominant_over_samples(&latest));
-                let Some((rep, per_led)) = animation_frame(&cfg, n, t, accent) else {
-                    continue;
-                };
-                // Crossfade on mode change: blend the new mode's first frames
-                // from the last pushed frame (~0.35s to fully converge at the
-                // 30fps animation cadence). Reaction modes already ease via
-                // SmoothedColors; this gives animation modes the same glow.
-                let fade = if last_anim_mode != Some(cfg.mode) {
-                    last_anim_mode = Some(cfg.mode);
-                    0.35
-                } else {
-                    1.0
-                };
-                let per_led = anim_frames.step(dev.id, &per_led, fade);
-                let rep = *per_led.first().unwrap_or(&rep);
-                (rep, per_led)
+                match animation_frame(&cfg, n, t, accent) {
+                    Some((_, per_led)) => {
+                        // Crossfade on mode change: blend the new mode's first
+                        // frames from the last pushed frame (~0.35s to fully
+                        // converge at the 30fps animation cadence). Reaction
+                        // modes already ease via SmoothedColors; this gives
+                        // animation modes the same glow.
+                        let fade = if last_anim_mode != Some(cfg.mode) {
+                            last_anim_mode = Some(cfg.mode);
+                            0.35
+                        } else {
+                            1.0
+                        };
+                        Some(anim_frames.step(dev.id, &per_led, fade))
+                    }
+                    None => None,
+                }
             } else {
-                let Some(target) = target_color_for_device(dev.id, &cfg, &latest) else {
-                    continue;
-                };
-                let color = smoothed.step(dev.id, target, cfg.mixer.smoothing);
-                (color, vec![color; n])
+                target_color_for_device(dev.id, &cfg, &latest)
+                    .map(|target| smoothed.step(dev.id, target, cfg.mixer.smoothing))
+                    .map(|color| vec![color; n])
             };
+
+            let per_led: Vec<[u8; 3]> = match ambient {
+                Some(per_led) => {
+                    if blink_this && blink_on {
+                        // On-phase: overwrite, but deliberately do NOT record
+                        // this as the device's state — it is an overlay, and
+                        // recording it would leave nothing to restore to.
+                        let flash = palette::apply_mixer(
+                            blink_color,
+                            cfg.mixer.brightness,
+                            cfg.mixer.saturation,
+                            cfg.mixer.gamma,
+                        );
+                        vec![flash; n]
+                    } else {
+                        LAST_FRAMES.record(dev.id, &per_led);
+                        per_led
+                    }
+                }
+                None => {
+                    // No ambient frame this tick. Outside a blink that is
+                    // business as usual (nothing to draw from, so don't push).
+                    // During one, the hardware is still holding the blink
+                    // colour we wrote on the previous tick — put the pre-blink
+                    // ambient back rather than leaving it stuck lit.
+                    if blink_this {
+                        restore_frame(LAST_FRAMES.get(dev.id).as_deref(), n)
+                    } else {
+                        continue;
+                    }
+                }
+            };
+            let rep = per_led.first().copied().unwrap_or([0u8; 3]);
             let colors: Vec<Color> = per_led
                 .iter()
                 .map(|c| Color {
@@ -826,6 +1027,135 @@ async fn engine_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---------- hotkey blink ----------
+
+    #[test]
+    fn blink_starts_on_so_the_press_is_seen_immediately() {
+        // A key press whose first visible frame is "off" reads as nothing
+        // happening, which is the exact failure the blink exists to fix.
+        assert!(blink_is_on(0, 450));
+    }
+
+    #[test]
+    fn blink_draws_the_configured_number_of_pulses() {
+        // 450ms over 3 pulses: 150ms period, 75ms on then 75ms off.
+        let total = 450u64;
+        let period = total / HOTKEY_BLINK_PULSES;
+        for pulse in 0..HOTKEY_BLINK_PULSES {
+            let start = pulse * period;
+            assert!(blink_is_on(start, total), "pulse {pulse} must begin on");
+            assert!(
+                blink_is_on(start + period / 4, total),
+                "pulse {pulse} must still be on at its midpoint"
+            );
+            assert!(
+                !blink_is_on(start + period * 3 / 4, total),
+                "pulse {pulse} must be off in its second half"
+            );
+        }
+    }
+
+    #[test]
+    fn blink_ends_off_so_the_backlight_settles_back_to_ambient() {
+        // The final frame should be the ambient colour, not a stuck white — a
+        // backlight left on at full would wreck the room's lighting after the
+        // flash is over.
+        let total = 450u64;
+        assert!(!blink_is_on(total - 1, total));
+    }
+
+    #[test]
+    fn blink_survives_a_degenerate_duration() {
+        // A hand-edited config of 0ms must not divide by zero or panic; it
+        // simply resolves to a steady on-phase for the clamped minimum.
+        assert!(blink_is_on(0, 0));
+        assert!(blink_is_on(5, 1));
+    }
+
+    #[test]
+    fn the_pre_blink_frame_is_what_gets_restored() {
+        // The promise: after the blink, the lighting is what it was. The
+        // remembered frame is the only thing standing between a blink and a
+        // keyboard stuck on the flash colour.
+        let lf = LastFrames::new();
+        let ambient = vec![[10, 20, 30], [40, 50, 60]];
+        lf.record(7, &ambient);
+        // The blink writes over the hardware without recording itself...
+        let flash = vec![[255, 255, 255], [255, 255, 255]];
+        assert!(!lf.get(7).unwrap().iter().any(|c| *c == [255, 255, 255]));
+        // ...so the restore is the ambient, not the flash.
+        assert_eq!(restore_frame(lf.get(7).as_deref(), 2), ambient);
+    }
+
+    #[test]
+    fn a_device_with_no_remembered_frame_restores_to_black_not_a_flash() {
+        // Nothing was ever pushed (fresh install, blink before the first
+        // frame). Black is the honest answer: an unlit key cannot be mistaken
+        // for a stuck light.
+        assert_eq!(restore_frame(None, 3), vec![[0, 0, 0]; 3]);
+    }
+
+    #[test]
+    fn restoring_survives_a_keyboard_reporting_a_different_led_count() {
+        // A reconnected keyboard can enumerate a different number of LEDs
+        // than the one that was recorded; pushing the old length would send
+        // the wrong frame size to the device.
+        let lf = LastFrames::new();
+        lf.record(1, &[[1, 2, 3], [4, 5, 6]]);
+        assert_eq!(restore_frame(lf.get(1).as_deref(), 5).len(), 5);
+        assert_eq!(restore_frame(lf.get(1).as_deref(), 1).len(), 1);
+    }
+
+    #[test]
+    fn unplugged_devices_do_not_accumulate_frames() {
+        let lf = LastFrames::new();
+        lf.record(1, &[[1, 1, 1]]);
+        lf.record(2, &[[2, 2, 2]]);
+        lf.retain(&[1]);
+        assert!(lf.get(1).is_some(), "a live device keeps its frame");
+        assert!(lf.get(2).is_none(), "a gone device is dropped");
+    }
+
+    #[test]
+    fn only_keyboards_blink() {
+        let dev = |t: &str| DeviceInfo {
+            id: 0,
+            name: "x".into(),
+            type_name: t.into(),
+            leds: 4,
+            zones: Vec::new(),
+        };
+        assert!(is_keyboard(&dev("Keyboard")));
+        // A laptop's dedicated mode key is a Light, not part of the keyboard.
+        assert!(!is_keyboard(&dev("Light")));
+        assert!(!is_keyboard(&dev("Mouse")));
+        assert!(!is_keyboard(&dev("Headset")));
+        assert!(!is_keyboard(&dev("LEDStrip")));
+    }
+
+    #[test]
+    fn a_press_is_claimed_exactly_once() {
+        HOTKEY_BLINK_PENDING.store(false, Ordering::Relaxed);
+        request_hotkey_blink();
+        assert!(take_hotkey_blink(), "the engine must see the request");
+        assert!(
+            !take_hotkey_blink(),
+            "a blink must not replay on the following tick"
+        );
+    }
+
+    #[test]
+    fn mashed_keys_coalesce_into_one_blink() {
+        // Holding a combo or mashing several keys must read as one blink, not
+        // a stutter of them that never settles back to the ambient colour.
+        HOTKEY_BLINK_PENDING.store(false, Ordering::Relaxed);
+        for _ in 0..5 {
+            request_hotkey_blink();
+        }
+        assert!(take_hotkey_blink());
+        assert!(!take_hotkey_blink());
+    }
     use crate::config::{RgbConfig, RgbMode};
 
     fn sample(id: &str, rgb: [u8; 3], luma: f64) -> ZoneSample {

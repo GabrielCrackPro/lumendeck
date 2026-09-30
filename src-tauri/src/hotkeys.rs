@@ -284,6 +284,17 @@ pub fn validate(accel: &str) -> Result<(), String> {
 
 /// Run the action behind a pressed combo.
 fn dispatch(app: &tauri::AppHandle, action: &str) {
+    // Blink before the action runs, and regardless of whether it then has
+    // anything to act on: the whole point is to confirm the key registered,
+    // and "nothing is playing" is still a response the user pressed a key for.
+    //
+    // A key press is also proof the user is present, so wake the lights here
+    // rather than trusting the input hook's timing: the blink sits behind
+    // `sleeping` in the engine's branch order, and idling is exactly when
+    // someone reaches for a global hotkey with their eyes off the screen.
+    crate::rgb::wake_if_sleeping();
+    crate::rgb::request_hotkey_blink();
+
     let result: Result<(), String> = match action {
         "toggleDashboard" => {
             crate::tray::toggle_dashboard(app);

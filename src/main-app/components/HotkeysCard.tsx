@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useStore } from "../store";
 import { api } from "../ipc";
-import { Card, InfoNote, Btn, Toggle } from "./ui";
+import { Card, InfoNote, Btn, Toggle, Slider, ColorInput } from "./ui";
 import { HOTKEY_ACTIONS, type HotkeyActionId } from "@shared/constants";
 import type { HotkeyConfig } from "@shared/types";
 import { acceleratorFromEvent, isSafeAccelerator, parseAccelerator } from "../eq";
 import { truncateError } from "../utilities";
+
+/** Mirrors `default_hotkey_blink_color` in src-tauri/src/config.rs. */
+const DEFAULT_BLINK_COLOR: [number, number, number] = [255, 255, 255];
 
 /** Pretty labels for the modifier tokens, so the binding reads like a menu. */
 const MODIFIER_LABELS: Record<string, string> = {
@@ -233,6 +236,10 @@ export default function HotkeysCard() {
   };
 
   const anyBound = boundCount > 0;
+  // Older configs predate the blink; absence means on, matching the Rust
+  // default so the card can never show a toggle the backend would ignore.
+  const blinkMs = general.hotkeyBlinkMs ?? 450;
+  const blinkColor = general.hotkeyBlinkColor ?? DEFAULT_BLINK_COLOR;
 
   return (
     <Card
@@ -275,6 +282,40 @@ export default function HotkeysCard() {
             checked={enabled}
             onChange={(v) => save((c) => (c.general.hotkeysEnabled = v))}
           />
+        </div>
+        {/* ---- blink feedback: lives with the bindings because it is a
+            reaction to them, not a general lighting preference ---- */}
+        <div
+          className={`border-b border-[var(--line)] py-3 transition-opacity ${
+            enabled ? "" : "pointer-events-none opacity-40"
+          }`}
+        >
+          <Toggle
+            label="Blink the keys when a hotkey fires"
+            description="Flash the keyboard backlight so you can tell a combo registered while you are looking at the wallpaper instead of the tray. Older keyboards expose only whole-backlight zones, so this flashes every key rather than just the ones you pressed."
+            checked={blinkMs > 0}
+            onChange={(v) =>
+              save((c) => (c.general.hotkeyBlinkMs = v ? blinkMs || 450 : 0))
+            }
+          />
+          {blinkMs > 0 && (
+            <div className="mt-3 space-y-3 pl-1">
+              <Slider
+                label="Blink duration"
+                min={150}
+                max={1000}
+                step={50}
+                value={blinkMs}
+                format={(v) => `${v} ms`}
+                onChange={(v) => save((c) => (c.general.hotkeyBlinkMs = v))}
+              />
+              <ColorInput
+                label="Blink color"
+                value={blinkColor}
+                onChange={(v) => save((c) => (c.general.hotkeyBlinkColor = v))}
+              />
+            </div>
+          )}
         </div>
         {enabled && !anyBound && (
           <div className="pb-3 pt-3">
