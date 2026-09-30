@@ -7,9 +7,9 @@ and it lands under that release's heading.
 ## 0.2.7 — 2026-09-30
 
 ### Added
+- app icon on the startup notification, a redesigned settings page, and a theme that follows the OS (`2a9004c`)
 - blink the keyboard backlight when a hotkey fires (`1e469c7`)
 - master switch for global hotkeys; fix a hard crash in the wallpaper snapshot (`44a1bcb`)
-- configurable global hotkeys and a transient-driven equalizer (`a2e5a25`)
 
 ### Fixed
 - stop re-reporting an unchanged hotkey conflict (`0df48cb`)
