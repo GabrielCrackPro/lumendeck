@@ -6,6 +6,7 @@ import { HOTKEY_ACTIONS, type HotkeyActionId } from "@shared/constants";
 import type { HotkeyConfig } from "@shared/types";
 import { acceleratorFromEvent, isSafeAccelerator, parseAccelerator } from "../eq";
 import { truncateError } from "../utilities";
+import { t } from "../i18n";
 
 /** Mirrors `default_hotkey_blink_color` in src-tauri/src/config.rs. */
 const DEFAULT_BLINK_COLOR: [number, number, number] = [255, 255, 255];
@@ -147,20 +148,19 @@ function HotkeyRow({
             // tooltip for anyone reporting a bug.
             title={refused}
           >
-            Not active — this combo is taken, so the key does nothing. Another
-            app may already own it; pick a different one.
+            {t("hotkeys.not-active-this-combo-is-taken-so-the-key-does-n")}
           </div>
         )}
         {!error && !refused && conflict && (
           <div className="mt-1 text-[11px] leading-relaxed text-amber-300/90">
-            Already used by another action — the first one bound wins.
+            {t("hotkeys.already-used-by-another-action-the-first-one-bou")}
           </div>
         )}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {recording ? (
           <span className="flex h-9 min-w-[132px] items-center justify-center rounded-lg border border-[rgb(var(--glow)/0.6)] bg-[rgb(var(--glow)/0.08)] px-3 font-mono text-[11px] text-[rgb(var(--glow))]">
-            {pending ?? "press keys…"}
+            {pending ?? t("hotkeys.press-keys")}
           </span>
         ) : value ? (
           <ComboChips accelerator={value} />
@@ -168,7 +168,7 @@ function HotkeyRow({
           // Ghost hint rather than a blank: the suggestion is the affordance.
           <span
             className="font-mono text-[11px] text-[var(--text-faint)]/60"
-            title={`Suggested: ${suggested}`}
+            title={t("hotkeys.suggested-{combo}", { combo: suggested })}
           >
             {suggested}
           </span>
@@ -181,11 +181,11 @@ function HotkeyRow({
             setRecording((r) => !r);
           }}
         >
-          {recording ? "Cancel" : value ? "Change" : "Set"}
+          {recording ? t("hotkeys.cancel") : value ? t("hotkeys.change") : t("hotkeys.set")}
         </Btn>
         {value && !recording && (
           <Btn size="sm" variant="ghost" onClick={() => onChange("")}>
-            Clear
+            {t("hotkeys.clear")}
           </Btn>
         )}
       </div>
@@ -229,7 +229,7 @@ export default function HotkeysCard() {
     for (const a of HOTKEY_ACTIONS) {
       if (a.id === except) continue;
       if ((cfg[a.id]?.accelerator ?? "").toLowerCase() === accel.toLowerCase()) {
-        return a.label;
+        return t(a.label);
       }
     }
     return null;
@@ -243,7 +243,7 @@ export default function HotkeysCard() {
 
   return (
     <Card
-      title="Global hotkeys"
+      title={t("hotkeys.global-hotkeys")}
       right={
         enabled && (
           <Btn
@@ -265,7 +265,7 @@ export default function HotkeysCard() {
               });
             }}
           >
-            Use suggestions
+            {t("hotkeys.use-suggestions")}
           </Btn>
         )
       }
@@ -273,11 +273,14 @@ export default function HotkeysCard() {
       <div className="px-4 py-1">
         <div className="border-b border-[var(--line)] py-3">
           <Toggle
-            label="Enable global hotkeys"
+            label={t("hotkeys.enable-global-hotkeys")}
             description={
               anyBound
-                ? `${boundCount} of ${HOTKEY_ACTIONS.length} actions are bound. Turning this off releases every key immediately — your combos are kept, and the tray menu has the same switch if a binding ever misbehaves.`
-                : "Master switch for the keys below. Nothing is bound yet, so there is nothing to turn off."
+                ? t("hotkeys.bound-actions-description", {
+                    n: boundCount,
+                    total: HOTKEY_ACTIONS.length,
+                  })
+                : t("hotkeys.no-bindings-yet-description")
             }
             checked={enabled}
             onChange={(v) => save((c) => (c.general.hotkeysEnabled = v))}
@@ -291,8 +294,8 @@ export default function HotkeysCard() {
           }`}
         >
           <Toggle
-            label="Blink the keys when a hotkey fires"
-            description="Flash the keyboard backlight so you can tell a combo registered while you are looking at the wallpaper instead of the tray. Older keyboards expose only whole-backlight zones, so this flashes every key rather than just the ones you pressed."
+            label={t("hotkeys.blink-the-keys-when-a-hotkey-fires")}
+            description={t("hotkeys.flash-the-keyboard-backlight-so-you-can-tell-a-c")}
             checked={blinkMs > 0}
             onChange={(v) =>
               save((c) => (c.general.hotkeyBlinkMs = v ? blinkMs || 450 : 0))
@@ -301,7 +304,7 @@ export default function HotkeysCard() {
           {blinkMs > 0 && (
             <div className="mt-3 space-y-3 pl-1">
               <Slider
-                label="Blink duration"
+                label={t("hotkeys.blink-duration")}
                 min={150}
                 max={1000}
                 step={50}
@@ -310,7 +313,7 @@ export default function HotkeysCard() {
                 onChange={(v) => save((c) => (c.general.hotkeyBlinkMs = v))}
               />
               <ColorInput
-                label="Blink color"
+                label={t("hotkeys.blink-color")}
                 value={blinkColor}
                 onChange={(v) => save((c) => (c.general.hotkeyBlinkColor = v))}
               />
@@ -320,9 +323,9 @@ export default function HotkeysCard() {
         {enabled && !anyBound && (
           <div className="pb-3 pt-3">
             <InfoNote>
-              No keys are taken right now — LumenDeck never grabs a key you
-              did not ask for. Pick an action, press <b>Set</b>, then press the
-              combo. They keep working while the dashboard is closed.
+              {t("hotkeys.no-keys-are-taken-right-now-lumendeck-never-grab")}{" "}
+              <b>{t("hotkeys.set")}</b>
+              {t("hotkeys.then-press-the-combo-they-keep-working-while-the")}
             </InfoNote>
           </div>
         )}
@@ -331,8 +334,8 @@ export default function HotkeysCard() {
           return (
             <HotkeyRow
               key={a.id}
-              label={a.label}
-              description={a.description}
+              label={t(a.label)}
+              description={t(a.description)}
               suggested={a.suggested}
               value={accel}
               conflict={accel ? boundBy(accel, a.id) : null}
@@ -355,10 +358,7 @@ export default function HotkeysCard() {
           );
         })}
         <div className="py-3 text-[11px] leading-relaxed text-[var(--text-faint)]">
-          Combos need a modifier (Ctrl, Alt, Shift or Win) or an F1-F24 key,
-          so a binding can never swallow the key you are typing. If another
-          app already owns a combo, LumenDeck says so instead of failing
-          quietly.
+          {t("hotkeys.combos-need-a-modifier-ctrl-alt-shift-or-win-or")}
         </div>
       </div>
     </Card>

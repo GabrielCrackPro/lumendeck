@@ -10,6 +10,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { basename } from "../../utilities";
 import { api } from "../../ipc";
 import { EqEngine } from "../../eq";
+import { t } from "../../i18n";
 
 /** Compact wallpaper thumb: video plays muted, image static, shader art. */
 function WallpaperThumb({
@@ -78,7 +79,7 @@ function WallpaperThumb({
       {paused && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/55 backdrop-blur-[2px]">
           <span className="flex items-center gap-1.5 rounded-md bg-black/60 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-amber-300">
-            paused
+            {t("shell.paused")}
           </span>
         </div>
       )}
@@ -229,28 +230,28 @@ function WallpaperStage({
       <div className="absolute right-3 top-3 flex items-center gap-1.5">
         <button
           onClick={onTogglePause}
-          title={paused ? "Resume wallpaper" : "Pause wallpaper"}
+          title={paused ? t("common.resume-wallpaper") : t("common.pause-wallpaper")}
           className="flex h-7 items-center gap-1.5 rounded-lg bg-black/45 px-2.5 font-mono text-[10px] uppercase tracking-wider text-white/85 backdrop-blur-sm transition-all hover:bg-black/60 hover:text-white active:scale-95"
         >
           {paused ? (
             <>
               <IconPlay className="h-3 w-3" />
-              Resume
+              {t("common.resume")}
             </>
           ) : (
             <>
               <IconPause className="h-3 w-3" />
-              Pause
+              {t("common.pause")}
             </>
           )}
         </button>
         <button
           onClick={onChange}
-          title="Change wallpaper"
+          title={t("common.change-wallpaper")}
           className="flex h-7 items-center gap-1.5 rounded-lg bg-[rgb(var(--glow)/0.85)] px-2.5 font-mono text-[10px] uppercase tracking-wider text-black/90 backdrop-blur-sm transition-all hover:bg-[rgb(var(--glow))] active:scale-95"
         >
           <IconImage className="h-3 w-3" />
-          Change
+          {t("common.change")}
         </button>
       </div>
     </div>
@@ -513,7 +514,7 @@ function ProgressBar({ media }: { media: MediaInfo }) {
       <span
         ref={barRef}
         role="slider"
-        aria-label="Seek"
+        aria-label={t("common.seek")}
         aria-valuemin={0}
         aria-valuemax={Math.round(duration)}
         aria-valuenow={Math.round(scrub ?? media.positionSec)}
@@ -612,9 +613,9 @@ function VolumeControl() {
   };
   if (shown == null) return null;
   return (
-    <div className="flex shrink-0 items-center gap-1.5" title="System volume">
+    <div className="flex shrink-0 items-center gap-1.5" title={t("common.system-volume")}>
       <button
-        aria-label={muted ? "Unmute" : "Mute"}
+        aria-label={t(muted ? "common.unmute" : "common.mute")}
         onClick={toggleMute}
         className={`${ICON_BTN} ${
           muted
@@ -719,8 +720,8 @@ function TransportButtons({
           when the capability exists but the UI hasn't received state yet. */}
       {shuffle !== undefined && (
         <button
-          aria-label="Toggle shuffle"
-          title={shuffleSupported ? "Shuffle" : "Shuffle not available in this app"}
+          aria-label={t("common.toggle-shuffle")}
+          title={t(shuffleSupported ? "common.shuffle" : "common.shuffle-unavailable")}
           disabled={!shuffleSupported || busy}
           onClick={() => void api.mediaShuffle(!shuffle).catch(() => {})}
           className={`${ICON_BTN} ${shuffle ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
@@ -730,11 +731,11 @@ function TransportButtons({
           </span>
         </button>
       )}
-      <button aria-label="Previous track" disabled={busy} onClick={() => send("previous")} {...ripple(90)}>
+      <button aria-label={t("common.previous-track")} disabled={busy} onClick={() => send("previous")} {...ripple(90)}>
         <IconPrevious className="h-4 w-4" />
       </button>
       <button
-        aria-label={playing ? "Pause" : "Play"}
+        aria-label={t(playing ? "common.pause" : "common.play")}
         className={`${ICON_BTN} ${ICON_BTN_PRIMARY} ${pulseId > 0 ? "transport-pulse" : ""}`}
         disabled={busy}
         onClick={() => send("toggle")}
@@ -744,15 +745,23 @@ function TransportButtons({
           {playing ? <IconPause className="h-5 w-5" /> : <IconPlay className="h-5 w-5" />}
         </span>
       </button>
-      <button aria-label="Next track" disabled={busy} onClick={() => send("next")} {...ripple(180)}>
+      <button aria-label={t("common.next-track")} disabled={busy} onClick={() => send("next")} {...ripple(180)}>
         <IconNext className="h-4 w-4" />
       </button>
       {/* Repeat: cycles off -> track -> list. `on` = list repeat (accent);
           track repeat adds the "1" superscript, like every music app. */}
       {repeat !== undefined && (
         <button
-          aria-label="Cycle repeat mode"
-          title={repeatSupported ? (repeat === 1 ? "Repeat track" : repeat === 2 ? "Repeat queue" : "Repeat off") : "Repeat not available in this app"}
+          aria-label={t("common.cycle-repeat-mode")}
+          title={t(
+            repeatSupported
+              ? repeat === 1
+                ? "common.repeat-track"
+                : repeat === 2
+                  ? "common.repeat-queue"
+                  : "common.repeat-off"
+              : "common.repeat-unavailable",
+          )}
           disabled={!repeatSupported || busy}
           onClick={() => void api.mediaRepeat(repeat).catch(() => {})}
           className={`relative ${ICON_BTN} ${(repeat ?? 0) > 0 ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
@@ -785,30 +794,30 @@ function ModePicker({
   onSelect: (m: (typeof RGB_MODES)[number]["id"]) => void;
 }) {
   const groups = [
-    { id: "reactive", label: "Follows the wallpaper" },
-    { id: "animation", label: "Runs on its own" },
+    { id: "reactive", label: "lighting.follows-the-wallpaper" },
+    { id: "animation", label: "lighting.runs-on-its-own" },
   ] as const;
   const active = RGB_MODES.find((m) => m.id === mode);
   return (
     <div className="space-y-3">
       {groups.map((g) => (
         <div key={g.id}>
-          <div className="kicker mb-1.5">{g.label}</div>
+          <div className="kicker mb-1.5">{t(g.label)}</div>
           <Segmented
-            label={`${g.label} lighting modes`}
+            label={t("common.{mode}-lighting-modes", { mode: t(g.label) })}
             // Only the group holding the active mode shows a pressed button;
             // the other has nothing selected, which is the honest state.
             value={active?.group === g.id ? active.id : ""}
             onChange={(v) => onSelect(v as RgbMode)}
             options={RGB_MODES.filter((m) => m.group === g.id).map((m) => ({
               id: m.id as string,
-              label: m.label,
+              label: t(m.label),
             }))}
           />
         </div>
       ))}
       {active && (
-        <p className="text-xs leading-relaxed text-[var(--text-faint)]">{active.hint}</p>
+        <p className="text-xs leading-relaxed text-[var(--text-faint)]">{t(active.hint)}</p>
       )}
     </div>
   );
@@ -847,7 +856,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
       ? (SHADERS.find((s) => s.id === cfg.wallpaper.source)?.label ?? cfg.wallpaper.source)
       : cfg.wallpaper.source
         ? basename(cfg.wallpaper.source)
-        : "Nothing applied";
+        : t("common.nothing-applied");
 
   const togglePause = () => {
     if (!cfg) return;
@@ -855,12 +864,20 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
   };
 
   const hour = new Date().getHours();
-  const greeting =
-    hour < 5 ? "Up late" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const greeting = t(
+    hour < 5
+      ? "overview.up-late"
+      : hour < 12
+        ? "overview.good-morning"
+        : hour < 18
+          ? "overview.good-afternoon"
+          : "overview.good-evening",
+  );
   const issues: string[] = [];
-  if (!rgb.connected) issues.push("OpenRGB offline");
-  if (paused) issues.push("wallpaper paused");
-  if (!issues.length && !cfg.rgb.enabled) issues.push("lighting off");
+  if (!rgb.connected) issues.push(t("overview.openrgb-offline"));
+  if (paused) issues.push(t("overview.wallpaper-paused"));
+  if (!issues.length && !cfg.rgb.enabled)
+    issues.push(t("overview.lighting-off"));
 
   return (
     <div className="stagger space-y-5">
@@ -873,8 +890,11 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               <span className="text-amber-400">{issues.join(" · ")}</span>
             ) : (
               <span>
-                everything running · {activeDevices.length} device{activeDevices.length === 1 ? "" : "s"} ·{" "}
-                {ledActive.toLocaleString()} LEDs · {stickers.length} sticker{stickers.length === 1 ? "" : "s"}
+                {t("common.everything-running-{n}-devices-{leds}-leds-{st}", {
+                  n: activeDevices.length,
+                  leds: ledActive.toLocaleString(),
+                  st: stickers.length,
+                })}
               </span>
             )}
           </div>
@@ -888,12 +908,20 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
         {/* Now playing — spans 5. Wallpaper stage on top, media + transport
             below, wallpaper context strip last. */}
         <Card
-          title="Now playing"
+          title={t("common.now-playing")}
           icon={<IconWave />}
           className="xl:col-span-5"
           right={
             <Chip tone={media ? (media.playing ? "ok" : "idle") : paused ? "warn" : "idle"} pulse={!!media?.playing}>
-              {media ? (media.playing ? "playing" : "paused track") : paused ? "wallpaper paused" : "idle"}
+              {t(
+                media
+                  ? media.playing
+                    ? "overview.playing"
+                    : "overview.paused-track"
+                  : paused
+                    ? "overview.wallpaper-paused"
+                    : "overview.idle",
+              )}
             </Chip>
           }
         >
@@ -922,7 +950,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             ) : (
               <div className="mt-3.5 flex min-w-0 items-center gap-2 font-mono text-[10.5px] text-[var(--text-faint)]">
                 <IconWave className="h-3.5 w-3.5 shrink-0" />
-                no media playing
+                {t("common.no-media-playing")}
               </div>
             )}
 
@@ -942,24 +970,28 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             LEDs, the device identity and the mute control in one place, so no
             other part of the card has to repeat the same counts. */}
         <Card
-          title="Lighting engine"
+          title={t("common.lighting-engine")}
           icon={<IconBulb />}
           className="xl:col-span-7"
           right={
             <div className="flex items-center gap-2.5">
               {rgb.devices.length > 0 && (
                 <span className="hidden font-mono text-[10px] text-[var(--text-faint)] sm:inline">
-                  {activeDevices.length}/{rgb.devices.length} devices · {ledActive.toLocaleString()}
-                  /{ledTotal.toLocaleString()} LEDs
+                  {t("common.{active}-{total}-devices-{led}-{totalleds}-leds", {
+                    active: activeDevices.length,
+                    total: rgb.devices.length,
+                    led: ledActive.toLocaleString(),
+                    totalLeds: ledTotal.toLocaleString(),
+                  })}
                 </span>
               )}
               <Chip tone={rgb.connected ? "ok" : "danger"} pulse={rgb.connected}>
-                {rgb.connected ? "connected" : "offline"}
+                {rgb.connected ? t("common.connected") : t("common.offline")}
               </Chip>
               <SwitchBtn
                 checked={cfg.rgb.enabled}
                 onChange={(v) => save((c) => (c.rgb.enabled = v))}
-                title="Master lighting switch"
+                title={t("common.master-lighting-switch")}
               />
             </div>
           }
@@ -996,11 +1028,13 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-[var(--line-strong)] py-8 text-[var(--text-faint)]">
                 <IconBulb className="h-5 w-5" />
                 <span className="text-xs">
-                  {rgb.connected ? "Connected, but no devices reported yet." : "OpenRGB is offline."}
+                  {rgb.connected
+                    ? t("common.connected-but-no-devices-reported-yet")
+                    : t("common.openrgb-is-offline")}
                 </span>
                 {!rgb.connected && (
                   <span className="font-mono text-[10px]">
-                    Start OpenRGB, then refresh from the Lighting tab.
+                    {t("common.start-openrgb-then-refresh-from-the-lighting-tab")}
                   </span>
                 )}
               </div>
@@ -1009,7 +1043,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             {!cfg.rgb.enabled && rgb.devices.length > 0 && (
               <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/45 backdrop-blur-[2px]">
                 <span className="rounded-md bg-black/60 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-amber-300">
-                  lighting off
+                  {t("common.lighting-off")}
                 </span>
               </div>
             )}
@@ -1023,20 +1057,20 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                   icon={<IconSun className="h-3.5 w-3.5 shrink-0 text-[var(--text-faint)]" />}
                   value={Math.round(cfg.rgb.mixer.brightness * 100)}
                   onChange={(v) => save((c) => (c.rgb.mixer.brightness = v / 100))}
-                  title="Brightness"
+                  title={t("common.brightness")}
                 />
                 {isAnimatedMode && (
                   <QuickSlider
                     icon={<IconZap className="h-3.5 w-3.5 shrink-0 text-[var(--text-faint)]" />}
                     value={Math.round(cfg.rgb.animationSpeed * 50)}
                     onChange={(v) => save((c) => (c.rgb.animationSpeed = v / 50))}
-                    title="Animation speed"
+                    title={t("common.animation-speed")}
                   />
                 )}
               </>
             ) : (
               <span className="font-mono text-[10.5px] text-[var(--text-faint)]">
-                engine off — flip the switch to wake your lights
+                {t("common.engine-off-flip-the-switch-to-wake-your-lights")}
               </span>
             )}
 
@@ -1044,10 +1078,14 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               <div className="ml-auto flex gap-1.5">
                 {nightOn && (
                   <Chip tone="accent">
-                    night {cfg.rgb.nightStart}–{cfg.rgb.nightEnd}
+                    {`${t("common.night")} ${cfg.rgb.nightStart}–${cfg.rgb.nightEnd}`}
                   </Chip>
                 )}
-                {idleOn && <Chip tone="idle">idle {cfg.rgb.idleTimeoutSec}s</Chip>}
+                {idleOn && (
+                  <Chip tone="idle">
+                    {t("common.idle-{n}s", { n: cfg.rgb.idleTimeoutSec })}
+                  </Chip>
+                )}
               </div>
             )}
           </div>
@@ -1069,10 +1107,13 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
           <DisplaysCard compact />
         </div>
         <div className="xl:col-span-5">
-          <Card title="Stickers" icon={<IconSticker />} right={
+          <Card title={t("common.stickers")} icon={<IconSticker />} right={
             stickers.length > 0 ? (
               <span className="font-mono text-[10px] text-[var(--text-faint)]">
-                {visibleStickers.length}/{stickers.length} visible
+                {t("common.{visible}-{total}-visible", {
+                  visible: visibleStickers.length,
+                  total: stickers.length,
+                })}
               </span>
             ) : undefined
           }>
@@ -1082,14 +1123,14 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                 className="flex w-full flex-col items-center gap-1.5 rounded-lg border border-dashed border-[var(--line-strong)] py-6 text-[var(--text-faint)] hover-glow"
               >
                 <IconSticker className="h-5 w-5" />
-                <span className="text-xs font-semibold">Place your first sticker</span>
+                <span className="text-xs font-semibold">{t("common.place-your-first-sticker")}</span>
               </button>
             ) : (
               <div className="space-y-1.5">
                 {stickers.slice(0, 4).map((s) => (
                   <button
                     key={s.id}
-                    title={s.visible ? "Click to hide this sticker" : "Click to show this sticker"}
+                    title={t(s.visible ? "overview.hide-this-sticker" : "overview.show-this-sticker")}
                     onClick={() =>
                       api.updateSticker({ ...s, visible: !s.visible }).catch(console.error)
                     }
@@ -1111,7 +1152,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                         {s.name}
                       </div>
                       <div className="font-mono text-[10px] text-[var(--text-faint)]">
-                        {Math.round(s.w)}×{Math.round(s.h)} · {s.onTop ? "on top" : "wallpaper layer"}
+                        {`${Math.round(s.w)}×${Math.round(s.h)} · ${t(s.onTop ? "overview.on-top" : "overview.wallpaper-layer")}`}
                       </div>
                     </div>
                     <span
@@ -1128,7 +1169,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                     onClick={() => onNavigate("stickers")}
                     className="px-1 text-xs font-semibold text-[var(--text-faint)] transition-colors hover:text-[rgb(var(--glow))]"
                   >
-                    +{stickers.length - 4} more — manage stickers
+                    {t("common.{n}-more-manage-stickers", { n: stickers.length - 4 })}
                   </button>
                 )}
               </div>
@@ -1140,12 +1181,12 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
       {/* ===== row 3: scenes + shortcuts ===== */}
       {scenes.length > 0 && (
         <div className="grid gap-5 xl:grid-cols-12">
-          <Card title="Scenes" icon={<IconLayers />} className="xl:col-span-7" right={
+          <Card title={t("common.scenes")} icon={<IconLayers />} className="xl:col-span-7" right={
             <button
               onClick={() => onNavigate("general")}
               className={MINI_BTN}
             >
-              manage
+              {t("common.manage")}
             </button>
           }>
             <div className="flex flex-wrap gap-2">
@@ -1156,9 +1197,14 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                     try {
                       const { api } = await import("../../ipc");
                       await api.sceneApply(s.id);
-                      useStore.getState().toast("ok", `Scene "${s.name}" applied`);
+                      useStore
+                        .getState()
+                        .toast(
+                          "ok",
+                          t("common.scene-applied", { name: s.name }),
+                        );
                     } catch {
-                      useStore.getState().toast("error", "Apply failed");
+                      useStore.getState().toast("error", t("common.apply-failed"));
                     }
                   }}
                   className="group flex items-center gap-1.5 rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-1.5 text-xs font-semibold text-[var(--text-dim)] hover-glow active:scale-[0.97]"
@@ -1169,16 +1215,20 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               ))}
             </div>
           </Card>
-          <Card title="Shortcuts" icon={<IconZap />} className="xl:col-span-5" right={
+          <Card title={t("common.shortcuts")} icon={<IconZap />} className="xl:col-span-5" right={
             <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--text-faint)]">
-              press ?
+              {t("common.press")}
             </span>
           }>
             <p className="mb-4 text-sm leading-relaxed text-[var(--text-dim)]">
-              Every corner of the app is one keystroke away — no mouse required.
+              {t("common.every-corner-of-the-app-is-one-keystroke-away-no")}
             </p>
             <div className="flex flex-wrap gap-2">
-              {["Ctrl K — palette", "Ctrl 1-4 — tabs", "? — all shortcuts"].map((s) => (
+              {[
+                t("common.ctrl-k-palette"),
+                t("common.ctrl-1-4-tabs"),
+                t("common.all-shortcuts"),
+              ].map((s) => (
                 <span
                   key={s}
                   className="rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-1.5 text-xs font-semibold text-[var(--text-dim)]"
@@ -1191,7 +1241,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               onClick={() => window.dispatchEvent(new Event("lumendeck:open-shortcuts"))}
               className="mt-4 rounded-lg border border-dashed border-[var(--line-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-dim)] hover-glow"
             >
-              View all shortcuts
+              {t("common.view-all-shortcuts")}
             </button>
           </Card>
         </div>
@@ -1203,24 +1253,33 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
           [
             {
               id: "rgb",
-              label: "Lighting",
+              label: t("common.lighting"),
               detail: rgb.connected
-                ? `${cfg.rgb.mode} · ${ledActive.toLocaleString()} LEDs`
-                : "Connect OpenRGB",
+                ? t("common.{mode}-{leds}-leds", {
+                    mode: cfg.rgb.mode,
+                    leds: ledActive.toLocaleString(),
+                  })
+                : t("common.connect-openrgb"),
               Icon: IconBulb,
             },
             {
               id: "wallpaper",
-              label: "Wallpaper",
-              detail: `${cfg.gallery.length} in vault · ${playlistOn ? "rotating" : wallpaperName}`,
+              label: t("common.wallpaper"),
+              detail: t("common.{n}-in-vault-{name}", {
+                n: cfg.gallery.length,
+                name: playlistOn ? t("common.rotating") : wallpaperName,
+              }),
               Icon: IconImage,
             },
             {
               id: "stickers",
-              label: "Stickers",
+              label: t("common.stickers"),
               detail: stickers.length
-                ? `${visibleStickers.length}/${stickers.length} visible`
-                : "none placed yet",
+                ? t("common.{visible}-{total}-visible", {
+                    visible: visibleStickers.length,
+                    total: stickers.length,
+                  })
+                : t("common.none-placed-yet"),
               Icon: IconSticker,
             },
           ] as const

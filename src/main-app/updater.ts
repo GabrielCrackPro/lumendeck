@@ -2,6 +2,7 @@ import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { useStore } from "./store";
 import { truncateError } from "./utilities";
+import { t } from "./i18n";
 
 type PendingUpdate = NonNullable<Awaited<ReturnType<typeof check>>>;
 export interface AvailableUpdate {
@@ -71,9 +72,9 @@ export function announceUpdate(update: AvailableUpdate) {
   const run = async (toastId: number) => {
     const store = useStore.getState();
     store.patchToast(toastId, {
-      msg: "Fetching the new version…",
+      msg: t("common.fetching-the-new-version"),
       progress: 0,
-      action: { label: "Downloading…", run: () => {}, disabled: true },
+      action: { label: t("common.downloading"), run: () => {}, disabled: true },
     });
     try {
       await installAppUpdate((percent) =>
@@ -86,21 +87,27 @@ export function announceUpdate(update: AvailableUpdate) {
     } catch (e) {
       useStore.getState().patchToast(toastId, {
         tone: "error",
-        title: "Update failed",
-        msg: `Could not install v${update.version}. ${truncateError(e, 120)}`,
+        title: t("common.update-failed"),
+        msg: t("common.could-not-install-v{version}-{error}", {
+          version: update.version,
+          error: truncateError(e, 120),
+        }),
         progress: null,
         sticky: false,
-        action: { label: "Try again", run: () => void run(toastId) },
+        action: { label: t("common.try-again"), run: () => void run(toastId) },
       });
     }
   };
 
-  useStore.getState().toast("info", update.notes?.trim() || "Restart to finish installing.", {
-    title: `LumenDeck v${update.version} is ready`,
+  useStore.getState().toast(
+    "info",
+    update.notes?.trim() || t("common.restart-to-finish-installing"),
+    {
+      title: t("common.lumendeck-v{version}-is-ready", { version: update.version }),
     sticky: true,
     // The store mints the id; read it back so the action can patch this card.
     action: {
-      label: "Restart and update",
+      label: t("common.restart-and-update"),
       run: () => {
         const id = useStore.getState().toasts[useStore.getState().toasts.length - 1]?.id;
         if (id != null) void run(id);

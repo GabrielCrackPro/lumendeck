@@ -15,6 +15,7 @@ import {
   type ChangelogEntry,
   type ChangelogRelease,
 } from "@shared/changelog";
+import { t } from "../i18n";
 
 /** One bullet, with the commit scope carried through from the message. */
 function Entry({ entry }: { entry: ChangelogEntry }) {
@@ -24,7 +25,7 @@ function Entry({ entry }: { entry: ChangelogEntry }) {
       <span className="min-w-0 flex-1 text-[13px] text-[var(--text-dim)]">
         {entry.breaking && (
           <span className="mr-1.5 rounded bg-red-500/20 px-1.5 py-px font-mono text-[10px] font-semibold uppercase text-red-300">
-            breaking
+            {t("changelog.breaking")}
           </span>
         )}
         {entry.scope && (
@@ -101,7 +102,7 @@ export default function WhatsNewCard({ compact }: { compact?: boolean }) {
       await navigator.clipboard.writeText(releaseToMarkdown(release));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-      toast("ok", `Copied the v${version} notes.`);
+      toast("ok", t("changelog.copied-the-v{version}-notes", { version }));
     } catch (e) {
       toast("error", `Could not copy: ${truncateError(e)}`);
     }
@@ -119,30 +120,30 @@ export default function WhatsNewCard({ compact }: { compact?: boolean }) {
           </div>
           <div className="mt-3 flex items-center gap-2 border-t border-[var(--line)] pt-3">
             <Btn size="sm" onClick={() => void copy()}>
-              {copied ? "Copied" : "Copy notes"}
+              {copied ? t("changelog.copied") : t("changelog.copy-notes")}
             </Btn>
             {unread && (
               <Btn size="sm" variant="ghost" onClick={markRead}>
-                Mark as read
+                {t("changelog.mark-as-read")}
               </Btn>
             )}
           </div>
         </>
       ) : (
         <p className="text-[13px] text-[var(--text-faint)]">
-          No release notes are bundled for v{version}. Run{" "}
-          <code className="font-mono text-xs">pnpm changelog</code> to
-          regenerate CHANGELOG.md.
+          {t("changelog.no-release-notes-are-bundled-for-v{version}-run", { version })}{" "}
+          <code className="font-mono text-xs">pnpm changelog</code>{" "}
+          {t("changelog.to-regenerate-changelog-md")}
         </p>
       )}
 
       {history.length > 0 && (
         <div className="mt-2 border-t border-[var(--line)] pt-1">
           <Section
-            title={`Earlier releases (${history.length})`}
+            title={t("changelog.earlier-releases-{n}", { n: history.length })}
             badge={
               <span className="font-mono text-[10px] text-[var(--text-faint)]">
-                {CHANGELOG.length} total
+                {t("changelog.{n}-total", { n: CHANGELOG.length })}
               </span>
             }
           >
@@ -170,22 +171,24 @@ export default function WhatsNewCard({ compact }: { compact?: boolean }) {
   if (compact) {
     return (
       <CollapsibleCard
-        title="What's new"
+        title={t("changelog.whats-new")}
         defaultOpen={unread}
         summary={
           release ? (
             <span className="flex items-center gap-2">
               {unread && (
                 <span className="rounded-full bg-[rgb(var(--glow)/0.18)] px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--glow))]">
-                  new
+                  {t("changelog.new")}
                 </span>
               )}
               <span className="truncate">
-                v{version} — {changeCount} change{changeCount === 1 ? "" : "s"}
+                {`v${version} — ${t("changelog.{n}-changes", { n: changeCount })}`}
               </span>
             </span>
           ) : (
-            <span className="truncate">v{version} — no bundled notes</span>
+            <span className="truncate">
+              {`v${version} — ${t("changelog.no-bundled-notes")}`}
+            </span>
           )
         }
       >
@@ -196,12 +199,12 @@ export default function WhatsNewCard({ compact }: { compact?: boolean }) {
 
   return (
     <Card
-      title="What's new"
+      title={t("changelog.whats-new")}
       right={
         <span className="flex items-center gap-2">
           {unread && (
             <span className="rounded-full bg-[rgb(var(--glow)/0.18)] px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[rgb(var(--glow))]">
-              new
+              {t("changelog.new")}
             </span>
           )}
           <span className="font-mono text-[10px] tracking-wide text-[var(--text-faint)]">

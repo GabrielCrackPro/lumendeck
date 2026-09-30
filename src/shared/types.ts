@@ -139,6 +139,10 @@ export interface StickerSettings {
 export interface GeneralConfig {
   autostart: boolean;
   theme: ThemeMode;
+  /** UI language: "auto" follows the Windows display language, anything else
+   *  is a locale tag ("en", "es"). An unknown tag falls back to English
+   *  rather than back to "auto", so a choice is never silently overridden. */
+  language: string;
   pauseOnBatterySaver: boolean;
   pauseOnFullscreen: boolean;
   wallpaperEnabled: boolean;

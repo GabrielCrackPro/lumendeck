@@ -13,6 +13,15 @@ pub mod events;
 pub mod hotkeys;
 pub mod idle;
 pub mod ipc;
+// The translation catalog is shared with the dashboard: `locales/*.json` at
+// the repo root is read here by rust-i18n and in the window by i18next, so
+// there is one set of strings rather than two that can drift.
+//
+// It must be invoked at the crate root: `rust_i18n::t!` expands to
+// `crate::_rust_i18n_t!`, and that macro only exists where `i18n!` ran.
+rust_i18n::i18n!("../locales");
+
+pub mod i18n;
 pub mod media;
 pub mod media_session;
 pub mod mouse_hook;
@@ -75,7 +84,8 @@ fn first_hidden_start_hint(app: &tauri::AppHandle) {
     }
 
     let app = app.clone();
-    balloon::spawn("LumenDeck is running", &body, move || {
+    let title = crate::i18n::t("tray.balloon-title");
+    balloon::spawn(&title, &body, move || {
         if let Some(main) = app.get_webview_window("main") {
             let _ = main.unminimize();
             let _ = main.show();
@@ -84,21 +94,28 @@ fn first_hidden_start_hint(app: &tauri::AppHandle) {
     });
 }
 
-/// The balloon's body line. It promises what is actually live rather than a
-/// fixed sentence: "your wallpaper and lights are live" is a lie on a machine
-/// with the lighting switched off, and a notification that is confidently
-/// wrong is worse than no notification at all.
-fn startup_hint_body(cfg: &crate::config::Config, paused: bool) -> String {
+/// The balloon's body line, as a catalog key. Pure, so the wording can be
+/// asserted without depending on the machine's locale.
+///
+/// It promises what is actually live rather than a fixed sentence: "your
+/// wallpaper and lights are live" is a lie on a machine with the lighting
+/// switched off, and a notification that is confidently wrong is worse than
+/// no notification at all.
+fn startup_hint_key(cfg: &crate::config::Config, paused: bool) -> &'static str {
     if paused {
-        return "Everything is paused. Click to open the dashboard.".to_string();
+        return "tray.balloon-paused";
     }
-    let state = match (cfg.general.wallpaper_enabled, cfg.rgb.enabled) {
-        (true, true) => "Your wallpaper and lights are live",
-        (true, false) => "Your wallpaper is live",
-        (false, true) => "Your lights are live",
-        (false, false) => "LumenDeck is ready in the notification area",
-    };
-    format!("{state}. Click to open the dashboard.")
+    match (cfg.general.wallpaper_enabled, cfg.rgb.enabled) {
+        (true, true) => "tray.balloon-all-live",
+        (true, false) => "tray.balloon-wallpaper-live",
+        (false, true) => "tray.balloon-lights-live",
+        (false, false) => "tray.balloon-ready",
+    }
+}
+
+/// [startup_hint_key] in the user's language.
+fn startup_hint_body(cfg: &crate::config::Config, paused: bool) -> String {
+    crate::i18n::t(startup_hint_key(cfg, paused))
 }
 
 use std::sync::OnceLock;
@@ -422,6 +439,7 @@ pub fn run() {
             ipc::is_paused,
             ipc::toggle_pause,
             ipc::minimize_window,
+            ipc::system_language,
             ipc::set_live_frame,
             ipc::monitors,
             ipc::quit,
@@ -652,6 +670,7 @@ mod tests {
 
     #[test]
     fn startup_hint_only_claims_what_is_actually_running() {
+        let _guard = crate::i18n::test_locale_lock();
         let mut cfg = crate::config::Config::default();
         for (wallpaper, lights) in [
             (true, true),
@@ -661,7 +680,7 @@ mod tests {
         ] {
             cfg.general.wallpaper_enabled = wallpaper;
             cfg.rgb.enabled = lights;
-            let body = startup_hint_body(&cfg, false);
+            let body = crate::i18n::t_in_locked("en", startup_hint_key(&cfg, false));
             assert!(body.ends_with("Click to open the dashboard."), "{body}");
             assert_eq!(body.contains("wallpaper"), wallpaper, "{body}");
             assert_eq!(body.contains("lights"), lights, "{body}");
@@ -671,8 +690,51 @@ mod tests {
     #[test]
     fn a_paused_start_says_nothing_is_moving() {
         let cfg = crate::config::Config::default();
-        let body = startup_hint_body(&cfg, true);
+        let body = crate::i18n::t_in("en", startup_hint_key(&cfg, true));
         assert!(!body.contains("live"), "{body}");
         assert!(body.contains("paused"), "{body}");
+    }
+
+    /// The localised hint must be exactly the English sentence or its
+    /// translation — never an empty balloon, and never a sentence that skips
+    /// the "click to open" half.
+    #[test]
+    fn the_localised_hint_comes_from_the_catalog() {
+        let cfg = crate::config::Config::default();
+        let key = startup_hint_key(&cfg, false);
+        let localised = startup_hint_body(&cfg, false);
+        assert!(!localised.is_empty());
+        assert_eq!(localised, crate::i18n::t(key));
+        assert!(
+            localised.contains("dashboard") || localised.contains("panel"),
+            "the hint lost its call to action: {localised}"
+        );
+    }
+
+    /// Every state the hint can be in must resolve, in every shipped locale.
+    /// A missing key here would ship a blank notification balloon, which is the
+    /// one failure a user cannot work around.
+    #[test]
+    fn every_startup_hint_state_resolves() {
+        let _guard = crate::i18n::test_locale_lock();
+        for wallpaper_on in [true, false] {
+            for lights_on in [true, false] {
+                for paused in [true, false] {
+                    let mut cfg = crate::config::Config::default();
+                    cfg.general.wallpaper_enabled = wallpaper_on;
+                    cfg.rgb.enabled = lights_on;
+                    for locale in crate::i18n::SUPPORTED {
+                        let body = crate::i18n::t_in_locked(
+                            locale,
+                            startup_hint_key(&cfg, paused),
+                        );
+                        assert!(
+                            !body.is_empty(),
+                            "empty {locale} hint for wallpaper={wallpaper_on} lights={lights_on} paused={paused}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

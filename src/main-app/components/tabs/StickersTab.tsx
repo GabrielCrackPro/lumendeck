@@ -7,6 +7,7 @@ import { IconPlus, IconTrash, IconSparkle } from "../icons";
 import { api } from "../../ipc";
 import { truncateError, basename } from "../../utilities";
 import type { StickerDef, StickerFit } from "@shared/types";
+import { t } from "../../i18n";
 
 /** Live media strip for a sticker card: image/GIF or muted video. */
 function StickerPreview({ s }: { s: StickerDef }) {
@@ -29,19 +30,19 @@ function StickerPreview({ s }: { s: StickerDef }) {
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent" />
       <div className="absolute bottom-1.5 left-2 flex flex-wrap items-center gap-1.5">
         <span className="rounded-full bg-black/55 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-white/85 backdrop-blur">
-          {Math.round(s.w)}×{Math.round(s.h)}px
+          {`${Math.round(s.w)}×${Math.round(s.h)}px`}
         </span>
         <span className="rounded-full bg-black/55 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-white/85 backdrop-blur">
           {s.fit}
         </span>
         {isVideo && (
           <span className="rounded-full bg-black/55 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-white/85 backdrop-blur">
-            video
+            {t("common.video")}
           </span>
         )}
         {!s.visible && (
           <span className="rounded-full bg-black/55 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-amber-200/90 backdrop-blur">
-            hidden
+            {t("common.hidden")}
           </span>
         )}
       </div>
@@ -141,10 +142,10 @@ export default function StickersTab() {
   return (
     <div className="stagger space-y-6">
         <Card
-          title="Sticker deck"
+          title={t("common.sticker-deck")}
           right={
             <span className="hint">
-              {cfg.stickers.length} sticker{cfg.stickers.length === 1 ? "" : "s"}
+              {t("common.{n}-stickers", { n: cfg.stickers.length })}
             </span>
           }
         >
@@ -152,43 +153,42 @@ export default function StickersTab() {
           {placing ? (
             <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.08)] px-3.5 py-2.5">
               <span className="text-xs font-medium text-[rgb(var(--glow))]">
-                Click anywhere on the desktop to place · scroll to resize · right-click or ESC-style cancel to abort
+                {t("common.click-anywhere-on-the-desktop-to-place-scroll-to")}
               </span>
               <Btn size="sm" variant="danger" onClick={() => api.cancelStickerPlacement()}>
-                Cancel
+                {t("common.cancel")}
               </Btn>
             </div>
           ) : editing ? (
             <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.08)] px-3.5 py-2.5">
               <span className="text-xs font-medium text-[rgb(var(--glow))]">
-                Drag to move · edges/corners to resize · right-click deletes · arrows nudge the selected card · auto-exits after 5 min idle
+                {t("common.drag-to-move-edges-corners-to-resize-right-click")}
               </span>
               <Btn size="sm" variant="primary" onClick={() => api.endStickerEditor()}>
-                Done
+                {t("common.done")}
               </Btn>
             </div>
           ) : (
             <div className="flex flex-wrap gap-2.5">
               <Btn variant="primary" disabled={busy} onClick={importAndPlace}>
                 <IconPlus className="h-4 w-4" />
-                Add sticker…
+                {t("common.add-sticker")}
               </Btn>
               <Btn onClick={() => api.beginStickerEditor()} disabled={cfg.stickers.length === 0}>
                 <IconSparkle className="h-4 w-4" />
-                Edit on wallpaper
+                {t("common.edit-on-wallpaper")}
               </Btn>
               <span className="ml-auto hidden max-w-sm text-[11px] leading-relaxed text-[var(--text-faint)] sm:block">
-                Stickers draw into the wallpaper itself — no extra windows — and follow
-                it across monitors.
+                {t("common.stickers-draw-into-the-wallpaper-itself-no-extra")}
               </span>
             </div>
           )}
         </Card>
 
-        <Card title="Snapping & behavior">
+        <Card title={t("common.snapping-and-behavior")}>
             <Toggle
-              label="Show on all monitors"
-              description="Every wallpaper-layer sticker appears on each display at the same relative position. Off: stickers render only where you placed them."
+              label={t("common.show-on-all-monitors")}
+              description={t("common.every-wallpaper-layer-sticker-appears-on-each-di")}
               checked={cfg.sticker?.allMonitors ?? true}
               onChange={(v) =>
                 save((c) => {
@@ -197,8 +197,8 @@ export default function StickersTab() {
               }
             />
             <Toggle
-              label="Alignment guides"
-              description="Snap sticker edges to other stickers and monitor edges & centers (amber lines)."
+              label={t("common.alignment-guides")}
+              description={t("common.snap-sticker-edges-to-other-stickers-and-monitor")}
               checked={cfg.stickerSnap?.guides ?? true}
               onChange={(v) =>
                 save((c) => {
@@ -211,8 +211,8 @@ export default function StickersTab() {
               }
             />
             <Toggle
-              label="Snap to grid"
-              description="Quantize positions to a grid while dragging."
+              label={t("common.snap-to-grid")}
+              description={t("common.quantize-positions-to-a-grid-while-dragging")}
               checked={cfg.stickerSnap?.grid ?? true}
               onChange={(v) =>
                 save((c) => {
@@ -225,7 +225,7 @@ export default function StickersTab() {
               }
             />
             <Slider
-              label="Grid size"
+              label={t("common.grid-size")}
               min={8}
               max={128}
               step={8}
@@ -242,12 +242,11 @@ export default function StickersTab() {
               }
             />
             <InfoNote>
-              Alignment guides win over the grid: the grid applies only where no
-              guide matched.
+              {t("common.alignment-guides-win-over-the-grid-the-grid-appl")}
             </InfoNote>
             <Toggle
-              label="Remove background when applying"
-              description="A flat background detected from the borders is made transparent. GIFs are reprocessed frame-by-frame as transparent APNGs; originals stay untouched."
+              label={t("common.remove-background-when-applying")}
+              description={t("common.a-flat-background-detected-from-the-borders-is-m")}
               checked={cfg.sticker?.removeBackground ?? true}
               onChange={(v) =>
                 save((c) => {
@@ -260,12 +259,12 @@ export default function StickersTab() {
         {cfg.stickers.length === 0 && (
           <EmptyState
             icon={<IconSparkle className="h-5 w-5" />}
-            title="No stickers yet"
-            description="Add an image, GIF or short video and click once on the desktop to land it."
+            title={t("common.no-stickers-yet")}
+            description={t("common.add-an-image-gif-or-short-video-and-click-once-o")}
             action={
               <Btn variant="primary" disabled={busy} onClick={importAndPlace}>
                 <IconPlus className="h-4 w-4" />
-                Add your first sticker
+                {t("common.add-your-first-sticker")}
               </Btn>
             }
           />
@@ -291,22 +290,22 @@ export default function StickersTab() {
                         : "border-transparent text-[var(--text-faint)]"
                     }`}
                   >
-                    {selected === s.id ? "keyboard target" : ""}
+                    {selected === s.id ? t("common.keyboard-target") : ""}
                   </span>
                 }
               >
                 <StickerPreview s={s} />
-                <Toggle label="Visible" checked={s.visible} onChange={(v) => update(s.id, { visible: v })} />
-                <Section title="Placement & appearance">
+                <Toggle label={t("common.visible")} checked={s.visible} onChange={(v) => update(s.id, { visible: v })} />
+                <Section title={t("common.placement-and-appearance")}>
                   <Toggle
-                    label="Always on top"
-                    description="Float above every application window instead of the wallpaper layer."
+                    label={t("common.always-on-top")}
+                    description={t("common.float-above-every-application-window-instead-of")}
                     checked={s.onTop}
                     onChange={(v) => update(s.id, { onTop: v })}
                   />
-                  <Toggle label="Muted (video)" checked={s.muted} onChange={(v) => update(s.id, { muted: v })} />
+                  <Toggle label={t("common.muted-video")} checked={s.muted} onChange={(v) => update(s.id, { muted: v })} />
                   <Slider
-                    label="Opacity"
+                    label={t("common.opacity")}
                     min={0.1}
                     max={1}
                     step={0.05}
@@ -315,28 +314,28 @@ export default function StickersTab() {
                     onChange={(v) => update(s.id, { opacity: v })}
                   />
                   <Select<StickerFit>
-                    label="Fit"
+                    label={t("common.fit")}
                     value={s.fit}
                     options={[
-                      { id: "contain", label: "Contain" },
-                      { id: "cover", label: "Cover" },
-                      { id: "fill", label: "Fill" },
+                      { id: "contain", label: t("common.contain") },
+                      { id: "cover", label: t("common.cover") },
+                      { id: "fill", label: t("common.fill") },
                     ]}
                     onChange={(v) => update(s.id, { fit: v })}
                   />
                 </Section>
-                <Section title="Position & size (px)">
+                <Section title={t("common.position-and-size-px")}>
                   <div className="grid grid-cols-2 gap-3">
                     <NumberField label="X (px)" value={s.x} onChange={(v) => update(s.id, { x: Math.round(v) })} />
                     <NumberField label="Y (px)" value={s.y} onChange={(v) => update(s.id, { y: Math.round(v) })} />
                     <NumberField
-                      label="Width (px)"
+                      label={t("common.width-px")}
                       value={s.w}
                       min={24}
                       onChange={(v) => update(s.id, { w: Math.max(24, Math.round(v)) })}
                     />
                     <NumberField
-                      label="Height (px)"
+                      label={t("common.height-px")}
                       value={s.h}
                       min={24}
                       onChange={(v) => update(s.id, { h: Math.max(24, Math.round(v)) })}
@@ -349,19 +348,19 @@ export default function StickersTab() {
                       size="sm"
                       onClick={() => api.reorderSticker(s.id, -1).catch(console.error)}
                     >
-                      ← back
+                      {t("common.back")}
                     </Btn>
                     <Btn
                       size="sm"
                       onClick={() => api.reorderSticker(s.id, 1).catch(console.error)}
                     >
-                      forward →
+                      {t("common.forward")}
                     </Btn>
                     <Btn
                       size="sm"
                       onClick={() => api.duplicateSticker(s.id).catch(console.error)}
                     >
-                      Duplicate
+                      {t("common.duplicate")}
                     </Btn>
                   </div>
                   <Btn
@@ -374,19 +373,27 @@ export default function StickersTab() {
                         .then(() =>
                           useStore
                             .getState()
-                            .undoDelete(`Removed "${s.name}"`, (next) => {
+                            .undoDelete(
+                              t("common.removed", { name: s.name }),
+                              (next) => {
                               next.stickers.push(s);
-                            }),
+                              },
+                            ),
                         )
                         .catch((e) =>
                           useStore
                             .getState()
-                            .toast("error", `Remove failed: ${truncateError(e)}`),
+                            .toast(
+                              "error",
+                              t("common.remove-failed-{error}", {
+                                error: truncateError(e),
+                              }),
+                            ),
                         );
                     }}
                   >
                     <IconTrash className="h-4 w-4" />
-                    Remove
+                    {t("common.remove")}
                   </Btn>
                 </div>
               </Card>

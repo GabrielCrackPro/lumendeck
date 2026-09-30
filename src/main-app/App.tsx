@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore, bindEvents } from "./store";
+import { api } from "./ipc";
+import { useLocale, applyLocale, t } from "./i18n";
 import { checkForAppUpdate, announceUpdate } from "./updater";
 import Shell from "./components/Shell";
 import Onboarding from "./components/Onboarding";
@@ -62,6 +64,22 @@ export default function App() {
     })),
   );
   const updateCheckStarted = useRef(false);
+  // Subscribing here is what makes a language change repaint the app: the
+  // translator is a plain function that re-reads the locale on every call, so
+  // this render is the signal that reaches every screen. Nothing below is
+  // memoized, so one root render is enough.
+  const locale = useLocale();
+
+  // Keep the document honest about what language it is in — screen readers
+  // announce with it, and the browser picks the right font fallbacks.
+  //
+  // `applyLocale` is the other half: it points i18next at the catalog, which
+  // is what `t` actually reads through. Both have to happen or the tree
+  // re-renders in the old language.
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    applyLocale(locale);
+  }, [locale]);
   // Splash holds until `ready`; `stage` drives the splash's progress copy.
   const [stage, setStage] = useState<Stage>(0);
   const [ready, setReady] = useState(false);
@@ -74,6 +92,23 @@ export default function App() {
       unbind.then((f) => f());
     };
   }, [load]);
+
+  // The Windows display language, fetched once at boot. Only consulted when
+  // `general.language` is "auto", but it is cheap and it has to be in the
+  // store before the first paint or the splash would flash English on a
+  // Spanish machine.
+  useEffect(() => {
+    let disposed = false;
+    api
+      .systemLanguage()
+      .then((tag) => {
+        if (!disposed) useStore.getState().setSystemLanguage(tag);
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   useEffect(() => {
     // Dev builds must never ping the update endpoint: the packaged app's
@@ -208,7 +243,7 @@ function Splash({ stage, streaming }: { stage: Stage; streaming: boolean }) {
         <div className="font-mono text-[10px] tabular-nums text-[var(--text-faint)]">
           {pct.toFixed(0)}%
           {streaming && (
-            <span className="ml-2 text-[rgb(var(--glow))]">live</span>
+            <span className="ml-2 text-[rgb(var(--glow))]">{t("shell.live")}</span>
           )}
         </div>
       </div>
@@ -245,10 +280,11 @@ function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
           </svg>
         </div>
         <div>
-          <h1 className="lednum text-xl text-[var(--text)]">Backend offline</h1>
+          <h1 className="lednum text-xl text-[var(--text)]">
+            {t("common.backend-offline")}
+          </h1>
           <p className="mt-2 text-sm text-[var(--text-dim)]">
-            LumenDeck couldn&apos;t reach its Rust engine. Make sure the app
-            wasn&apos;t closed and try again.
+            {t("common.lumendeck-couldn't-reach-its-rust-engine-make-su")}
           </p>
         </div>
         <pre className="w-full overflow-auto rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-3 text-left font-mono text-[11px] leading-relaxed text-[var(--text-dim)]">
@@ -261,7 +297,7 @@ function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
           style={{ color: GLOW_TEXT_DARK }}
         >
           <IconRefresh className={`h-4 w-4 ${retrying ? "animate-spin" : ""}`} />
-          {retrying ? "Reconnecting…" : "Retry connection"}
+          {retrying ? t("common.reconnecting") : t("common.retry-connection")}
         </button>
       </div>
     </div>

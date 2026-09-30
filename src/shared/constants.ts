@@ -54,10 +54,10 @@ export const MODE_ART_BG = "#0a101d";
 export const GLOW_TEXT_DARK = "#06121f";
 
 export const SHADERS = [
-  { id: "aurora", label: "Aurora" },
-  { id: "liquid", label: "Liquid" },
-  { id: "plasma", label: "Plasma" },
-  { id: "starfield", label: "Starfield" },
+  { id: "aurora", label: "shaders.aurora" },
+  { id: "liquid", label: "shaders.liquid" },
+  { id: "plasma", label: "shaders.plasma" },
+  { id: "starfield", label: "shaders.starfield" },
 ] as const;
 
 /** Key of `HotkeyConfig` that holds each action's binding. */
@@ -80,95 +80,98 @@ export const HOTKEY_ACTIONS: {
 }[] = [
   {
     id: "toggleDashboard",
-    label: "Show / hide LumenDeck",
-    description: "Bring the dashboard up, or get it out of the way when it is already focused.",
+    label: "hotkeys.toggleDashboard",
+    description: "hotkeys.toggleDashboard-description",
     suggested: "Ctrl+Alt+D",
   },
   {
     id: "playPause",
-    label: "Play / pause music",
-    description: "Toggles whatever the current media session is playing.",
+    label: "hotkeys.playPause",
+    description: "hotkeys.playPause-description",
     suggested: "Ctrl+Alt+Space",
   },
   {
     id: "nextTrack",
-    label: "Next track",
-    description: "Skips forward in the current media session.",
+    label: "hotkeys.nextTrack",
+    description: "hotkeys.nextTrack-description",
     suggested: "Ctrl+Alt+Right",
   },
   {
     id: "prevTrack",
-    label: "Previous track",
-    description: "Skips back in the current media session.",
+    label: "hotkeys.prevTrack",
+    description: "hotkeys.prevTrack-description",
     suggested: "Ctrl+Alt+Left",
   },
   {
     id: "toggleMute",
-    label: "Mute / unmute",
-    description: "Toggles the system output device.",
+    label: "hotkeys.toggleMute",
+    description: "hotkeys.toggleMute-description",
     suggested: "Ctrl+Alt+M",
   },
   {
     id: "volumeUp",
-    label: "Volume up",
-    description: "Raises the system volume by 5%, unmuting first if needed.",
+    label: "hotkeys.volumeUp",
+    description: "hotkeys.volumeUp-description",
     suggested: "Ctrl+Alt+Up",
   },
   {
     id: "volumeDown",
-    label: "Volume down",
-    description: "Lowers the system volume by 5%.",
+    label: "hotkeys.volumeDown",
+    description: "hotkeys.volumeDown-description",
     suggested: "Ctrl+Alt+Down",
   },
   {
     id: "toggleWallpaper",
-    label: "Pause / resume wallpaper",
-    description: "Freezes the live wallpaper without stopping the lighting.",
+    label: "hotkeys.toggleWallpaper",
+    description: "hotkeys.toggleWallpaper-description",
     suggested: "Ctrl+Alt+P",
   },
   {
     id: "cycleLightingMode",
-    label: "Next lighting mode",
-    description: "Walks the modes in the same order as the tray menu.",
+    label: "hotkeys.cycleLightingMode",
+    description: "hotkeys.cycleLightingMode-description",
     suggested: "Ctrl+Alt+L",
   },
   {
     id: "nextProfile",
-    label: "Next lighting profile",
-    description: "Applies the next saved RGB profile. Needs at least one profile.",
+    label: "hotkeys.nextProfile",
+    description: "hotkeys.nextProfile-description",
     suggested: "Ctrl+Alt+R",
   },
   {
     id: "nextScene",
-    label: "Next scene",
-    description: "Applies the next saved scene (wallpaper + lighting). Needs at least one scene.",
+    label: "hotkeys.nextScene",
+    description: "hotkeys.nextScene-description",
     suggested: "Ctrl+Alt+S",
   },
   {
     id: "nextWallpaper",
-    label: "Next wallpaper",
-    description:
-      "Steps to the next vault entry on every display. Clears per-display overrides so the change is visible.",
+    label: "hotkeys.nextWallpaper",
+    description: "hotkeys.nextWallpaper-description",
     suggested: "Ctrl+Alt+N",
   },
 ];
 
 export type RgbModeGroup = "reactive" | "animation";
 
+// Labels and hints are catalog KEYS, not copy. That is deliberate: the tray
+// builds its lighting submenu from the same eight modes, and `tray::mode_key`
+// in Rust returns these exact keys. One mode cannot be called "Ambient" in the
+// window and something else in the tray, because there is only one string.
 export const RGB_MODES: {
   id: "ambient" | "zone" | "pulse" | "static" | "cycle" | "wave" | "breathe" | "audioReactive";
   label: string;
   hint: string;
   group: RgbModeGroup;
 }[] = [
-  { id: "ambient", label: "Ambient", hint: "Whole wallpaper dominant color", group: "reactive" },
-  { id: "zone", label: "Zone sync", hint: "Map regions of the wallpaper to devices", group: "reactive" },
-  { id: "pulse", label: "Pulse", hint: "Brightness-follow of the wallpaper", group: "reactive" },
-  { id: "static", label: "Static", hint: "One fixed color", group: "reactive" },
-  { id: "cycle", label: "Color cycle", hint: "Whole device sweeps through hues", group: "animation" },
-  { id: "wave", label: "Wave", hint: "Rainbow gradient marching around the device", group: "animation" },
-  { id: "breathe", label: "Breathe", hint: "Static color pulsing softly", group: "animation" },
-  { id: "audioReactive", label: "Audio reactive", hint: "LEDs pulse to system audio beat", group: "animation" },
+  { id: "ambient", label: "lighting.ambient", hint: "lighting.hint-ambient", group: "reactive" },
+  { id: "zone", label: "lighting.zone-sync", hint: "lighting.hint-zone", group: "reactive" },
+  { id: "pulse", label: "lighting.pulse", hint: "lighting.hint-pulse", group: "reactive" },
+  { id: "static", label: "lighting.static", hint: "lighting.hint-static", group: "reactive" },
+  { id: "cycle", label: "lighting.color-cycle", hint: "lighting.hint-cycle", group: "animation" },
+  { id: "wave", label: "lighting.wave", hint: "lighting.hint-wave", group: "animation" },
+  { id: "breathe", label: "lighting.breathe", hint: "lighting.hint-breathe", group: "animation" },
+  { id: "audioReactive", label: "lighting.audio-reactive", hint: "lighting.hint-audio", group: "animation" },
 ] as const;
 
 export const ANIMATION_MODES = new Set(["cycle", "wave", "breathe", "audioReactive"] as const);

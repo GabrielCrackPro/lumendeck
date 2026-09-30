@@ -13,6 +13,7 @@ import { Btn, Toggle, ThemePicker, ItemTitle } from "./ui";
 import { RGB_MODES } from "@shared/constants";
 import { basename, truncateError } from "../utilities";
 import type { RgbMode } from "@shared/types";
+import { t } from "../i18n";
 
 const STEPS = ["Wallpaper", "Import", "Lighting", "Mood", "Config"] as const;
 
@@ -66,7 +67,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
       useStore.setState({ cfg: fresh });
       toast("ok", "Added to vault");
     } catch (e) {
-      toast("error", `Import failed: ${truncateError(e)}`);
+      toast("error", t("onboarding.import-failed-{error}", { error: truncateError(e) }));
     } finally {
       setBusy(false);
     }
@@ -91,9 +92,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
           .filter((g) => list.some((x) => x.id === g.id))
           .map((g) => ({ id: g.id, name: g.name })),
       );
-      toast("ok", `Imported ${list.length} item${list.length === 1 ? "" : "s"}`);
+      toast("ok", t("onboarding.imported-{n}-items", { n: list.length }));
     } catch (e) {
-      toast("error", `Folder import failed: ${truncateError(e)}`);
+      toast("error", t("onboarding.folder-import-failed-{error}", { error: truncateError(e) }));
     } finally {
       setBusy(false);
     }
@@ -106,7 +107,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
       toast("ok", "Wallpaper applied");
       setFolderChoices([]);
     } catch (e) {
-      toast("error", `Apply failed: ${truncateError(e)}`);
+      toast("error", t("onboarding.apply-failed-{error}", { error: truncateError(e) }));
     } finally {
       setBusy(false);
     }
@@ -123,9 +124,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
       const fresh = await api.getConfig();
       useStore.setState({ cfg: fresh });
       const added = list[list.length - 1];
-      toast("ok", `Downloaded "${added?.name ?? "wallpaper"}"`);
+      toast("ok", t("onboarding.downloaded-{name}", { name: added?.name ?? "wallpaper" }));
     } catch (e) {
-      toast("error", `URL import failed: ${truncateError(e)}`);
+      toast("error", t("onboarding.url-import-failed-{error}", { error: truncateError(e) }));
     } finally {
       setBusy(false);
     }
@@ -164,31 +165,32 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
         <section className="glass p-7">
           {step === 0 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">Welcome to LumenDeck</h1>
+              <h1 className="lednum text-lg text-[var(--text)]">{t("onboarding.welcome-to-lumendeck")}</h1>
               <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                Live wallpapers that light up your room and your OS. Let&apos;s set the
-                basics — you can change everything later.
+                {t("onboarding.live-wallpapers-that-light-up-your-room-and-your")}
               </p>
               <div className="mt-5 space-y-2.5">
                 <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4">
                   <ItemTitle>
                     {cfg.gallery.length > 0
-                      ? `${cfg.gallery.length} wallpapers in your vault`
-                      : "Your vault is empty"}
+                      ? t("onboarding.{n}-wallpapers-in-your-vault", { n: cfg.gallery.length })
+                      : t("onboarding.your-vault-is-empty")}
                   </ItemTitle>
                   <div className="mt-1 text-xs text-[var(--text-faint)]">
                     {cfg.gallery.length > 0
-                      ? "We'll apply your first one now — browse the vault after setup."
-                      : "Import from the Wallpaper tab after setup, or keep the current look."}
+                      ? t("onboarding.we'll-apply-your-first-one-now-browse-the-vault")
+                      : t("onboarding.import-from-the-wallpaper-tab-after-setup-or-kee")}
                   </div>
                 </div>
               </div>
               <div className="mt-6 flex justify-between">
                 <Btn variant="ghost" onClick={finish} disabled={busy}>
-                  Skip setup
+                  {t("onboarding.skip-setup")}
                 </Btn>
                 <Btn variant="primary" onClick={applyVaultFirst} disabled={busy}>
-                  {cfg.gallery.length > 0 ? "Use my first wallpaper" : "Continue"}
+                  {cfg.gallery.length > 0
+                    ? t("onboarding.use-my-first-wallpaper")
+                    : t("onboarding.continue")}
                 </Btn>
               </div>
             </>
@@ -196,20 +198,21 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
           {step === 1 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">Bring in your media</h1>
+              <h1 className="lednum text-lg text-[var(--text)]">{t("onboarding.bring-in-your-media")}</h1>
               <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                Fill the vault with videos, images or folders. You can always add
-                more later from the Wallpaper tab.
+                {t("onboarding.fill-the-vault-with-videos-images-or-folders-you")}
               </p>
               <div className="mt-5 space-y-2.5">
                 {imported > 0 && (
                   <div className="rounded-xl border border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.08)] px-4 py-3 text-sm font-medium text-[rgb(var(--glow))]">
-                    {imported} item{imported === 1 ? "" : "s"} added to your vault
+                    {t("onboarding.{n}-items-added-to-your-vault", { n: imported })}
                   </div>
                 )}
                 {folderChoices.length > 0 && (
                   <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4">
-                    <div className="kicker mb-2">Set one as your wallpaper now?</div>
+                    <div className="kicker mb-2">
+                      {t("onboarding.set-one-as-your-wallpaper-now")}
+                    </div>
                     <div className="max-h-44 space-y-1 overflow-y-auto">
                       {folderChoices.map((c) => (
                         <button
@@ -220,7 +223,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                         >
                           <span className="min-w-0 truncate">{c.name}</span>
                           <span className="ml-2 shrink-0 font-mono text-[10px] uppercase tracking-widest">
-                            apply
+                            {t("onboarding.apply")}
                           </span>
                         </button>
                       ))}
@@ -240,14 +243,14 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                         className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] px-3 py-2 text-sm outline-none focus:border-[rgb(var(--glow)/0.5)]"
                       />
                       <Btn variant="primary" size="sm" disabled={busy || !url.trim()} onClick={importUrl}>
-                        Download
+                        {t("onboarding.download")}
                       </Btn>
                       <Btn variant="ghost" size="sm" onClick={() => setUrlMode(false)}>
-                        Cancel
+                        {t("onboarding.cancel")}
                       </Btn>
                     </div>
                     <p className="mt-2 text-dim-sm">
-                      Direct link to an mp4/webm video or png/jpg/webp/gif image (max 200 MB).
+                      {t("onboarding.direct-link-to-an-mp4-webm-video-or-png-jpg-webp")}
                     </p>
                   </div>
                 ) : (
@@ -258,10 +261,10 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       className="flex w-full items-center justify-between rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4 text-left transition-all hover:border-[rgb(var(--glow)/0.5)] disabled:opacity-50"
                     >
                       <span>
-                        <ItemTitle as="span">Import a file</ItemTitle>
-                        <span className="mt-0.5 block text-xs text-[var(--text-faint)]">A video or image from your PC</span>
+                        <ItemTitle as="span">{t("onboarding.import-a-file")}</ItemTitle>
+                        <span className="mt-0.5 block text-xs text-[var(--text-faint)]">{t("onboarding.a-video-or-image-from-your-pc")}</span>
                       </span>
-                      <span className="font-mono text-[10px] uppercase tracking-widest text-[rgb(var(--glow))]">pick</span>
+                      <span className="font-mono text-[10px] uppercase tracking-widest text-[rgb(var(--glow))]">{t("onboarding.pick")}</span>
                     </button>
                     <button
                       onClick={importFolder}
@@ -269,10 +272,10 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       className="flex w-full items-center justify-between rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4 text-left transition-all hover:border-[rgb(var(--glow)/0.5)] disabled:opacity-50"
                     >
                       <span>
-                        <ItemTitle as="span">Import a folder</ItemTitle>
-                        <span className="mt-0.5 block text-xs text-[var(--text-faint)]">Every video and image inside, in one go</span>
+                        <ItemTitle as="span">{t("onboarding.import-a-folder")}</ItemTitle>
+                        <span className="mt-0.5 block text-xs text-[var(--text-faint)]">{t("onboarding.every-video-and-image-inside-in-one-go")}</span>
                       </span>
-                      <span className="font-mono text-[10px] uppercase tracking-widest text-[rgb(var(--glow))]">pick</span>
+                      <span className="font-mono text-[10px] uppercase tracking-widest text-[rgb(var(--glow))]">{t("onboarding.pick")}</span>
                     </button>
                     <button
                       onClick={() => setUrlMode(true)}
@@ -280,20 +283,20 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       className="flex w-full items-center justify-between rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4 text-left transition-all hover:border-[rgb(var(--glow)/0.5)] disabled:opacity-50"
                     >
                       <span>
-                        <ItemTitle as="span">From a URL</ItemTitle>
-                        <span className="mt-0.5 block text-xs text-[var(--text-faint)]">Download a wallpaper from a direct link</span>
+                        <ItemTitle as="span">{t("onboarding.from-a-url")}</ItemTitle>
+                        <span className="mt-0.5 block text-xs text-[var(--text-faint)]">{t("onboarding.download-a-wallpaper-from-a-direct-link")}</span>
                       </span>
-                      <span className="font-mono text-[10px] uppercase tracking-widest text-[rgb(var(--glow))]">link</span>
+                      <span className="font-mono text-[10px] uppercase tracking-widest text-[rgb(var(--glow))]">{t("onboarding.link")}</span>
                     </button>
                   </>
                 )}
               </div>
               <div className="mt-6 flex justify-between">
                 <Btn variant="ghost" onClick={() => setStep(0)}>
-                  Back
+                  {t("onboarding.back")}
                 </Btn>
                 <Btn variant="primary" onClick={() => setStep(2)} disabled={busy}>
-                  {imported > 0 ? "Continue" : "Skip — later"}
+                  {imported > 0 ? t("onboarding.continue") : t("onboarding.skip-later")}
                 </Btn>
               </div>
             </>
@@ -301,21 +304,20 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
           {step === 2 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">Sync your RGB lighting</h1>
+              <h1 className="lednum text-lg text-[var(--text)]">{t("onboarding.sync-your-rgb-lighting")}</h1>
               <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                Connect to OpenRGB to have your devices follow the wallpaper. No
-                OpenRGB yet? Skip — wallpaper-only is a perfectly good setup.
+                {t("onboarding.connect-to-openrgb-to-have-your-devices-follow-t")}
               </p>
               <div className="mt-5 rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <ItemTitle>
-                      {rgb.connected ? `${rgb.devices.length} device${rgb.devices.length === 1 ? "" : "s"} detected` : "OpenRGB not detected"}
+                      {rgb.connected ? t("onboarding.{n}-devices-detected", { n: rgb.devices.length }) : t("onboarding.openrgb-not-detected")}
                     </ItemTitle>
                     <div className="mt-0.5 text-xs text-[var(--text-faint)]">
                       {rgb.connected
-                        ? "You're set — devices will follow the modes on the next step."
-                        : "Start OpenRGB with the Server enabled, then retry."}
+                        ? t("onboarding.you're-set-devices-will-follow-the-modes-on-the")
+                        : t("onboarding.start-openrgb-with-the-server-enabled-then-retry")}
                     </div>
                   </div>
                   {!rgb.connected && (
@@ -337,17 +339,17 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                         }
                       }}
                     >
-                      Retry
+                      {t("onboarding.retry")}
                     </Btn>
                   )}
                 </div>
               </div>
               <div className="mt-6 flex justify-between">
                 <Btn variant="ghost" onClick={() => setStep(1)}>
-                  Back
+                  {t("onboarding.back")}
                 </Btn>
                 <Btn variant="primary" onClick={() => setStep(3)} disabled={busy}>
-                  Continue
+                  {t("onboarding.continue")}
                 </Btn>
               </div>
             </>
@@ -355,10 +357,8 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
           {step === 3 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">Your lighting mood</h1>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                Pick how your devices behave. Ambient follows the wallpaper —
-                recommended for the full effect.
+              <h1 className="lednum text-lg text-[var(--text)]">{t("onboarding.your-lighting-mood")}</h1>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">                {t("onboarding.pick-how-your-devices-behave-ambient-follows-the")}
               </p>
               <div className="mt-5 grid grid-cols-2 gap-2.5">
                 {RGB_MODES.filter((m) => m.group === "reactive" || m.id === "breathe").map(
@@ -374,9 +374,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                             : "border-[var(--line)] hover:border-[var(--line-strong)]"
                         }`}
                       >
-                        <ItemTitle>{m.label}</ItemTitle>
+                        <ItemTitle>{t(m.label)}</ItemTitle>
                         <div className="mt-0.5 text-[11px] leading-snug text-[var(--text-faint)]">
-                          {m.hint}
+                          {t(m.hint)}
                         </div>
                       </button>
                     );
@@ -385,20 +385,18 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
               </div>
               <div className="mt-6 flex justify-between">
                 <Btn variant="ghost" onClick={() => setStep(2)}>
-                  Back
+                  {t("onboarding.back")}
                 </Btn>
                 <Btn variant="primary" onClick={() => setStep(4)} disabled={busy}>
-                  Continue
+                  {t("onboarding.continue")}
                 </Btn>
               </div>
             </>
           )}
           {step === 4 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">Common settings</h1>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                The toggles most people change — you can fine-tune everything in
-                Settings later.
+              <h1 className="lednum text-lg text-[var(--text)]">{t("onboarding.common-settings")}</h1>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">                {t("onboarding.the-toggles-most-people-change-you-can-fine-tune")}
               </p>
               <div className="mt-4 space-y-0.5">
                 {/* The same picker as Settings, so the choice made here looks
@@ -408,49 +406,49 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                   onChange={(v) => save((c) => (c.general.theme = v))}
                 />
                 <Toggle
-                  label="AMOLED mode"
-                  description="True-black dashboard in dark theme — ideal for OLED screens."
+                  label={t("onboarding.amoled-mode")}
+                  description={t("onboarding.true-black-dashboard-in-dark-theme-ideal-for-ole")}
                   checked={cfg.general.amoled ?? false}
                   onChange={(v) => save((c) => (c.general.amoled = v))}
                 />
                 <div className="border-t border-[var(--line)]" />
                 <Toggle
-                  label="Launch at startup"
-                  description="Start LumenDeck with Windows."
+                  label={t("onboarding.launch-at-startup")}
+                  description={t("onboarding.start-lumendeck-with-windows")}
                   checked={cfg.general.autostart}
                   onChange={(v) => save((c) => (c.general.autostart = v))}
                 />
                 <Toggle
-                  label="Pause on fullscreen apps"
-                  description="Stop wallpaper playback while a game or video fills the screen — saves GPU for what you're doing."
+                  label={t("onboarding.pause-on-fullscreen-apps")}
+                  description={t("onboarding.pause-on-fullscreen-description")}
                   checked={cfg.general.pauseOnFullscreen}
                   onChange={(v) => save((c) => (c.general.pauseOnFullscreen = v))}
                 />
                 <Toggle
-                  label="Pause on battery"
-                  description="Freeze the wallpaper while unplugged (recommended on laptops)."
+                  label={t("onboarding.pause-on-battery")}
+                  description={t("onboarding.freeze-the-wallpaper-while-unplugged-recommended")}
                   checked={cfg.general.pauseOnBatterySaver}
                   onChange={(v) => save((c) => (c.general.pauseOnBatterySaver = v))}
                 />
                 <Toggle
-                  label="Windows accent follows wallpaper"
-                  description="Taskbar and window highlights shift tone with your wallpaper."
+                  label={t("onboarding.windows-accent-follows-wallpaper")}
+                  description={t("onboarding.taskbar-and-window-highlights-shift-tone-with-yo")}
                   checked={cfg.general.accentSyncEnabled}
                   onChange={(v) => save((c) => (c.general.accentSyncEnabled = v))}
                 />
                 <Toggle
-                  label="Stickers on all monitors"
-                  description="Mirror wallpaper stickers onto every display."
+                  label={t("onboarding.stickers-on-all-monitors")}
+                  description={t("onboarding.mirror-wallpaper-stickers-onto-every-display")}
                   checked={cfg.sticker?.allMonitors ?? true}
                   onChange={(v) => save((c) => (c.sticker = { ...c.sticker, allMonitors: v }))}
                 />
               </div>
               <div className="mt-6 flex justify-between">
                 <Btn variant="ghost" onClick={() => setStep(3)}>
-                  Back
+                  {t("onboarding.back")}
                 </Btn>
                 <Btn variant="primary" onClick={finish} disabled={busy}>
-                  {busy ? "Saving…" : "Finish setup"}
+                  {busy ? t("onboarding.saving") : t("onboarding.finish-setup")}
                 </Btn>
               </div>
             </>
@@ -462,7 +460,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
             onClick={finish}
             className="font-mono text-[10px] tracking-widest text-[var(--text-faint)] uppercase transition-colors hover:text-[var(--text-dim)]"
           >
-            skip — set up later in settings
+            {t("onboarding.skip-set-up-later-in-settings")}
           </button>
         </div>
       </div>

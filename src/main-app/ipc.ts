@@ -82,6 +82,9 @@ export const api = {
   mediaCurrent: () => invoke<MediaInfo | null>("media_current"),
   /** The user's current Windows accent color (RGB triplet), for UI theming. */
   systemAccent: () => invoke<[number, number, number] | null>("system_accent"),
+  /** Windows display language ("es-ES"); resolved against the user's
+   *  preference in `general.language` to pick the UI locale. */
+  systemLanguage: () => invoke<string>("system_language"),
   sceneDelete: (id: string) => invoke<void>("scene_delete", { id }),
   sceneRename: (id: string, name: string) =>
     invoke<void>("scene_rename", { id, name }),

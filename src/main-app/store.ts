@@ -2,6 +2,10 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+// i18n.ts reads the config off this store, so importing its bound `t` back
+// would close an import cycle. i18next is the same singleton underneath and
+// has no such dependency.
+import i18next from "i18next";
 import { EVENTS, HOTKEY_ACTIONS } from "@shared/constants";
 import type {
   AudioLevel,
@@ -50,6 +54,10 @@ interface Store {
   wallpaperColor: [number, number, number] | null;
   /** The user's Windows accent color; live-updated via SYSTEM_ACCENT. */
   systemAccent: [number, number, number] | null;
+  /** The Windows display language as a BCP-47 tag ("es-ES"), fetched once at
+   *  boot. Read by the UI only when `general.language` is "auto"; the backend
+   *  reads the same preference for the tray. */
+  systemLanguage: string | null;
   /** Latest [volume_percent, muted_flag] from the backend volume watcher. */
   systemVolume: [number, number] | null;
   wallpaperPaused: boolean;
@@ -73,6 +81,7 @@ interface Store {
   setMedia: (media: MediaInfo | null) => void;
   setWallpaperColor: (c: [number, number, number]) => void;
   setSystemAccent: (c: [number, number, number] | null) => void;
+  setSystemLanguage: (tag: string | null) => void;
   setWallpaperPaused: (p: boolean) => void;
   setHotkeyFailures: (failures: HotkeyError[]) => void;
   setUpdateAvailable: (update: AvailableUpdate | null) => void;
@@ -129,6 +138,7 @@ export const useStore = create<Store>((set, get) => ({
   media: null,
   wallpaperColor: null,
   systemAccent: null,
+  systemLanguage: null,
   systemVolume: null,
   wallpaperPaused: false,
   hotkeyFailures: [],
@@ -220,7 +230,7 @@ export const useStore = create<Store>((set, get) => ({
           tone: "info" as const,
           msg,
           action: {
-            label: "Undo",
+            label: i18next.t("common.undo"),
             run: () => {
               get().dismissToast(id);
               // save() reports its own failures; a rejected restore just
@@ -264,6 +274,7 @@ export const useStore = create<Store>((set, get) => ({
   setMedia: (media) => set({ media }),
   setWallpaperColor: (wallpaperColor) => set({ wallpaperColor }),
   setSystemAccent: (systemAccent) => set({ systemAccent }),
+  setSystemLanguage: (systemLanguage) => set({ systemLanguage }),
   setWallpaperPaused: (wallpaperPaused) => set({ wallpaperPaused }),
   setHotkeyFailures: (hotkeyFailures) => set({ hotkeyFailures }),
   setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),

@@ -7,6 +7,7 @@ import { IconRefresh, IconZap, IconWave, IconPlus, IconTrash } from "../icons";
 import { RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import { rgbToHex } from "../../utilities";
 import type { AudioLevel, DeviceColor, RgbMode } from "@shared/types";
+import { t } from "../../i18n";
 
 /**
  * One physical key: label + width in u (1u = standard keycap).
@@ -334,16 +335,16 @@ export function KeyboardPreview() {
           {kb
             ? isKeyboard
               ? kb.leds >= 120
-                ? "full-size ansi · live"
+                ? t("lighting.full-size-ansi-live")
                 : kb.leds >= 90
-                  ? "tkl ansi · live"
+                  ? t("lighting.tkl-ansi-live")
                   : kb.leds >= 60
-                    ? "ansi layout · live"
+                    ? t("lighting.ansi-layout-live")
                     : kb.leds >= 6
-                      ? `ansi layout · ${kb.leds} zone${kb.leds === 1 ? "" : "s"}`
-                      : `${kb.leds} zone${kb.leds === 1 ? "" : "s"} · live`
-              : `${kb.leds} leds · live`
-            : "no device"}
+                      ? t("lighting.ansi-layout-zones", { n: kb.leds })
+                      : t("lighting.n-zones-live", { n: kb.leds })
+              : t("lighting.n-leds-live", { n: kb.leds })
+            : t("lighting.no-device")}
         </span>
         {rgb.devices.length > 1 && (
           <Dropdown
@@ -364,7 +365,7 @@ export function KeyboardPreview() {
       </div>
       {!rgb.connected && (
         <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--bg)_75%,transparent)] text-xs font-medium tracking-wide text-[var(--text-dim)] backdrop-blur-[2px]">
-          Connect OpenRGB to see live colors
+          {t("common.connect-openrgb-to-see-live-colors")}
         </div>
       )}
     </div>
@@ -674,7 +675,7 @@ export default function RgbTab() {
   return (
     <div className="stagger space-y-6">
       {/* ---- hero: live stage ---- */}
-      <Card title="Live stage">
+      <Card title={t("common.live-stage")}>
         <div className="grid gap-5 md:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
           <KeyboardPreview />
           <div className="flex min-w-0 flex-col justify-between gap-4">
@@ -697,32 +698,39 @@ export default function RgbTab() {
               />
               <span className="absolute inset-0 bg-[linear-gradient(180deg,rgb(255_255_255/0.08),transparent_40%)]" />
               <span className="absolute bottom-2 left-3 font-mono text-[10px] uppercase tracking-wider text-[rgb(255_255_255/0.75)]">
-                {rgbCfg.enabled ? "active" : "sync off"}
+                {t(rgbCfg.enabled ? "lighting.active" : "lighting.sync-off")}
               </span>
             </span>
             <div>
               <div className="kicker">
-                {activeMode?.group === "animation" ? "Animated mode" : "Reactive mode"}
+                {t(
+                  activeMode?.group === "animation"
+                    ? "lighting.animated-mode"
+                    : "lighting.reactive-mode",
+                )}
               </div>
               <div className="mt-0.5 text-lg font-semibold text-[var(--text)]">
-                {activeMode?.label ?? rgbCfg.mode}
+                {activeMode ? t(activeMode.label) : rgbCfg.mode}
               </div>
             </div>
             <div>
               <div className="font-mono text-[11px] text-[var(--text-dim)]">
-                {rgb.devices.length} devices · {ledTotal.toLocaleString()} leds
+                {t("common.{n}-devices-{leds}-leds", {
+                  n: rgb.devices.length,
+                  leds: ledTotal.toLocaleString(),
+                })}
               </div>
               <label className="mt-2 flex items-center gap-2">
-                <span className="kicker shrink-0">accent from</span>
+                <span className="kicker shrink-0">{t("common.accent-from")}</span>
                 <Dropdown
                   className="min-w-0 flex-1"
                   value={rgbCfg.accentDevice ?? ""}
                   options={[
-                    { id: "", label: "Auto (keyboard first)" },
-                    { id: -1, label: "Off (static color)" },
+                    { id: "", label: t("common.auto-keyboard-first") },
+                    { id: -1, label: t("common.off-static-color") },
                     ...rgb.devices.map((d) => ({
                       id: d.id,
-                      label: d.name || `Device ${d.id}`,
+                      label: d.name || t("common.device-{id}", { id: d.id }),
                     })),
                   ]}
                   onChange={(v) =>
@@ -734,12 +742,12 @@ export default function RgbTab() {
               </label>
             </div>
             <Toggle
-              label="RGB sync enabled"
+              label={t("common.rgb-sync-enabled")}
               checked={rgbCfg.enabled}
               onChange={(v) => save((c) => (c.rgb.enabled = v))}
             />
             <Toggle
-              label="UI follows lights"
+              label={t("common.ui-follows-lights")}
               checked={cfg?.general.accentLive ?? false}
               onChange={(v) => save((c) => (c.general.accentLive = v))}
             />
@@ -755,12 +763,15 @@ export default function RgbTab() {
       <div className="@container grid gap-5 lg:grid-cols-[1fr_1.15fr]">
       <div className="space-y-5">
         <Card
-          title="Devices"
+          title={t("common.devices")}
           right={
             rgb.connected ? (
               <span className="hint">
-                {rgb.devices.length} device{rgb.devices.length === 1 ? "" : "s"} ·{" "}
-                {activeLeds.toLocaleString()} of {ledTotal.toLocaleString()} LEDs
+                {t("common.{n}-devices-{active}-of-{total}-leds", {
+                  n: rgb.devices.length,
+                  active: activeLeds.toLocaleString(),
+                  total: ledTotal.toLocaleString(),
+                })}
               </span>
             ) : undefined
           }
@@ -795,9 +806,11 @@ export default function RgbTab() {
                 </span>
                 <div className="min-w-0">
                   <p className="leading-relaxed">
-                    Start <b className="font-semibold text-[var(--text)]">OpenRGB</b> with the
-                    SDK server enabled (Settings → Server → Start). It listens on port
-                    6742 by default.
+                    {t("common.start")}{" "}
+                    <b className="font-semibold text-[var(--text)]">
+                      {t("common.openrgb")}
+                    </b>{" "}
+                    {t("common.with-the-sdk-server-enabled-settings-server-star")}
                   </p>
                   {rgb.lastError && (
                     <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-[var(--text-faint)]">
@@ -808,7 +821,7 @@ export default function RgbTab() {
               </div>
               <Btn onClick={() => useStore.getState().load()}>
                 <IconRefresh className="h-4 w-4" />
-                Retry
+                {t("common.retry")}
               </Btn>
             </div>
           )}
@@ -816,17 +829,16 @@ export default function RgbTab() {
               them, so the count is worth stating plainly. */}
           {rgb.connected && mutedCount > 0 && (
             <p className="mt-2.5 text-xs leading-relaxed text-[var(--text-faint)]">
-              {mutedCount} device{mutedCount === 1 ? " is" : "s are"} muted. Muted hardware
-              keeps its last color; the engine just stops writing to it.
+              {t("common.{n}-devices-are-muted-muted-hardware-keeps-its-l", { n: mutedCount })}
             </p>
           )}
           {/* Everything that governs WHEN lights are on/off lives together:
               idle, night window, track flash — behavior over look. */}
           <div className="mt-4 border-t border-[var(--line)] pt-4">
-            <div className="kicker mb-1">Automation</div>
+            <div className="kicker mb-1">{t("common.automation")}</div>
             <Toggle
-              label="Turn off lights when idle"
-              description="Automatically turn off RGB after a period of no keyboard or mouse activity."
+              label={t("common.turn-off-lights-when-idle")}
+              description={t("common.automatically-turn-off-rgb-after-a-period-of-no")}
               checked={rgbCfg.idleTimeoutSec > 0}
               onChange={(v) =>
                 save((c) => {
@@ -840,7 +852,7 @@ export default function RgbTab() {
             {rgbCfg.idleTimeoutSec > 0 && (
               <>
                 <Slider
-                  label="Idle timeout"
+                  label={t("common.idle-timeout")}
                   min={30}
                   max={3600}
                   step={30}
@@ -854,7 +866,7 @@ export default function RgbTab() {
                   onChange={(v) => save((c) => (c.rgb.idleTimeoutSec = v))}
                 />
                 <Slider
-                  label="Check interval"
+                  label={t("common.check-interval")}
                   min={1}
                   max={60}
                   step={1}
@@ -867,7 +879,7 @@ export default function RgbTab() {
 
             <div className="mt-3 border-t border-[var(--line)] pt-3">
               <Toggle
-                label="Night dimming"
+                label={t("common.night-dimming")}
                 description="Cap LED brightness during a daily window (e.g. 22:00 to 07:00) so the lights don't glare in the dark."
                 checked={!!rgbCfg.nightStart && !!rgbCfg.nightEnd}
                 onChange={(v) =>
@@ -886,7 +898,7 @@ export default function RgbTab() {
               {!!rgbCfg.nightStart && !!rgbCfg.nightEnd && (
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <label className="block">
-                    <span className="mb-1 block text-dim-sm">Starts</span>
+                    <span className="mb-1 block text-dim-sm">{t("common.starts")}</span>
                     <input
                       type="time"
                       value={rgbCfg.nightStart}
@@ -895,7 +907,7 @@ export default function RgbTab() {
                     />
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-dim-sm">Ends</span>
+                    <span className="mb-1 block text-dim-sm">{t("common.ends")}</span>
                     <input
                       type="time"
                       value={rgbCfg.nightEnd}
@@ -905,7 +917,7 @@ export default function RgbTab() {
                   </label>
                   <div className="col-span-2">
                     <Slider
-                      label="Night brightness cap"
+                      label={t("common.night-brightness-cap")}
                       min={0}
                       max={100}
                       step={5}
@@ -917,15 +929,15 @@ export default function RgbTab() {
                 </div>
               )}
               <Toggle
-                label="Flash on track change"
-                description="Pulse every device once when the OS media session starts a new track (Spotify, browsers, anything the media flyout sees)."
+                label={t("common.flash-on-track-change")}
+                description={t("common.pulse-every-device-once-when-the-os-media-sessio")}
                 checked={rgbCfg.trackFlashMs > 0}
                 onChange={(v) => save((c) => (c.rgb.trackFlashMs = v ? 400 : 0))}
               />
               {rgbCfg.trackFlashMs > 0 && (
                 <div className="mt-3">
                   <Slider
-                    label="Flash duration"
+                    label={t("common.flash-duration")}
                     min={150}
                     max={1000}
                     step={50}
@@ -942,11 +954,13 @@ export default function RgbTab() {
 
       <div className="space-y-5">
         <Card
-          title="Lighting mode"
+          title={t("common.lighting-mode")}
           right={
             <span className="inline-flex items-center gap-2.5 font-mono text-[10px] tracking-wide">
               <span className="text-[var(--text-faint)]">
-                {Math.round(rgbCfg.mixer.brightness * 100)}% bright
+                {t("common.{n}-bright", {
+                  n: Math.round(rgbCfg.mixer.brightness * 100),
+                })}
               </span>
               <span className="h-0.5 w-0.5 rounded-full bg-[var(--line-strong)]" />
               {isAnimated ? (
@@ -956,11 +970,15 @@ export default function RgbTab() {
                 </span>
               ) : (
                 <span className="text-[var(--text-faint)]">
-                  {rgbCfg.mixer.smoothing === 0 ? "snap" : `${Math.round(rgbCfg.mixer.smoothing * 100)}% smooth`}
+                  {rgbCfg.mixer.smoothing === 0
+                    ? t("common.snap")
+                    : t("common.{n}-smooth", {
+                        n: Math.round(rgbCfg.mixer.smoothing * 100),
+                      })}
                 </span>
               )}
               {!rgbCfg.enabled && (
-                <span className="rounded-md border border-amber-500/25 bg-amber-500/10 px-1.5 py-px uppercase text-amber-300">off</span>
+                <span className="rounded-md border border-amber-500/25 bg-amber-500/10 px-1.5 py-px uppercase text-amber-300">{t("common.off")}</span>
               )}
             </span>
           }
@@ -969,10 +987,14 @@ export default function RgbTab() {
             <div key={group} className={gi > 0 ? "mt-5 border-t border-[var(--line)] pt-4" : ""}>
               <div className="mb-2.5 flex items-baseline justify-between gap-3">
                 <span className="kicker">
-                  {group === "reactive" ? "Reactive to wallpaper" : "Animated"}
+                  {t(group === "reactive" ? "lighting.reactive-to-wallpaper" : "lighting.animated")}
                 </span>
                 <span className="font-mono text-[9.5px] text-[var(--text-faint)]">
-                  {group === "reactive" ? "color follows the screen" : "self-driven motion"}
+                  {t(
+                    group === "reactive"
+                      ? "lighting.color-follows-the-screen"
+                      : "lighting.self-driven-motion",
+                  )}
                 </span>
               </div>
               <div className="grid grid-cols-1 gap-3 @[22rem]:grid-cols-2 @[38rem]:grid-cols-4">
@@ -982,7 +1004,7 @@ export default function RgbTab() {
                     <button
                       key={m.id}
                       onClick={() => save((c) => (c.rgb.mode = m.id as RgbMode))}
-                      title={m.hint}
+                      title={t(m.hint)}
                       className={`group flex w-full flex-col overflow-hidden rounded-xl border text-left transition-all duration-200 active:scale-[0.98] ${
                         active
                           ? "border-[rgb(var(--glow)/0.6)] shadow-[0_8px_28px_-10px_rgb(var(--glow)/0.55)] ring-2 ring-[rgb(var(--glow)/0.25)]"
@@ -1007,7 +1029,7 @@ export default function RgbTab() {
                         <span className="pointer-events-none absolute inset-0 rounded-t-xl ring-1 ring-inset ring-[rgb(255_255_255/0.06)]" />
                         {active && (
                           <span className="absolute right-1.5 top-1.5 rounded-md bg-[rgb(var(--glow))] px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-wider text-black/85">
-                            on
+                            {t("common.on")}
                           </span>
                         )}
                       </span>
@@ -1031,7 +1053,7 @@ export default function RgbTab() {
                               active ? "text-[rgb(var(--glow))]" : "text-[var(--text)]"
                             }`}
                           >
-                            {m.label}
+                            {t(m.label)}
                           </span>
                         </span>
                       </span>
@@ -1045,10 +1067,9 @@ export default function RgbTab() {
           <div className="mt-6 border-t border-[var(--line)] pt-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <ItemTitle>Profiles</ItemTitle>
+                <ItemTitle>{t("common.profiles")}</ItemTitle>
                 <div className="mt-0.5 text-dim-sm">
-                  Save the current mode, color and speed as a snapshot — switchable from
-                  the tray menu.
+                  {t("common.save-the-current-mode-color-and-speed-as-a-snaps")}
                 </div>
               </div>
               {profileNaming ? (
@@ -1078,23 +1099,23 @@ export default function RgbTab() {
                     value={profileNameVal}
                     onChange={(e) => setProfileNameVal(e.target.value)}
                     onKeyDown={(e) => e.key === "Escape" && setProfileNaming(false)}
-                    placeholder="Profile name"
+                    placeholder={t("common.profile-name")}
                     className="w-36 rounded-lg border border-[rgb(var(--glow)/0.4)] bg-[var(--panel-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text)] outline-none"
                   />
                   <Btn variant="primary" onClick={() => {}}>
-                    Save
+                    {t("common.save")}
                   </Btn>
                 </form>
               ) : (
                 <Btn onClick={promptProfileName}>
                   <IconPlus className="h-4 w-4" />
-                  Save current
+                  {t("common.save-current")}
                 </Btn>
               )}
             </div>
             {(rgbCfg.profiles?.length ?? 0) === 0 ? (
               <div className="rounded-xl border border-dashed border-[var(--line-strong)] px-4 py-5 text-center text-xs text-[var(--text-faint)]">
-                No profiles yet — tune the lights, then save the look.
+                {t("common.no-profiles-yet-tune-the-lights-then-save-the-lo")}
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
@@ -1162,12 +1183,23 @@ export default function RgbTab() {
           {/* ---- mode-specific options + mixer: everything keyed to the
               active mode lives under one header, in one place ---- */}
           <div className="space-y-1">
-            <Section title={activeMode ? `${activeMode.label} options` : "Mode options"} defaultOpen>
+            <Section
+              title={
+                activeMode
+                  ? t("common.{mode}-options", { mode: t(activeMode.label) })
+                  : t("common.mode-options")
+              }
+              defaultOpen
+            >
             <div className="space-y-1">
               {(rgbCfg.mode === "static" || rgbCfg.mode === "breathe") && (
                 <div className="pb-2">
                   <ColorInput
-                    label={rgbCfg.mode === "static" ? "Static color" : "Breath color"}
+                    label={t(
+                      rgbCfg.mode === "static"
+                        ? "lighting.static-color"
+                        : "lighting.breath-color",
+                    )}
                     value={rgbCfg.staticColor}
                     onChange={(v) => save((c) => (c.rgb.staticColor = v))}
                   />
@@ -1176,22 +1208,24 @@ export default function RgbTab() {
               {rgbCfg.mode === "audioReactive" && (
                 <div className="mb-2">
                   <InfoNote>
-                    Colors follow the <b className="text-[var(--text)]">wallpaper accent</b> — the
-                    dominant on-screen tone — so the lights match what you're watching.
-                    Volume drives brightness; beats pulse the strip.
+                    {t("common.colors-follow-the")}{" "}
+                    <b className="text-[var(--text)]">
+                      {t("common.wallpaper-accent")}
+                    </b>{" "}
+                    {t("common.the-dominant-on-screen-tone-so-the-lights-match")}
                   </InfoNote>
                 </div>
               )}
               {rgbCfg.mode === "zone" && (
                 <div className="mb-2">
                   <InfoNote>
-                    Draw zones on the Wallpaper tab — each zone can be mapped to devices there.
+                    {t("common.draw-zones-on-the-wallpaper-tab-each-zone-can-be")}
                   </InfoNote>
                 </div>
               )}
               {rgbCfg.mode === "cycle" && (
                 <Slider
-                  label="Rainbow spread"
+                  label={t("common.rainbow-spread")}
                   value={rgbCfg.cycleSpread}
                   min={30}
                   max={720}
@@ -1202,12 +1236,12 @@ export default function RgbTab() {
               )}
               {rgbCfg.mode === "wave" && (
                 <div className="py-2.5">
-                  <div className="kicker mb-2">Direction</div>
+                  <div className="kicker mb-2">{t("common.direction")}</div>
                   <Segmented
-                    label="Wave direction"
+                    label={t("common.wave-direction")}
                     options={[
-                      { id: "1", label: "Forward" },
-                      { id: "-1", label: "Reverse" },
+                      { id: "1", label: t("common.forward") },
+                      { id: "-1", label: t("common.reverse") },
                     ]}
                     value={String(rgbCfg.waveDirection)}
                     onChange={(v) => save((c) => { c.rgb.waveDirection = Number(v) as 1 | -1; })}
@@ -1217,19 +1251,19 @@ export default function RgbTab() {
               {rgbCfg.mode === "audioReactive" && (
                 <>
                   <div className="py-2.5">
-                  <div className="kicker mb-2">Audio source</div>
+                  <div className="kicker mb-2">{t("common.audio-source")}</div>
                   <Segmented
-                    label="Audio source"
+                    label={t("common.audio-source")}
                     options={[
-                      { id: "system", label: "System audio" },
-                      { id: "microphone", label: "Microphone" },
+                      { id: "system", label: t("common.system-audio") },
+                      { id: "microphone", label: t("common.microphone") },
                     ]}
                     value={rgbCfg.audioSource}
                     onChange={(v) => save((c) => { c.rgb.audioSource = v; })}
                   />
                   </div>
                   <div className="py-2.5">
-                    <div className="kicker mb-2">Audio level</div>
+                    <div className="kicker mb-2">{t("common.audio-level")}</div>
                     <div className="relative h-3 overflow-hidden rounded-full bg-[var(--panel)]">
                       <div
                         className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-75"
@@ -1254,7 +1288,9 @@ export default function RgbTab() {
                         {Math.round(audioLevel.volume * 100)}%
                       </span>
                       {audioLevel.pulse > 0.25 && (
-                        <span className="font-mono text-[10px] text-[rgb(var(--glow))]">beat</span>
+                        <span className="font-mono text-[10px] text-[rgb(var(--glow))]">
+                          {t("common.beat")}
+                        </span>
                       )}
                     </div>
                     {audioLevel.deviceName && (
@@ -1264,7 +1300,7 @@ export default function RgbTab() {
                     )}
                   </div>
                   <Slider
-                    label="Audio sensitivity"
+                    label={t("common.audio-sensitivity")}
                     min={0.1}
                     max={3}
                     step={0.1}
@@ -1273,7 +1309,7 @@ export default function RgbTab() {
                     onChange={(v) => save((c) => (c.rgb.audioSensitivity = v))}
                   />
                   <Slider
-                    label="Audio smoothing"
+                    label={t("common.audio-smoothing")}
                     min={0}
                     max={0.95}
                     step={0.05}
@@ -1285,7 +1321,7 @@ export default function RgbTab() {
               )}
               {isAnimated && (
                 <Slider
-                  label="Animation speed"
+                  label={t("common.animation-speed")}
                   min={0.1}
                   max={5}
                   step={0.1}
@@ -1296,7 +1332,7 @@ export default function RgbTab() {
               )}
               {!isAnimated && (
                 <Slider
-                  label="Transition smoothing"
+                  label={t("common.transition-smoothing")}
                   min={0}
                   max={0.95}
                   step={0.05}
@@ -1309,10 +1345,10 @@ export default function RgbTab() {
             </Section>
 
             {/* output mixer */}
-            <Section title="Output mixer" defaultOpen>
+            <Section title={t("common.output-mixer")} defaultOpen>
             <div className="space-y-1">
               <Slider
-                label="Brightness"
+                label={t("common.brightness")}
                 min={0.1}
                 max={1.5}
                 step={0.05}
@@ -1321,7 +1357,7 @@ export default function RgbTab() {
                 onChange={(v) => save((c) => (c.rgb.mixer.brightness = v))}
               />
               <Slider
-                label="Saturation"
+                label={t("common.saturation")}
                 min={0}
                 max={2}
                 step={0.05}
@@ -1330,7 +1366,7 @@ export default function RgbTab() {
                 onChange={(v) => save((c) => (c.rgb.mixer.saturation = v))}
               />
               <Slider
-                label="Gamma"
+                label={t("common.gamma")}
                 min={0.4}
                 max={2.5}
                 step={0.05}
@@ -1340,7 +1376,7 @@ export default function RgbTab() {
               />
               {!isAnimated && (
                 <Slider
-                  label="Min update interval"
+                  label={t("common.min-update-interval")}
                   min={30}
                   max={1000}
                   step={10}

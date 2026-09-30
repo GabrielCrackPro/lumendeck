@@ -9,13 +9,14 @@ import { SHADERS, SHADER_ART } from "@shared/constants";
 import type { Config, GalleryEntry, WallpaperKind, ZoneDef } from "@shared/types";
 import { api } from "../../ipc";
 import { truncateError } from "../../utilities";
+import { t } from "../../i18n";
 
 const KIND_META: Record<WallpaperKind, { label: string }> = {
-  video: { label: "Video" },
-  image: { label: "Image" },
-  slideshow: { label: "Slideshow" },
-  web: { label: "Web" },
-  shader: { label: "Shader" },
+  video: { label: "common.video" },
+  image: { label: "common.image" },
+  slideshow: { label: "common.slideshow" },
+  web: { label: "common.web" },
+  shader: { label: "common.shader" },
 };
 
 /** How many gallery tiles are mounted at once. The vault is unbounded and
@@ -317,10 +318,10 @@ export default function WallpaperTab() {
   return (
     <div className="stagger space-y-6">
         <Card
-          title="Vault"
+          title={t("common.vault")}
           right={
             <span className="hint">
-              {gallery.length} item{gallery.length === 1 ? "" : "s"}
+              {t("common.{n}-items", { n: gallery.length })}
             </span>
           }
         >
@@ -333,8 +334,8 @@ export default function WallpaperTab() {
                   setQuery(e.target.value);
                   setLimit(GALLERY_PAGE);
                 }}
-                placeholder="Search vault"
-                aria-label="Search wallpapers by name"
+                placeholder={t("common.search-vault")}
+                aria-label={t("common.search-wallpapers-by-name")}
                 className="w-40 rounded-full border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-1 pl-7 text-xs text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)]"
               />
               <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-faint)]">
@@ -351,7 +352,7 @@ export default function WallpaperTab() {
               }}
               className={`rounded-full px-3 py-1 text-xs ${chipStyle(activeCollection === "all")}`}
             >
-              All · {cfg.gallery.length}
+              {`${t("common.all")} · ${cfg.gallery.length}`}
             </button>
             {collections.map((c) => (
               <div key={c.id} className="group/col relative">
@@ -403,7 +404,14 @@ export default function WallpaperTab() {
                     api
                       .collectionCreate(name)
                       .then((col) => setActiveCollection(col.id))
-                      .catch((e) => toast("error", `Create failed: ${truncateError(e)}`));
+                      .catch((e) =>
+                      toast(
+                        "error",
+                        t("common.create-failed-{error}", {
+                          error: truncateError(e),
+                        }),
+                      ),
+                    );
                   setColNaming(false);
                 }}
               >
@@ -412,7 +420,7 @@ export default function WallpaperTab() {
                   value={colNameVal}
                   onChange={(e) => setColNameVal(e.target.value)}
                   onKeyDown={(e) => e.key === "Escape" && setColNaming(false)}
-                  placeholder="Collection name"
+                  placeholder={t("common.collection-name")}
                   className="w-32 rounded-full border border-[rgb(var(--glow)/0.4)] bg-[var(--panel-strong)] px-3 py-1 text-xs font-semibold text-[var(--text)] outline-none"
                 />
               </form>
@@ -423,7 +431,7 @@ export default function WallpaperTab() {
                   setColNameVal("");
                 }}
                 className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-[var(--line-strong)] text-[var(--text-faint)] hover-glow"
-                title="New collection"
+                title={t("common.new-collection")}
               >
                 <IconPlus className="h-3.5 w-3.5" />
               </button>
@@ -443,10 +451,12 @@ export default function WallpaperTab() {
                   <IconPlus className="h-6 w-6 text-[rgb(var(--glow))]" />
                 </div>
                 <span className="text-sm font-semibold text-[rgb(var(--glow))]">
-                  Drop {dropCount > 1 ? `${dropCount} items` : "file or folder"} to import
+                  {dropCount > 1
+                    ? t("common.drop-{n}-items-to-import", { n: dropCount })
+                    : t("common.drop-file-or-folder-to-import")}
                 </span>
                 <span className="text-[11px] text-[var(--text-dim)]">
-                  videos, images and folders become vault cards
+                  {t("common.videos-images-and-folders-become-vault-cards")}
                 </span>
               </div>
             )}
@@ -454,22 +464,22 @@ export default function WallpaperTab() {
             <div className="mb-4 flex flex-wrap items-center gap-2.5">
               <Btn variant="primary" disabled={busy} onClick={() => pickAndAdd("video")}>
                 <IconPlus className="h-4 w-4" />
-                Add video
+                {t("common.add-video")}
               </Btn>
               <Btn disabled={busy} onClick={() => pickAndAdd("image")}>
                 <IconImage className="h-4 w-4" />
-                Add image
+                {t("common.add-image")}
               </Btn>
               <Btn disabled={busy} onClick={pickSlideshow}>
                 <IconLayers className="h-4 w-4" />
-                Import folder
+                {t("common.import-folder")}
               </Btn>
               <Btn disabled={busy} onClick={() => setUrlOpen(true)}>
                 <IconGlobe className="h-4 w-4" />
-                From URL
+                {t("common.from-url")}
               </Btn>
               <span className="text-dim-sm ml-auto hidden sm:block">
-                …or drop files and folders anywhere in the vault
+                {t("common.or-drop-files-and-folders-anywhere-in-the-vault")}
               </span>
               {urlOpen && (
                 <UrlImport
@@ -525,7 +535,7 @@ export default function WallpaperTab() {
                   {!isActive(g) && (
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/35 group-hover:opacity-100">
                       <span className="rounded-full border border-white/25 bg-black/55 px-3.5 py-1.5 text-xs font-semibold text-white backdrop-blur">
-                        All displays
+                        {t("common.all-displays")}
                       </span>
                       {mons.length > 1 && (
                         <button
@@ -535,7 +545,7 @@ export default function WallpaperTab() {
                           }}
                           className="pointer-events-auto rounded-full border border-white/25 bg-black/55 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur transition-colors hover:bg-black/75"
                         >
-                          Per display…
+                          {t("common.per-display")}
                         </button>
                       )}
                     </div>
@@ -547,11 +557,11 @@ export default function WallpaperTab() {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="kicker !text-white/60">Assign to display</span>
+                        <span className="kicker !text-white/60">{t("common.assign-to-display")}</span>
                         <button
                           onClick={() => setAssignFor(null)}
                           className="text-white/60 transition-colors hover:text-white"
-                          aria-label="Close"
+                          aria-label={t("common.close")}
                         >
                           ✕
                         </button>
@@ -571,21 +581,25 @@ export default function WallpaperTab() {
                               <span className="font-mono text-[10px] font-bold text-white/50">{i + 1}</span>
                               <span className="truncate text-xs font-semibold text-white">
                                 {m.w} × {m.h}
-                                {m.primary && <span className="ml-1 text-white/50">· primary</span>}
+                                {m.primary && (
+                                  <span className="ml-1 text-white/50">
+                                    {`· ${t("common.primary")}`}
+                                  </span>
+                                )}
                               </span>
                               {o && !mine && (
                                 <span className="ml-auto shrink-0 text-[10px] text-white/40">
-                                  override
+                                  {t("common.override")}
                                 </span>
                               )}
                             </button>
                             {o && (
                               <button
                                 onClick={() => clearMonitor(m.device)}
-                                title="Reset to global"
+                                title={t("common.reset-to-global")}
                                 className="shrink-0 rounded-[5px] border border-white/15 px-1.5 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-white/60 transition-colors hover:border-white/40 hover:text-white"
                               >
-                                reset
+                                {t("common.reset")}
                               </button>
                             )}
                           </div>
@@ -600,18 +614,18 @@ export default function WallpaperTab() {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="kicker !text-white/60">Collections</span>
+                        <span className="kicker !text-white/60">{t("common.collections")}</span>
                         <button
                           onClick={() => setAddToCol(null)}
                           className="text-white/60 transition-colors hover:text-white"
-                          aria-label="Close"
+                          aria-label={t("common.close")}
                         >
                           ✕
                         </button>
                       </div>
                       {collections.length === 0 && (
                         <div className="px-1 py-2 text-xs text-white/50">
-                          No collections yet — create one with the + in the tab bar.
+                          {t("common.no-collections-yet-create-one-with-the-in-the-ta")}
                         </div>
                       )}
                       {collections.map((c) => {
@@ -626,11 +640,20 @@ export default function WallpaperTab() {
                                   toast(
                                     "ok",
                                     added
-                                      ? `Added to "${c.name}"`
-                                      : `Removed from "${c.name}"`,
+                                      ? t("common.added-to", { name: c.name })
+                                      : t("common.removed-from", {
+                                          name: c.name,
+                                        }),
                                   ),
                                 )
-                                .catch((e) => toast("error", `Failed: ${truncateError(e)}`))
+                                .catch((e) =>
+                                  toast(
+                                    "error",
+                                    t("common.failed-{error}", {
+                                      error: truncateError(e),
+                                    }),
+                                  ),
+                                )
                             }
                             className={`flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-left text-xs font-semibold transition-colors ${
                               member
@@ -639,7 +662,9 @@ export default function WallpaperTab() {
                             }`}
                           >
                             {c.name}
-                            {member && <span className="text-[10px]">member</span>}
+                            {member && (
+                              <span className="text-[10px]">{t("common.member")}</span>
+                            )}
                           </button>
                         );
                       })}
@@ -692,11 +717,11 @@ export default function WallpaperTab() {
                   {isActive(g) && (
                     <div className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-semibold text-[#06121f] shadow-[0_0_14px_rgb(var(--glow)/0.7)]">
                       <span className="h-1 w-1 rounded-full bg-[#06121f]" />
-                      LIVE
+                      {t("shell.live")}
                     </div>
                   )}
                   <button
-                    aria-label={`Add ${g.name} to collection`}
+                    aria-label={t("common.add-{name}-to-collection", { name: g.name })}
                     onClick={(e) => {
                       e.stopPropagation();
                       setAddToCol(addToCol === g.id ? null : g.id);
@@ -706,17 +731,29 @@ export default function WallpaperTab() {
                     <IconFolder className="h-3.5 w-3.5" />
                   </button>
                   <button
-                    aria-label={`Remove ${g.name}`}
+                    aria-label={t("common.remove-{name}", { name: g.name })}
                     onClick={(e) => {
                       e.stopPropagation();
                       api
                         .galleryRemove(g.id)
                         .then(() =>
-                          undoDelete(`Removed "${g.name}" from the vault`, (next) => {
-                            next.gallery.push(g);
-                          }),
+                          undoDelete(
+                            t("common.removed-from-the-vault", {
+                              name: g.name,
+                            }),
+                            (next) => {
+                              next.gallery.push(g);
+                            },
+                          ),
                         )
-                        .catch((e) => toast("error", `Remove failed: ${truncateError(e)}`));
+                        .catch((e) =>
+                          toast(
+                            "error",
+                            t("common.remove-failed-{error}", {
+                              error: truncateError(e),
+                            }),
+                          ),
+                        );
                     }}
                     className={`absolute right-2 top-2 hidden hover:!bg-red-500 group-hover:flex ${OVERLAY_ICON_BTN}`}
                   >
@@ -732,9 +769,11 @@ export default function WallpaperTab() {
                   onClick={() => setLimit((n) => n + GALLERY_PAGE)}
                   className="rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-5 py-2 text-xs font-semibold text-[var(--text-dim)] hover-glow active:scale-[0.97]"
                 >
-                  Show {Math.min(GALLERY_PAGE, gallery.length - visibleGallery.length)} more
+                  {t("common.show-{n}-more", {
+                    n: Math.min(GALLERY_PAGE, gallery.length - visibleGallery.length),
+                  })}
                   <span className="hint ml-1.5">
-                    {visibleGallery.length} / {gallery.length}
+                    {`${visibleGallery.length} / ${gallery.length}`}
                   </span>
                 </button>
               </div>
@@ -747,24 +786,25 @@ export default function WallpaperTab() {
                 <IconImage className="h-5 w-5" />
               </div>
               <ItemTitle>
-                {query.trim() ? "No matches" : "Vault is empty"}
+                {t(query.trim() ? "common.no-matches" : "common.vault-is-empty")}
               </ItemTitle>
               <p className="max-w-sm text-xs leading-relaxed text-[var(--text-faint)]">
                 {query.trim() ? (
                   <>
-                    Nothing in this view is called “{query.trim()}”.{" "}
+                    {t("common.nothing-in-this-view-is-called", {
+                      query: query.trim(),
+                    })}{" "}
                     <button
                       onClick={() => setQuery("")}
                       className="text-[rgb(var(--glow))] underline underline-offset-2"
                     >
-                      Clear the search
+                      {t("common.clear-the-search")}
                     </button>
                     .
                   </>
                 ) : (
                   <>
-                    Add a video or image, or drop files and folders here — everything stays in
-                    the vault and one click applies it to every display.
+                    {t("common.add-a-video-or-image-or-drop-files-and-folders-h")}
                   </>
                 )}
               </p>
@@ -773,17 +813,15 @@ export default function WallpaperTab() {
         </Card>
 
         <Card
-          title="Playlists"
+          title={t("common.playlists")}
           right={
             <span className="font-mono text-[10px] tracking-wide text-[var(--text-faint)]">
-              {playlists.find((p) => p.enabled)?.name ?? "off"}
+              {playlists.find((p) => p.enabled)?.name ?? t("common.off")}
             </span>
           }
         >
           <p className="mb-4 text-sm leading-relaxed text-[var(--text-dim)]">
-            Rotate wallpapers automatically: shuffle a collection on an interval,
-            with optional time-of-day rules that swap the pool (e.g. dark shader
-            at night, videos by day). One playlist runs at a time.
+            {t("common.rotate-wallpapers-automatically-shuffle-a-collec")}
           </p>
 
           {plNaming ? (
@@ -796,7 +834,14 @@ export default function WallpaperTab() {
                   api
                     .playlistCreate(name)
                     .then((pl) => setPlaylistFor(pl.id))
-                    .catch((e) => toast("error", `Create failed: ${truncateError(e)}`));
+                    .catch((e) =>
+                      toast(
+                        "error",
+                        t("common.create-failed-{error}", {
+                          error: truncateError(e),
+                        }),
+                      ),
+                    );
                 setPlNaming(false);
               }}
             >
@@ -805,7 +850,7 @@ export default function WallpaperTab() {
                 value={plNameVal}
                 onChange={(e) => setPlNameVal(e.target.value)}
                 onKeyDown={(e) => e.key === "Escape" && setPlNaming(false)}
-                placeholder="Playlist name"
+                placeholder={t("common.playlist-name")}
                 className="w-56 rounded-xl border border-[rgb(var(--glow)/0.4)] bg-[var(--panel-strong)] px-3 py-2 text-sm font-semibold text-[var(--text)] outline-none"
               />
             </form>
@@ -818,14 +863,14 @@ export default function WallpaperTab() {
                 }}
               >
                 <IconPlus className="h-4 w-4" />
-                New playlist
+                {t("common.new-playlist")}
               </Btn>
             </div>
           )}
 
           {playlists.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-[var(--line-strong)] px-4 py-6 text-center text-xs text-[var(--text-faint)]">
-              No playlists yet — create one and pick a collection to shuffle.
+              {t("common.no-playlists-yet-create-one-and-pick-a-collectio")}
             </div>
           ) : (
             <div className="space-y-3">
@@ -857,15 +902,20 @@ export default function WallpaperTab() {
                           <ItemTitle className="truncate">{pl.name}</ItemTitle>
                           {pl.enabled && (
                             <span className="rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-bold text-[#06121f]">
-                              RUNNING
+                              {t("common.running")}
                             </span>
                           )}
                         </div>
                         <div className="text-dim-sm mt-0.5">
-                          {pool.length} item{pool.length === 1 ? "" : "s"} ·{" "}
-                          {pl.shuffleMin > 0 ? `every ${pl.shuffleMin} min` : "manual"}
-                          {pl.rules.length > 0 && ` · ${pl.rules.length} time rule${pl.rules.length === 1 ? "" : "s"}`}
-                          {pl.enabled && activeEntry && ` · now: ${activeEntry.name}`}
+                          {t("common.{n}-items", { n: pool.length })} ·{" "}
+                          {pl.shuffleMin > 0
+                            ? t("common.every-{n}-min", { n: pl.shuffleMin })
+                            : t("common.manual")}
+                          {pl.rules.length > 0 &&
+                            ` · ${t("common.{n}-time-rules", { n: pl.rules.length })}`}
+                          {pl.enabled &&
+                            activeEntry &&
+                            ` · ${t("common.now-{name}", { name: activeEntry.name })}`}
                         </div>
                       </div>
                       <button
@@ -876,24 +926,26 @@ export default function WallpaperTab() {
                               toast(
                                 "ok",
                                 pl.enabled
-                                  ? "Playlist stopped"
-                                  : `Playing "${pl.name}"`,
+                                  ? t("common.playlist-stopped")
+                                  : t("common.playing", { name: pl.name }),
                               ),
                             )
-                            .catch((e) => toast("error", `Failed: ${truncateError(e)}`))
+                            .catch((e) =>
+                              toast("error", `${t("common.failed")} ${truncateError(e)}`),
+                            )
                         }
                         className={`rounded-lg px-3 py-1.5 text-xs ${chipStyle(pl.enabled)}`}
                       >
-                        {pl.enabled ? "Stop" : "Start"}
+                        {t(pl.enabled ? "common.stop" : "common.start")}
                       </button>
                       <button
                         onClick={() => setPlaylistFor(open ? null : pl.id)}
                         className="rounded-lg border border-[var(--line)] bg-[var(--panel)] px-3 py-1.5 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:text-[var(--text)]"
                       >
-                        {open ? "Close" : "Edit"}
+                        {t(open ? "common.close" : "common.edit")}
                       </button>
                       <button
-                        aria-label={`Delete playlist ${pl.name}`}
+                        aria-label={t("common.delete-playlist", { name: pl.name })}
                         onClick={() =>
                           api
                             .playlistDelete(pl.id)
@@ -914,7 +966,7 @@ export default function WallpaperTab() {
                       <div className="mt-4 space-y-4 border-t border-[var(--line)] pt-4">
                         {/* source picker */}
                         <div>
-                          <div className="kicker mb-2">Source</div>
+                          <div className="kicker mb-2">{t("common.source")}</div>
                           <div className="flex flex-wrap gap-2">
                             <button
                               onClick={() =>
@@ -924,7 +976,7 @@ export default function WallpaperTab() {
                               }
                               className={`rounded-xl px-3 py-1.5 text-xs ${chipStyle(pl.source === "all")}`}
                             >
-                              Whole vault
+                              {t("common.whole-vault")}
                             </button>
                             {collections.map((c) => (
                               <button
@@ -947,12 +999,12 @@ export default function WallpaperTab() {
 
                         {/* shuffle interval */}
                         <Slider
-                          label="Shuffle every"
+                          label={t("common.shuffle-every")}
                           min={1}
                           max={180}
                           step={1}
                           value={pl.shuffleMin || 15}
-                          format={(v) => `${Math.round(v)} min`}
+                          format={(v) => t("common.{n}-min", { n: Math.round(v) })}
                           onChange={(v) =>
                             api
                               .playlistSave({ ...pl, shuffleMin: Math.round(v) })
@@ -962,12 +1014,14 @@ export default function WallpaperTab() {
 
                         {/* transition crossfade */}
                         <Slider
-                          label="Transition crossfade"
+                          label={t("common.transition-crossfade")}
                           min={0}
                           max={8}
                           step={0.5}
                           value={pl.crossfadeSec ?? 1.5}
-                          format={(v) => (v === 0 ? "Instant cut" : `${v.toFixed(1)}s`)}
+                          format={(v) =>
+                            v === 0 ? t("common.instant-cut") : `${v.toFixed(1)}s`
+                          }
                           onChange={(v) =>
                             api
                               .playlistSave({ ...pl, crossfadeSec: v })
@@ -978,11 +1032,11 @@ export default function WallpaperTab() {
                         {/* time-of-day rules */}
                         <div>
                           <div className="kicker mb-2">
-                            Time-of-day rules (optional)
+                            {t("common.time-of-day-rules-optional")}
                           </div>
                           {pl.rules.length === 0 && (
                             <div className="text-dim-sm mb-2">
-                              Without rules the playlist shuffles one pool all day.
+                              {t("common.without-rules-the-playlist-shuffles-one-pool-all")}
                             </div>
                           )}
                           <div className="space-y-2">
@@ -1014,7 +1068,7 @@ export default function WallpaperTab() {
                                   }}
                                   className="flex-1 rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-2 py-1 text-xs text-[var(--text)] outline-none"
                                 >
-                                  <option value="all">Whole vault</option>
+                                  <option value="all">{t("common.whole-vault")}</option>
                                   {collections.map((c) => (
                                     <option key={c.id} value={`collection:${c.id}`}>
                                       {c.name}
@@ -1022,7 +1076,7 @@ export default function WallpaperTab() {
                                   ))}
                                 </select>
                                 <button
-                                  aria-label="Delete rule"
+                                  aria-label={t("common.delete-rule")}
                                   onClick={() =>
                                     api
                                       .playlistSave({
@@ -1059,7 +1113,7 @@ export default function WallpaperTab() {
                             className="mt-2 flex items-center gap-1.5 rounded-lg border border-dashed border-[var(--line-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-dim)] hover-glow"
                           >
                             <IconPlus className="h-3.5 w-3.5" />
-                            Add rule
+                            {t("common.add-rule")}
                           </button>
                         </div>
                       </div>
@@ -1072,7 +1126,7 @@ export default function WallpaperTab() {
         </Card>
 
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          <Card title="Shader presets">
+          <Card title={t("common.shader-presets")}>
             <div className="grid grid-cols-2 gap-3">
               {SHADERS.map((s) => {
                 const active = wall.kind === "shader" && wall.source === s.id;
@@ -1099,7 +1153,9 @@ export default function WallpaperTab() {
                       <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
                     </div>
                     <div className="flex items-center justify-between px-3 py-2">
-                      <span className="text-xs font-semibold text-[var(--text)]">{s.label}</span>
+                      <span className="text-xs font-semibold text-[var(--text)]">
+                        {t(s.label)}
+                      </span>
                       <span
                         className={`h-1.5 w-1.5 rounded-full ${
                           active
@@ -1114,11 +1170,11 @@ export default function WallpaperTab() {
             </div>
           </Card>
 
-          <Card title="Playback">
+          <Card title={t("common.playback")}>
             {wall.kind === "video" && (
               <>
                 <Slider
-                  label="Volume"
+                  label={t("common.volume")}
                   min={0}
                   max={1}
                   step={0.05}
@@ -1127,7 +1183,7 @@ export default function WallpaperTab() {
                   onChange={(v) => save((c) => (c.wallpaper.volume = v))}
                 />
                 <Slider
-                  label="Playback speed"
+                  label={t("common.playback-speed")}
                   min={0.25}
                   max={3}
                   step={0.05}
@@ -1136,7 +1192,7 @@ export default function WallpaperTab() {
                   onChange={(v) => save((c) => (c.wallpaper.videoSpeed = v))}
                 />
                 <div className="mt-2">
-                  <div className="mb-2 text-xs font-medium text-[var(--text-dim)]">Fit to display</div>
+                  <div className="mb-2 text-xs font-medium text-[var(--text-dim)]">{t("common.fit-to-display")}</div>
                   <div className="grid grid-cols-4 gap-2">
                     {(["auto", "cover", "contain", "fill"] as const).map((f) => (
                       <button
@@ -1148,19 +1204,18 @@ export default function WallpaperTab() {
                             : "border-[var(--line)] bg-[var(--panel-strong)] text-[var(--text-dim)] hover:text-[var(--text)]"
                         }`}
                       >
-                        {f === "fill" ? "stretch" : f}
+                        {f === "fill" ? t("common.stretch") : f}
                       </button>
                     ))}
                   </div>
                   <p className="mt-2.5 text-[11px] leading-relaxed text-[var(--text-faint)]">
-                    Auto fills the screen and crops only when shapes are similar; Contain
-                    letterboxes; Stretch ignores aspect.
+                    {t("common.auto-fills-the-screen-and-crops-only-when-shapes")}
                   </p>
                 </div>
                 <div className="mt-3 border-t border-[var(--line)] pt-2">
-                  <Section title="Color grading" defaultOpen>
+                  <Section title={t("common.color-grading")} defaultOpen>
                   <Slider
-                    label="Brightness"
+                    label={t("common.brightness")}
                     min={0.2}
                     max={2}
                     step={0.05}
@@ -1169,7 +1224,7 @@ export default function WallpaperTab() {
                     onChange={(v) => save((c) => (c.wallpaper.videoBrightness = v))}
                   />
                   <Slider
-                    label="Saturation"
+                    label={t("common.saturation")}
                     min={0}
                     max={2}
                     step={0.05}
@@ -1178,7 +1233,7 @@ export default function WallpaperTab() {
                     onChange={(v) => save((c) => (c.wallpaper.videoSaturation = v))}
                   />
                   <Slider
-                    label="Hue shift"
+                    label={t("common.hue-shift")}
                     min={-180}
                     max={180}
                     step={5}
@@ -1193,7 +1248,7 @@ export default function WallpaperTab() {
             {wall.kind === "slideshow" && (
               <>
                 <Slider
-                  label="Seconds per image"
+                  label={t("common.seconds-per-image")}
                   min={5}
                   max={300}
                   step={5}
@@ -1202,7 +1257,7 @@ export default function WallpaperTab() {
                   onChange={(v) => save((c) => (c.wallpaper.slideshow.intervalSec = v))}
                 />
                 <Slider
-                  label="Crossfade"
+                  label={t("common.crossfade")}
                   min={0}
                   max={5}
                   step={0.5}
@@ -1222,13 +1277,13 @@ export default function WallpaperTab() {
             )}
             {(wall.kind === "image" || wall.kind === "video") && (
               <div className="hint truncate" title={wall.source}>
-                {wall.source || "Nothing applied yet"}
+                {wall.source || t("common.nothing-applied-yet")}
               </div>
             )}
             <div className="mt-5 border-t border-[var(--line)] pt-4">
               <Toggle
-                label="Live wallpaper enabled"
-                description="Renders the configured source behind your icons on every display."
+                label={t("common.live-wallpaper-enabled")}
+                description={t("common.renders-the-configured-source-behind-your-icons")}
                 checked={cfg.general.wallpaperEnabled}
                 onChange={(v) => save((c) => (c.general.wallpaperEnabled = v))}
               />
@@ -1238,20 +1293,20 @@ export default function WallpaperTab() {
 
 
         <InfoNote>
-          Each display gets its own wallpaper window sized to its exact resolution.
-          Hover a vault tile to apply it to <b className="text-[var(--text)]">all displays</b> or
-          just one — tiles show which displays they're running on.
+          {t("common.each-display-gets-its-own-wallpaper-window-sized")}{" "}
+          <b className="text-[var(--text)]">{t("common.all-displays-2")}</b>{" "}
+          {t("common.or-just-one-tiles-show-which-displays-they're-ru")}
         </InfoNote>
 
-        <Card title="Zone → device mapping">
+        <Card title={t("common.zone-device-mapping")}>
           <p className="mb-5 text-sm leading-relaxed text-[var(--text-dim)]">
-            Each zone is a rectangle of the wallpaper (normalized 0–1). In{" "}
-            <b className="text-[var(--text)]">Zone sync</b> mode, devices receive the
-            average color of their mapped zones.
+            {t("common.each-zone-is-a-rectangle-of-the-wallpaper-normal")} {" "}
+            <b className="text-[var(--text)]">{t("lighting.zone-sync")}</b>{" "}
+            {t("common.mode-devices-receive-the-average-color-of-their")}
           </p>
           {cfg.rgb.zones.length === 0 && (
             <div className="rounded-2xl border border-dashed border-[var(--line-strong)] p-7 text-center text-sm text-[var(--text-faint)]">
-              No zones yet — add one, then map devices to it.
+              {t("common.no-zones-yet-add-one-then-map-devices-to-it")}
             </div>
           )}
           <div className="space-y-4">
@@ -1277,7 +1332,7 @@ export default function WallpaperTab() {
                       }
                     >
                       <IconTrash className="h-4 w-4" />
-                      Delete
+                      {t("common.delete")}
                     </Btn>
                   </div>
                 </div>
@@ -1295,7 +1350,7 @@ export default function WallpaperTab() {
                   ))}
                 </div>
                 <div className="mt-4">
-                  <div className="kicker mb-2">devices</div>
+                  <div className="kicker mb-2">{t("common.devices-2")}</div>
                   <div className="flex flex-wrap gap-2">
                     {rgb.devices.map((d) => {
                       const on = z.deviceIds.includes(d.id);
@@ -1318,7 +1373,7 @@ export default function WallpaperTab() {
                     })}
                     {rgb.devices.length === 0 && (
                       <span className="text-xs text-[var(--text-faint)]">
-                        Connect OpenRGB to map devices.
+                        {t("common.connect-openrgb-to-map-devices")}
                       </span>
                     )}
                   </div>
@@ -1345,7 +1400,7 @@ export default function WallpaperTab() {
               }
             >
               <IconPlus className="h-4 w-4" />
-              Add zone
+              {t("common.add-zone")}
             </Btn>
           </div>
         </Card>
@@ -1377,20 +1432,20 @@ function UrlImport({
         />
         <input
           type="text"
-          placeholder="Name (optional)"
+          placeholder={t("common.name-optional")}
           value={name}
           onChange={(e) => setName(e.target.value)}
           className="w-44 rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2 text-sm outline-none focus:border-[rgb(var(--glow)/0.5)]"
         />
         <Btn variant="primary" disabled={busy || !url.trim()} onClick={() => onSubmit(url.trim(), name.trim())}>
-          Download
+          {t("common.download")}
         </Btn>
         <Btn disabled={busy} onClick={onCancel}>
-          Cancel
+          {t("common.cancel")}
         </Btn>
       </div>
       <p className="text-dim-sm mt-2">
-        Direct link to an mp4/webm video or png/jpg/webp/gif image (max 200 MB). It is downloaded into your vault.
+        {t("common.direct-link-to-an-mp4-webm-video-or-png-jpg-webp")}
       </p>
     </div>
   );

@@ -10,6 +10,7 @@ import {
   IconSticker,
   IconZap,
 } from "./icons";
+import { t } from "../i18n";
 
 export type TabId = "overview" | "rgb" | "wallpaper" | "stickers" | "general";
 
@@ -22,17 +23,20 @@ export interface NavDef {
   hotkey: number;
 }
 
+// Labels and blurbs are catalog keys, resolved at render. The command palette
+// and the shortcut overlay both read this same list, so a tab cannot be called
+// "Lighting" in the rail and "Iluminación" in the palette — there is one key.
 export const TABS: NavDef[] = [
-  { id: "overview", label: "Overview", blurb: "At a glance", icon: IconZap, hotkey: 1 },
-  { id: "rgb", label: "Lighting", blurb: "RGB engine", icon: IconBulb, hotkey: 2 },
-  { id: "wallpaper", label: "Wallpaper", blurb: "Sources & zones", icon: IconImage, hotkey: 3 },
-  { id: "stickers", label: "Stickers", blurb: "Overlays", icon: IconSticker, hotkey: 4 },
+  { id: "overview", label: "nav.overview", blurb: "nav.at-a-glance", icon: IconZap, hotkey: 1 },
+  { id: "rgb", label: "nav.lighting", blurb: "nav.rgb-engine", icon: IconBulb, hotkey: 2 },
+  { id: "wallpaper", label: "nav.wallpaper", blurb: "nav.sources-and-zones", icon: IconImage, hotkey: 3 },
+  { id: "stickers", label: "nav.stickers", blurb: "nav.overlays", icon: IconSticker, hotkey: 4 },
 ];
 
 export const SETTINGS_TAB: NavDef = {
   id: "general",
-  label: "Settings",
-  blurb: "App & system",
+  label: "nav.settings",
+  blurb: "nav.app-and-system",
   icon: IconGear,
   hotkey: 5,
 };
@@ -66,28 +70,28 @@ function useEngineState(): EngineState {
   if (!enabled) {
     return {
       tone: "off",
-      label: "Lighting is off",
-      detail: "Lighting is disabled — open the Lighting tab to turn it on",
+      label: t("nav.lighting-is-off"),
+      detail: t("nav.lighting-is-disabled-open-the-lighting-tab-to-tu"),
     };
   }
   if (!connected) {
     return {
       tone: "offline",
-      label: "Lighting offline",
+      label: t("nav.lighting-offline"),
       detail: lastError
-        ? `OpenRGB is not reachable: ${lastError}`
-        : "OpenRGB is not reachable — open the Lighting tab",
+        ? t("nav.openrgb-is-not-reachable-{error}", { error: lastError })
+        : t("nav.openrgb-is-not-reachable-open-the-lighting-tab"),
     };
   }
   return {
     tone: lit ? "live" : "idle",
-    label: lit ? "Lighting live" : "Lighting idle",
+    label: lit ? t("nav.lighting-live") : t("nav.lighting-idle"),
     detail:
       devices === 0
-        ? "Connected, but no devices have reported yet"
+        ? t("nav.connected-but-no-devices-have-reported-yet")
         : lit
-          ? "Pushing colors to OpenRGB — open the Lighting tab"
-          : "Every device is black right now",
+          ? t("nav.pushing-colors-to-openrgb-open-the-lighting-tab")
+          : t("nav.every-device-is-black-right-now"),
   };
 }
 
@@ -124,12 +128,15 @@ function NavItem({
   // Collapsed, the label is gone — so the tooltip has to carry it. It used to
   // show only the blurb ("At a glance"), which told a hovering user nothing
   // about which of five identical icons they were pointing at.
-  const title = collapsed ? `${item.label} — ${item.blurb}` : item.blurb;
+  // Labels stay English in the nav model and are translated where they are
+  // shown, so the model keeps working as data (hotkey numbers, tooltips) and
+  // one dictionary entry covers both the rail and the shortcut sheet.
+  const title = collapsed ? `${t(item.label)} — ${t(item.blurb)}` : t(item.blurb);
   return (
     <button
       onClick={onClick}
       title={title}
-      aria-label={item.label}
+      aria-label={t(item.label)}
       aria-current={active ? "page" : undefined}
       className={`group relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg py-2 text-left transition-colors duration-150 ${
         collapsed ? "px-3" : "px-2.5"
@@ -152,7 +159,7 @@ function NavItem({
             : "translate-x-0 opacity-100 blur-0"
         }`}
       >
-        {item.label}
+        {t(item.label)}
       </span>
     </button>
   );
@@ -171,8 +178,8 @@ function SearchButton({
   return (
     <button
       onClick={onClick}
-      title="Search commands (Ctrl+K)"
-      aria-label="Search commands"
+      title={t("nav.search-commands-ctrl-k")}
+      aria-label={t("nav.search-commands")}
       className="flex h-8 w-full items-center gap-2 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] px-2.5 text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text-dim)]"
     >
       <IconSearch className="h-3.5 w-3.5 shrink-0" />
@@ -181,7 +188,7 @@ function SearchButton({
           collapsed ? "-translate-x-2 opacity-0" : "translate-x-0 opacity-100"
         }`}
       >
-        Search…
+        {t("nav.search")}
       </span>
       <kbd
         className={`shrink-0 font-mono text-[9px] tracking-widest transition-opacity duration-150 ${
@@ -221,8 +228,8 @@ function RailFooter({
           tooltip and the click-through to Lighting carry the meaning. */}
       <button
         onClick={onOpenLighting}
-        title={engine.detail}
-        aria-label={engine.label}
+        title={t(engine.detail)}
+        aria-label={t(engine.label)}
         className="flex h-7 min-w-[22px] flex-1 items-center justify-start rounded-md pl-1 transition-colors hover:bg-[var(--panel-strong)]"
       >
         <span className={`h-2 w-2 shrink-0 rounded-full ${ENGINE_DOT[engine.tone]}`} />
@@ -230,8 +237,8 @@ function RailFooter({
       {/* Collapsed there is no room for a third control; "?" still opens it. */}
       <button
         onClick={onShortcuts}
-        title="Keyboard shortcuts (?)"
-        aria-label="Keyboard shortcuts"
+        title={t("nav.keyboard-shortcuts")}
+        aria-label={t("nav.keyboard-shortcuts-2")}
         aria-hidden={collapsed}
         tabIndex={collapsed ? -1 : 0}
         className={`flex h-7 shrink-0 items-center justify-center overflow-hidden rounded-md text-[var(--text-faint)] transition-[opacity,width] duration-200 hover:bg-[var(--panel-strong)] hover:text-[var(--text)] ${
@@ -242,8 +249,8 @@ function RailFooter({
       </button>
       <button
         onClick={onToggleCollapsed}
-        title={collapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar (Ctrl+B)"}
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        title={t(collapsed ? "nav.expand-sidebar-shortcut" : "nav.collapse-sidebar-shortcut")}
+        aria-label={t(collapsed ? "nav.expand-sidebar" : "nav.collapse-sidebar")}
         aria-expanded={!collapsed}
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
       >
@@ -279,7 +286,7 @@ export default function Sidebar({
   const rows = [TABS[0]!, ...TABS.slice(1), SETTINGS_TAB];
   return (
     <nav
-      aria-label="Sections"
+      aria-label={t("nav.sections")}
       className={`flex shrink-0 flex-col rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-[var(--shadow)] backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
         collapsed ? "w-[58px]" : "w-[200px]"
       }`}
@@ -338,9 +345,9 @@ export default function Sidebar({
 export function shortcutRows(): { keys: string[]; what: string }[] {
   return [
     { keys: ["Ctrl", "K"], what: "Command palette" },
-    ...[...TABS, SETTINGS_TAB].map((t) => ({
-      keys: ["Ctrl", String(t.hotkey)],
-      what: t.label,
+    ...[...TABS, SETTINGS_TAB].map((tab) => ({
+      keys: ["Ctrl", String(tab.hotkey)],
+      what: t(tab.label),
     })),
     { keys: ["Ctrl", "B"], what: "Collapse / expand sidebar" },
     { keys: ["?"], what: "This list" },

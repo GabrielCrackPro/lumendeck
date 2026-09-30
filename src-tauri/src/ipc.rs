@@ -1553,6 +1553,14 @@ pub fn system_accent() -> Option<[u8; 3]> {
     crate::sys_theme::get_system_accent()
 }
 
+/// The Windows display language as a BCP-47 tag ("es-ES"). The dashboard
+/// resolves its own preference against this; the backend does the same for
+/// the tray, and both read the same config field so they cannot disagree.
+#[tauri::command]
+pub fn system_language() -> String {
+    crate::i18n::system_language().to_string()
+}
+
 /// Parse-check a hotkey accelerator without binding it. The settings UI calls
 /// this the moment the user finishes recording a combo, so a combo the OS
 /// could never accept is caught before it is written to the config.

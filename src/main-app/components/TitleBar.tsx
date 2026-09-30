@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "../ipc";
 import { AppMark, AppWordmark, DevBadge } from "./ui";
+import { t } from "../i18n";
 
 const win = getCurrentWindow();
 
@@ -32,7 +33,7 @@ function Controls() {
   return (
     <div className="flex items-stretch">
       <button
-        title="Minimize"
+        title={t("titlebar.minimize")}
         className={`${btn} hover:bg-[var(--panel-strong)] hover:text-[var(--text)]`}
         // Tray or taskbar depending on general.minimizeToTray; the backend
         // reads the live config so the button never disagrees with settings.
@@ -45,7 +46,7 @@ function Controls() {
         </svg>
       </button>
       <button
-        title={maximized ? "Restore" : "Maximize"}
+        title={t(maximized ? "titlebar.restore" : "titlebar.maximize")}
         className={`${btn} hover:bg-[var(--panel-strong)] hover:text-[var(--text)]`}
         onClick={() => win.toggleMaximize()}
       >
@@ -60,7 +61,7 @@ function Controls() {
         )}
       </button>
       <button
-        title="Close"
+        title={t("titlebar.close")}
         className="flex h-8 w-11 items-center justify-center rounded-r-lg text-[var(--text-dim)] transition-colors hover:bg-red-500/80 hover:text-white"
         onClick={() => win.close()}
       >

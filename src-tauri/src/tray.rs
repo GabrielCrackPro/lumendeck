@@ -28,27 +28,27 @@ pub const ID_HOTKEYS: &str = "hotkeys";
 /// The tray tooltip for the current state. Pure, so the wording is testable
 /// without an AppHandle — the tooltip is the only thing the notification
 /// area says about us, and a wrong one is worse than a bare "LumenDeck".
-pub fn tooltip_text(wallpaper_on: bool, lights_on: bool, paused: bool) -> &'static str {
+/// Returns a catalog key; [current_tooltip] resolves it.
+pub fn tooltip_key(wallpaper_on: bool, lights_on: bool, paused: bool) -> &'static str {
     if paused {
-        return "LumenDeck - paused";
+        return "tray.tooltip-paused";
     }
     match (wallpaper_on, lights_on) {
-        (true, true) => "LumenDeck - wallpaper and lights are live",
-        (true, false) => "LumenDeck - wallpaper is live, lights are off",
-        (false, true) => "LumenDeck - lights are live, wallpaper is off",
-        (false, false) => "LumenDeck - idle",
+        (true, true) => "tray.tooltip-all-live",
+        (true, false) => "tray.tooltip-wallpaper-live",
+        (false, true) => "tray.tooltip-lights-live",
+        (false, false) => "tray.tooltip-idle",
     }
 }
 
-/// [tooltip_text] for the live app state.
+/// [tooltip_key] for the live app state, in the user's language.
 pub fn current_tooltip() -> String {
     let cfg = crate::config_store::get();
-    tooltip_text(
+    crate::i18n::t(tooltip_key(
         cfg.general.wallpaper_enabled,
         cfg.rgb.enabled,
         crate::wallpaper::is_paused(),
-    )
-    .to_string()
+    ))
 }
 
 /// Rebuild the tray menu from current config/pause state.
@@ -78,19 +78,28 @@ pub fn refresh(app: &tauri::AppHandle) {
 
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let cfg = crate::config_store::get();
-    let paused = crate::wallpaper::is_paused();
-
-    let dashboard =
-        MenuItem::with_id(app, ID_DASHBOARD, "Open LumenDeck", true, None::<&str>)?;
-    let pause = CheckMenuItem::with_id(
-        app,
-        ID_PAUSE,
-        "Pause wallpaper",
-        true,
-        paused,
-        None::<&str>,
+    let paused = crate::wallpaper::is_paused();    let dashboard = MenuItem::with_id(
+      app,
+      ID_DASHBOARD,
+      crate::i18n::t("tray.open-dashboard"),
+      true,
+      None::<&str>,
     )?;
-    let edit = MenuItem::with_id(app, ID_EDIT, "Edit stickers", true, None::<&str>)?;
+    let pause = CheckMenuItem::with_id(
+      app,
+      ID_PAUSE,
+      crate::i18n::t("tray.pause-wallpaper"),
+      true,
+      paused,
+      None::<&str>,
+    )?;
+    let edit = MenuItem::with_id(
+      app,
+      ID_EDIT,
+      crate::i18n::t("tray.edit-stickers"),
+      true,
+      None::<&str>,
+    )?;
     // Lighting mode submenu; checked item = active mode. Also offers
     // "Next mode" cycling on the main level. Order matches ALL_MODES, which
     // is what the hotkey cycle walks.
@@ -100,7 +109,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             CheckMenuItem::with_id(
                 app,
                 format!("{ID_MODE}{m:?}"),
-                mode_label(*m),
+                mode_label_t(*m),
                 true,
                 cfg.rgb.mode == *m,
                 None::<&str>,
@@ -117,14 +126,26 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let hotkeys = CheckMenuItem::with_id(
         app,
         ID_HOTKEYS,
-        "Global hotkeys",
+        crate::i18n::t("tray.global-hotkeys"),
         true,
         cfg.general.hotkeys_enabled,
         None::<&str>,
     )?;
 
-    let mode_sub = Submenu::with_id_and_items(app, "mode-sub", "Lighting mode", true, &mode_refs)?;
-    let next_mode = MenuItem::with_id(app, "next-mode", "Next lighting mode", true, None::<&str>)?;
+    let mode_sub = Submenu::with_id_and_items(
+        app,
+        "mode-sub",
+        crate::i18n::t("tray.lighting-mode"),
+        true,
+        &mode_refs,
+    )?;
+    let next_mode = MenuItem::with_id(
+        app,
+        "next-mode",
+        crate::i18n::t("tray.next-lighting-mode"),
+        true,
+        None::<&str>,
+    )?;
 
     // Profiles submenu (only when the user has saved some).
     let profile_items: Vec<MenuItem<tauri::Wry>> = cfg
@@ -151,7 +172,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         Some(Submenu::with_id_and_items(
             app,
             "profile-sub",
-            "Profiles",
+            crate::i18n::t("tray.profiles"),
             true,
             &profile_refs,
         )?)
@@ -160,14 +181,26 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let sep = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, ID_QUIT, "Quit LumenDeck", true, None::<&str>)?;
+    let quit = MenuItem::with_id(
+        app,
+        ID_QUIT,
+        crate::i18n::t("tray.quit"),
+        true,
+        None::<&str>,
+    )?;
 
     let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
         vec![&dashboard, &sep, &pause, &hotkeys, &sep2, &next_mode, &mode_sub];
     if let Some(sub) = &profile_sub {
         items.push(sub);
     }
-    let restore_wp = MenuItem::with_id(app, ID_RESTORE_WP, "Restore my wallpaper", true, None::<&str>)?;
+    let restore_wp = MenuItem::with_id(
+        app,
+        ID_RESTORE_WP,
+        crate::i18n::t("tray.restore-wallpaper"),
+        true,
+        None::<&str>,
+    )?;
     items.extend_from_slice(&[&edit, &sep3, &restore_wp, &quit]);
     Menu::with_items(app, &items)
 }
@@ -279,18 +312,30 @@ pub fn toggle_wallpaper(app: &tauri::AppHandle) -> bool {
     now
 }
 
-/// Menu label for a lighting mode.
-fn mode_label(mode: RgbMode) -> &'static str {
-    match mode {
-        RgbMode::Ambient => "Ambient (wallpaper)",
-        RgbMode::Zone => "Zone sync",
-        RgbMode::Pulse => "Pulse",
-        RgbMode::Static => "Static",
-        RgbMode::Wave => "Wave",
-        RgbMode::Cycle => "Cycle",
-        RgbMode::Breathe => "Breathe",
-        RgbMode::AudioReactive => "Audio reactive",
-    }
+/// Catalog key for a lighting mode.
+///
+/// These are the SAME `lighting.*` keys the dashboard's mode picker uses, not
+/// a tray-specific copy. That is the whole point of the shared catalog: a user
+/// who learns "Color cycle" in the window meets the identical wording in the
+/// tray, and there is no second place for the two to drift apart.
+fn mode_key(mode: RgbMode) -> &'static str {
+  match mode {
+    RgbMode::Ambient => "lighting.ambient",
+    RgbMode::Zone => "lighting.zone-sync",
+    RgbMode::Pulse => "lighting.pulse",
+    RgbMode::Static => "lighting.static",
+    RgbMode::Wave => "lighting.wave",
+    RgbMode::Cycle => "lighting.color-cycle",
+    RgbMode::Breathe => "lighting.breathe",
+    RgbMode::AudioReactive => "lighting.audio-reactive",
+  }
+}
+
+/// [mode_key] in the user's language. The tray's wording is the one place
+/// the app talks before the window is ever opened, so it cannot be left in
+/// English on a Spanish machine.
+fn mode_label_t(mode: RgbMode) -> String {
+  crate::i18n::t(mode_key(mode))
 }
 
 /// Step to the next lighting mode, wrapping at the end.
@@ -375,31 +420,49 @@ pub fn on_menu_event(app: &tauri::AppHandle, id: &str) {
 mod tests {
     use super::*;
 
+    /// The tooltip must always name the app and never come back blank — a
+    /// bare empty tooltip is indistinguishable from a broken tray icon.
+    ///
+    /// Asserted against the RESOLVED text, not the key, because that is what
+    /// the notification area actually shows.
     #[test]
     fn tooltip_leads_with_the_app_name_and_never_goes_blank() {
+        let _guard = crate::i18n::test_locale_lock();
         for wallpaper in [false, true] {
             for lights in [false, true] {
-                assert!(tooltip_text(wallpaper, lights, false).starts_with("LumenDeck"));
-                assert!(tooltip_text(wallpaper, lights, true).starts_with("LumenDeck"));
+                for paused in [false, true] {
+                    let key = tooltip_key(wallpaper, lights, paused);
+                    for locale in crate::i18n::SUPPORTED {
+                        let shown = crate::i18n::t_in_locked(locale, key);
+                        assert!(
+                            shown.starts_with("LumenDeck"),
+                            "blank-ish tooltip in {locale}: {shown}"
+                        );
+                    }
+                }
             }
         }
     }
 
     #[test]
     fn tooltip_describes_what_is_actually_running() {
+        let _guard = crate::i18n::test_locale_lock();
         assert_eq!(
-            tooltip_text(true, true, false),
-            "LumenDeck - wallpaper and lights are live"
+            crate::i18n::t_in_locked("en", tooltip_key(true, true, false)),
+            "LumenDeck — wallpaper and lights are live"
         );
         assert_eq!(
-            tooltip_text(true, false, false),
-            "LumenDeck - wallpaper is live, lights are off"
+            crate::i18n::t_in_locked("en", tooltip_key(true, false, false)),
+            "LumenDeck — wallpaper is live, lights are off"
         );
         assert_eq!(
-            tooltip_text(false, true, false),
-            "LumenDeck - lights are live, wallpaper is off"
+            crate::i18n::t_in_locked("en", tooltip_key(false, true, false)),
+            "LumenDeck — lights are live, wallpaper is off"
         );
-        assert_eq!(tooltip_text(false, false, false), "LumenDeck - idle");
+        assert_eq!(
+            crate::i18n::t_in_locked("en", tooltip_key(false, false, false)),
+            "LumenDeck — idle"
+        );
     }
 
     #[test]
@@ -409,8 +472,26 @@ mod tests {
         for wallpaper in [false, true] {
             for lights in [false, true] {
                 assert_eq!(
-                    tooltip_text(wallpaper, lights, true),
-                    "LumenDeck - paused"
+                    tooltip_key(wallpaper, lights, true),
+                    "tray.tooltip-paused"
+                );
+            }
+        }
+    }
+
+    /// Every lighting mode must have a catalog entry, or the tray's mode
+    /// submenu shows a raw key to the user. This is the check that would have
+    /// caught a mode added to `ALL_MODES` without a catalog entry.
+    #[test]
+    fn every_lighting_mode_has_a_translated_menu_label() {
+        let _guard = crate::i18n::test_locale_lock();
+        for mode in ALL_MODES {
+            for locale in crate::i18n::SUPPORTED {
+                let label = crate::i18n::t_in_locked(locale, mode_key(mode));
+                assert!(!label.is_empty(), "{mode:?} produced an empty label in {locale}");
+                assert!(
+                    !label.starts_with("lighting."),
+                    "{mode:?} fell through to its raw key in {locale}: {label}"
                 );
             }
         }

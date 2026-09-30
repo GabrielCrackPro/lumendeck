@@ -46,6 +46,11 @@ pub struct GeneralConfig {
     /// its own default once was. Only new configs are affected — anyone who
     /// has already chosen keeps what they chose.
     pub theme: ThemeMode,
+    /// UI language: "auto" follows the Windows display language, anything
+    /// else is a locale tag this build may or may not ship. Defaults to
+    /// "auto" so a Spanish Windows gets a Spanish app without anyone
+    /// visiting Settings — the one thing nobody should have to configure.
+    pub language: String,
     pub pause_on_battery_saver: bool,
     pub pause_on_fullscreen: bool,
     pub wallpaper_enabled: bool,
@@ -192,6 +197,7 @@ impl Default for GeneralConfig {
         Self {
             autostart: false,
             theme: ThemeMode::System,
+            language: "auto".to_string(),
             // Off by default: a laptop user's first run should show a live
             // wallpaper, not a frozen frame just because the charger is
             // unplugged. Opt in from the General tab.

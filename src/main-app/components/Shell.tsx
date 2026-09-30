@@ -10,6 +10,7 @@ import TitleBar from "./TitleBar";
 import { AppMark } from "./ui";
 import Sidebar, { SETTINGS_TAB, TABS, shortcutRows } from "./Sidebar";
 import type { TabId } from "./Sidebar";
+import { t } from "../i18n";
 
 /** Read the --glow triplet currently on :root, or null when unparsable. */
 function currentGlow(): [number, number, number] | null {
@@ -137,7 +138,7 @@ function BootSplash() {
             />
           ))}
         </div>
-        <div className="kicker">initializing engine</div>
+        <div className="kicker">{t("shell.initializing-engine")}</div>
       </div>
     </div>
   );
@@ -198,7 +199,7 @@ function Toasts() {
   return (
     <div
       role="region"
-      aria-label="Notifications"
+      aria-label={t("shell.notifications")}
       aria-live="polite"
       className="pointer-events-none fixed bottom-5 right-5 z-50 flex w-[21rem] flex-col gap-2"
     >
@@ -274,7 +275,7 @@ function Toasts() {
       })}
       {hidden > 0 && (
         <div className="pointer-events-auto self-end rounded-full border border-[var(--line)] bg-[var(--panel-strong)] px-2.5 py-1 font-mono text-[10px] text-[var(--text-faint)]">
-          +{hidden} older
+          {`+${hidden} ${t("shell.older")}`}
         </div>
       )}
     </div>
@@ -295,7 +296,7 @@ function HeaderStatus() {
             : "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"
         }`}
       />
-      {wallpaperPaused ? "paused" : "live"}
+      {t(wallpaperPaused ? "shell.paused" : "shell.live")}
     </div>
   );
 }
@@ -320,15 +321,15 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Keyboard shortcuts"
+        aria-label={t("shell.keyboard-shortcuts")}
         className="page-enter-header w-full max-w-sm overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] shadow-[0_30px_80px_-20px_rgb(0_0_0/0.8)]"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4 py-2.5">
-          <h2 className="kicker !text-[var(--text-dim)]">Keyboard</h2>
+          <h2 className="kicker !text-[var(--text-dim)]">{t("shell.keyboard")}</h2>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("shell.close")}
             className="text-[var(--text-faint)] transition-colors hover:text-[var(--text)]"
           >
             ✕
@@ -538,9 +539,11 @@ export default function Shell() {
           <>
           <header className="flex min-h-[52px] shrink-0 items-center justify-between gap-4 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-5">
             <div key={tab} className="page-enter-header flex min-w-0 items-center gap-3">
-              <h1 className="lednum shrink-0 text-[15px] leading-none text-[var(--text)]">{current.label}</h1>
+              <h1 className="lednum shrink-0 text-[15px] leading-none text-[var(--text)]">{t(current.label)}</h1>
               <span className="hidden h-3.5 w-px bg-[var(--line-strong)] sm:block" />
-              <div className="kicker hidden truncate sm:block">{current.blurb}</div>
+              <div className="kicker hidden truncate sm:block">
+                {t(current.blurb)}
+              </div>
             </div>
             <div className="flex shrink-0 items-center gap-3">
               <HeaderStatus />
@@ -554,7 +557,11 @@ export default function Shell() {
                 single column across three feet of glass. */}
             <div key={tab} className="page-enter mx-auto w-full max-w-[2600px]">
               <Suspense fallback={<TabSkeleton />}>
-                {tab === "overview" && <OverviewTab onNavigate={(t) => setTab(t as TabId)} />}
+                {tab === "overview" && (
+                  <OverviewTab
+                    onNavigate={(id) => setTab(id as TabId)}
+                  />
+                )}
                 {tab === "rgb" && <RgbTab />}
                 {tab === "wallpaper" && <WallpaperTab />}
                 {tab === "stickers" && <StickersTab />}
@@ -586,7 +593,7 @@ export default function Shell() {
         <div className="pointer-events-none fixed bottom-5 left-1/2 z-20 -translate-x-1/2">
           <div className="flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-2 font-mono text-[11px] tracking-wide text-amber-200 shadow-[0_12px_30px_-10px_rgba(245,158,11,0.4)] backdrop-blur">
             <IconPause className="h-3.5 w-3.5" />
-            wallpaper paused by system
+            {t("shell.wallpaper-paused-by-system")}
           </div>
         </div>
       )}

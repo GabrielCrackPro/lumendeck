@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { IconDevice, IconEye, IconEyeOff } from "./icons";
 import { rgbToHex } from "../utilities";
 import type { DeviceColor, RgbDeviceInfo } from "@shared/types";
+import { t } from "../i18n";
 
 /**
  * OpenRGB type names are CamelCase with a trailing index: "LEDStrip1",
@@ -21,7 +22,7 @@ function typeLabel(typeName: string): string {
 export function deviceName(d: RgbDeviceInfo): string {
   const fallback = typeLabel(d.typeName);
   if (d.name?.trim()) return d.name.trim();
-  if (!fallback) return `Device ${d.id}`;
+  if (!fallback) return t("lighting.device-{id}", { id: d.id });
   return fallback[0]!.toUpperCase() + fallback.slice(1);
 }
 
@@ -281,12 +282,14 @@ export function DeviceRow({
                 <span className="h-0.5 w-0.5 rounded-full bg-[var(--line-strong)]" />
               </>
             )}
-            <span className="font-mono tabular-nums">{device.leds} LEDs</span>
+            <span className="font-mono tabular-nums">
+              {t("lighting.{n}-leds", { n: device.leds })}
+            </span>
             {device.zones.length > 0 && (
               <>
                 <span className="h-0.5 w-0.5 rounded-full bg-[var(--line-strong)]" />
                 <span className="truncate">
-                  {device.zones.length} zone{device.zones.length === 1 ? "" : "s"}
+                  {t("lighting.{n}-zones", { n: device.zones.length })}
                 </span>
               </>
             )}
@@ -308,7 +311,7 @@ export function DeviceRow({
         <button
           onClick={onToggleMute}
           aria-pressed={muted}
-          title={muted ? `Include ${name}` : `Mute ${name}`}
+          title={muted ? t("lighting.include-{name}", { name }) : t("lighting.mute-{name}", { name })}
           className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors ${
             muted
               ? "border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
@@ -316,7 +319,7 @@ export function DeviceRow({
           }`}
         >
           {muted ? <IconEyeOff className="h-3.5 w-3.5" /> : <IconEye className="h-3.5 w-3.5" />}
-          {muted ? "Muted" : "Live"}
+          {muted ? t("common.muted") : t("common.live")}
         </button>
       </div>
 

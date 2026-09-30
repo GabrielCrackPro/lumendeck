@@ -115,6 +115,19 @@ pub fn get() -> Config {
         .clone()
 }
 
+/// [get], but `None` instead of a panic when the store was never initialized.
+///
+/// For callers that run before or outside `setup` — a tray rebuild in a unit
+/// test, a language lookup during early boot — where "no config yet" is a
+/// state to handle rather than a bug.
+pub fn try_get() -> Option<Config> {
+    CONFIG
+        .get()?
+        .read()
+        .ok()
+        .map(|cfg| cfg.clone())
+}
+
 pub fn watch() -> watch::Receiver<Config> {
     WATCH_TX
         .get()

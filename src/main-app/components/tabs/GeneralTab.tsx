@@ -35,6 +35,7 @@ import {
   IconPlay,
   IconInfo,
 } from "../icons";
+import { t, LOCALE_NAMES } from "../../i18n";
 
 /**
  * Every setting lives on one screen, in reading order. The index beside it is
@@ -46,47 +47,50 @@ import {
  * list, not a map — the shapes are what let you find "the one with the
  * keyboard on it" without reading seven labels first.
  */
+// Catalog keys, resolved by `SettingsLayout` at render. The section index is
+// the first thing anyone sees in Settings, so it has to translate with the rest
+// of the page rather than staying as an English column beside Spanish cards.
 const SECTIONS: SettingsSectionDef[] = [
   {
     id: "appearance",
-    label: "Appearance",
-    blurb: "Theme, accent and lock screen",
+    label: "settings.appearance",
+    blurb: "settings.theme-accent-and-lock-screen",
     icon: IconPalette,
   },
   {
     id: "startup",
-    label: "Startup & power",
-    blurb: "Autostart, tray behaviour, pausing",
+    label: "settings.startup-and-power",
+    blurb: "settings.autostart-tray-behaviour-pausing",
     icon: IconZap,
   },
   {
     id: "hotkeys",
-    label: "Global hotkeys",
-    blurb: "System-wide key bindings",
+    label: "settings.global-hotkeys",
+    blurb: "settings.system-wide-key-bindings",
     icon: IconKeyboard,
   },
   {
     id: "displays",
-    label: "Displays",
-    blurb: "Per-monitor wallpaper",
+    label: "settings.displays",
+    blurb: "settings.per-monitor-wallpaper",
     icon: IconMonitor,
   },
   {
     id: "scenes",
-    label: "Scene profiles",
-    blurb: "Capture and recall a whole look",
+    label: "settings.scene-profiles",
+    blurb: "settings.capture-and-recall-a-whole-look",
     icon: IconLayers,
   },
   {
     id: "playback",
-    label: "Playback engine",
-    blurb: "Video decoding and config",
+    label: "settings.playback-engine",
+    blurb: "settings.video-decoding-and-config",
     icon: IconPlay,
   },
   {
     id: "about",
-    label: "About & updates",
-    blurb: "Version, release notes, setup guide",
+    label: "settings.about-and-updates",
+    blurb: "settings.version-release-notes-setup-guide",
     icon: IconInfo,
   },
 ];
@@ -116,8 +120,8 @@ function AccentAutoShadeRow({ value }: { value: number }) {
   return (
     <div>
       <Toggle
-        label="Auto-adjust accent for readability"
-        description="Dark wallpaper tones and dim colors are lifted (light accents deepened in light theme) until they read clearly on the dashboard. Hardware lighting is never affected — this only changes the interface accent."
+        label={t("common.auto-adjust-accent-for-readability")}
+        description={t("common.dark-wallpaper-tones-and-dim-colors-are-lifted-l")}
         checked={on}
         onChange={(v) =>
           useStore.getState().save((c) => (c.general.accentAutoShade = v ? 1 : 0))
@@ -128,7 +132,7 @@ function AccentAutoShadeRow({ value }: { value: number }) {
         // read as subordinate to that toggle, not as a peer control.
         <div className="border-l-2 border-[var(--line)] pl-4">
           <Slider
-            label="Adjustment strength"
+            label={t("common.adjustment-strength")}
             value={Math.round(value * 100)}
             min={25}
             max={100}
@@ -140,6 +144,45 @@ function AccentAutoShadeRow({ value }: { value: number }) {
           />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Language sits in Appearance because it is a preference about how the app
+ * reads, not about what it does, and because anyone who cannot read the
+ * current language is looking for it in exactly this card.
+ *
+ * `auto` is the default and the only option that can change on its own: it
+ * follows the Windows display language, so a machine set to Spanish reads
+ * Spanish the first time the dashboard opens, with nothing to configure. The
+ * explicit choices exist for the case that matters more — a Spanish keyboard
+ * on an English Windows, or a preference for reading a language that is not
+ * the one you work in.
+ *
+ * Each option is named in its own language. "Español" in the list means the
+ * same thing to someone who cannot read the rest of this screen, which is
+ * exactly the person who needs to find this control.
+ */
+function LanguagePicker({ value }: { value: string }) {
+  const onChange = (v: string) =>
+    useStore.getState().save((c) => (c.general.language = v));
+  return (
+    <div className="py-2.5">
+      <div className="kicker mb-2">{t("common.app-language")}</div>
+      <Segmented
+        label={t("common.app-language")}
+        options={[
+          { id: "auto", label: t("common.system") },
+          { id: "en", label: LOCALE_NAMES.en },
+          { id: "es", label: LOCALE_NAMES.es },
+        ]}
+        value={value}
+        onChange={onChange}
+      />
+      <p className="mt-2 text-xs leading-relaxed text-[var(--text-faint)]">
+        {t("common.system-follows-your-windows-display-language")}
+      </p>
     </div>
   );
 }
@@ -225,27 +268,28 @@ export default function GeneralTab() {
       >
         {anchor(
           "appearance",
-          <Card title="Appearance" icon={<IconPalette />}>
+          <Card title={t("common.appearance")} icon={<IconPalette />}>
             <ThemePicker
               value={cfg.general.theme}
               onChange={(v) => save((c) => (c.general.theme = v))}
             />
             <Toggle
-              label="AMOLED mode"
-              description="True-black surfaces in dark theme — OLED pixels switch fully off, saving power and making the accent color pop. No effect in light theme."
+              label={t("common.amoled-mode")}
+              description={t("common.true-black-surfaces-in-dark-theme-oled-pixels-sw")}
               checked={cfg.general.amoled ?? false}
               onChange={(v) => save((c) => (c.general.amoled = v))}
             />
             <Toggle
-              label="Sync Windows accent color to wallpaper"
-              description="The taskbar, Start menu and window highlights shift tone with your wallpaper's dominant color. Your original accent is remembered and restored when this is turned off."
+              label={t("common.sync-windows-accent-color-to-wallpaper")}
+              description={t("common.the-taskbar-start-menu-and-window-highlights-shi")}
               checked={cfg.general.accentSyncEnabled}
               onChange={(v) => save((c) => (c.general.accentSyncEnabled = v))}
             />
             <AccentAutoShadeRow value={cfg.general.accentAutoShade ?? 1} />
+            <LanguagePicker value={cfg.general.language ?? "auto"} />
             <Toggle
-              label="Lock screen follows wallpaper"
-              description="Also apply wallpaper changes to the Windows lock screen. Off by default, so you can keep a personal lock image while your desktop stays dynamic."
+              label={t("common.lock-screen-follows-wallpaper")}
+              description={t("common.also-apply-wallpaper-changes-to-the-windows-lock")}
               checked={cfg.general.lockScreenFollowsWallpaper}
               onChange={(v) =>
                 save((c) => (c.general.lockScreenFollowsWallpaper = v))
@@ -256,28 +300,28 @@ export default function GeneralTab() {
 
         {anchor(
           "startup",
-          <Card title="Startup & power" icon={<IconZap />}>
+          <Card title={t("common.startup-and-power")} icon={<IconZap />}>
             <Toggle
-              label="Launch at startup"
-              description="Start LumenDeck with Windows so your lights follow your screen from the boot. Starts in the notification area — open the dashboard from the tray icon."
+              label={t("common.launch-at-startup")}
+              description={t("common.start-lumendeck-with-windows-so-your-lights-foll")}
               checked={cfg.general.autostart}
               onChange={(v) => save((c) => (c.general.autostart = v))}
             />
             {cfg.general.autostart && (
               <Toggle
-                label="Show the dashboard at login"
-                description="With this off, logging in gives you a clean desktop: LumenDeck applies your wallpaper and lights in the background and waits in the tray. Turn it on and the dashboard opens alongside the rest of your startup apps."
+                label={t("common.show-the-dashboard-at-login")}
+                description={t("common.with-this-off-logging-in-gives-you-a-clean-deskt")}
                 checked={cfg.general.showDashboardOnLogin ?? false}
                 onChange={(v) => save((c) => (c.general.showDashboardOnLogin = v))}
               />
             )}
             <div className="py-2.5">
-              <div className="kicker mb-2">Minimize button</div>
+              <div className="kicker mb-2">{t("common.minimize-button")}</div>
               <Segmented
-                label="Minimize button"
+                label={t("common.minimize-button")}
                 options={[
-                  { id: "tray", label: "Minimize to tray" },
-                  { id: "taskbar", label: "Minimize to taskbar" },
+                  { id: "tray", label: t("common.minimize-to-tray") },
+                  { id: "taskbar", label: t("common.minimize-to-taskbar") },
                 ]}
                 value={cfg.general.minimizeToTray ?? true ? "tray" : "taskbar"}
                 onChange={(v) =>
@@ -285,25 +329,24 @@ export default function GeneralTab() {
                 }
               />
               <p className="mt-2 text-xs leading-relaxed text-[var(--text-faint)]">
-                Both keep the wallpaper and lighting running. Tray hides the
-                window entirely — reopen it with a left-click on the tray icon.
+                {t("common.both-keep-the-wallpaper-and-lighting-running-tra")}
               </p>
             </div>
             <Toggle
-              label="Pause wallpaper on battery"
-              description="Stops wallpaper playback while the laptop is unplugged to save power."
+              label={t("common.pause-wallpaper-on-battery")}
+              description={t("common.stops-wallpaper-playback-while-the-laptop-is-unp")}
               checked={cfg.general.pauseOnBatterySaver}
               onChange={(v) => save((c) => (c.general.pauseOnBatterySaver = v))}
             />
             <Toggle
-              label="Pause when a fullscreen app is active"
-              description="Stops the wallpaper while something else has the screen, so a game or a video is not competing with it."
+              label={t("common.pause-when-a-fullscreen-app-is-active")}
+              description={t("common.stops-the-wallpaper-while-something-else-has-the")}
               checked={cfg.general.pauseOnFullscreen}
               onChange={(v) => save((c) => (c.general.pauseOnFullscreen = v))}
             />
             {wallpaperPaused && (
               <div className="mt-3">
-                <InfoNote tone="warn">Currently paused by the system.</InfoNote>
+                <InfoNote tone="warn">{t("common.currently-paused-by-the-system")}</InfoNote>
               </div>
             )}
           </Card>,
@@ -315,11 +358,8 @@ export default function GeneralTab() {
 
         {anchor(
           "scenes",
-          <Card title="Scene profiles" icon={<IconLayers />}>
-            <p className="mb-3 text-xs leading-relaxed text-[var(--text-dim)]">
-              Capture the whole look — wallpaper, per-monitor overrides, lighting
-              mode and colors — and recall it any time with one click. Great for
-              day/night, gaming, or streaming setups.
+          <Card title={t("common.scene-profiles")} icon={<IconLayers />}>
+            <p className="mb-3 text-xs leading-relaxed text-[var(--text-dim)]">                {t("common.capture-the-whole-look-wallpaper-per-monitor-ove")}
             </p>
             <SaveScene
               onSave={async (name) => {
@@ -359,11 +399,16 @@ export default function GeneralTab() {
                         } catch (e) {
                           useStore
                             .getState()
-                            .toast("error", `Apply failed: ${truncateError(e)}`);
+                            .toast(
+                              "error",
+                              t("common.apply-failed-{error}", {
+                                error: truncateError(e),
+                              }),
+                            );
                         }
                       }}
                     >
-                      Apply
+                      {t("common.apply")}
                     </Btn>
                     <Btn
                       variant="ghost"
@@ -373,22 +418,25 @@ export default function GeneralTab() {
                         useStore.setState({ cfg: fresh });
                         useStore
                           .getState()
-                          .undoDelete(`Deleted scene "${s.name}"`, (next) => {
+                          .undoDelete(
+                            t("common.deleted-scene", { name: s.name }),
+                            (next) => {
                             // Pushed back verbatim: the scene carries its own
                             // wallpaper + rgb snapshot, and keeping the id means
                             // anything pointing at it still resolves.
                             next.scenes.push(s);
-                          });
+                            },
+                          );
                       }}
                     >
-                      Delete
+                      {t("common.delete")}
                     </Btn>
                   </div>
                 ))}
               </div>
             ) : (
               <p className="mt-3 text-xs text-[var(--text-faint)]">
-                No scenes yet. Set up a look you like, then capture it above.
+                {t("common.no-scenes-yet-set-up-a-look-you-like-then-captur")}
               </p>
             )}
           </Card>,
@@ -396,21 +444,21 @@ export default function GeneralTab() {
 
         {anchor(
           "playback",
-          <Card title="Playback engine" icon={<IconPlay />}>
+          <Card title={t("common.playback-engine")} icon={<IconPlay />}>
             <Toggle
-              label="Software video decoding"
-              description="Fallback for machines whose GPU video decoder glitches. Uses more CPU and may stutter on 4K wallpapers. Takes effect after restarting LumenDeck."
+              label={t("common.software-video-decoding")}
+              description={t("common.fallback-for-machines-whose-gpu-video-decoder-gl")}
               checked={cfg.general.softwareVideoDecode}
               onChange={(v) => save((c) => (c.general.softwareVideoDecode = v))}
             />
             <div className="mt-4 border-t border-[var(--line)] pt-4">
               <div className="text-sm font-medium text-[var(--text)]">
-                Reload configuration
+                {t("common.reload-configuration")}
               </div>
               <p className="mt-0.5 text-xs leading-relaxed text-[var(--text-faint)]">
-                Manual edits to <code className="font-mono">config.json</code>{" "}
-                are picked up automatically within a few seconds. Use this if
-                you want to force it right now.
+                {t("common.manual-edits-to")}{" "}
+                <code className="font-mono">config.json</code>{" "}
+                {t("common.are-picked-up-automatically-within-a-few-seconds")}
               </p>
               <div className="mt-3">
                 <Btn
@@ -419,7 +467,7 @@ export default function GeneralTab() {
                     useStore.setState({ cfg: fresh });
                   }}
                 >
-                  Reload now
+                  {t("common.reload-now")}
                 </Btn>
               </div>
             </div>
@@ -432,7 +480,7 @@ export default function GeneralTab() {
             <WhatsNewCard compact />
 
             <Card
-              title="About & updates"
+              title={t("common.about-and-updates")}
               icon={<IconInfo />}
               right={
                 <span className="flex items-center gap-1.5 font-mono text-[10px] text-[var(--text-faint)]">
@@ -447,11 +495,12 @@ export default function GeneralTab() {
             >
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0 text-xs leading-relaxed text-[var(--text-dim)]">
-                  LumenDeck — live wallpapers, ambient lighting, and system
-                  theming in one place.
+                  {t("common.lumendeck-live-wallpapers-ambient-lighting-and-s")}
                   {updateAvailable && (
                     <div className="mt-2 text-(--text)">
-                      Version {updateAvailable.version} is available.
+                      {t("common.version-{version}-is-available", {
+                        version: updateAvailable.version,
+                      })}
                       {updateAvailable.notes && (
                         <span className="text-(--text-dim)">
                           {" "}
@@ -510,7 +559,9 @@ export default function GeneralTab() {
                           .getState()
                           .toast(
                             "error",
-                            `Update check failed: ${truncateError(e)}`,
+                            t("common.update-check-failed-{error}", {
+                              error: truncateError(e),
+                            }),
                           );
                       } finally {
                         setChecking(false);
@@ -519,13 +570,15 @@ export default function GeneralTab() {
                   >
                     {installing
                       ? downloadProgress == null
-                        ? "Installing…"
-                        : `Downloading ${downloadProgress}%`
+                        ? t("common.installing")
+                        : t("common.downloading-{n}", { n: downloadProgress })
                       : checking
-                        ? "Checking…"
+                        ? t("common.checking")
                         : updateAvailable
-                          ? `Install v${updateAvailable.version}`
-                          : "Check for updates"}
+                          ? t("common.install-v{version}", {
+                              version: updateAvailable.version,
+                            })
+                          : t("common.check-for-updates")}
                   </Btn>
                 </div>
               </div>
@@ -534,15 +587,16 @@ export default function GeneralTab() {
             {/* The setup guide used to be the very first card on the settings
                 page, above everything, for a button most people press zero
                 times. It belongs with the version info. */}
-            <Card title="Setup guide" icon={<IconZap />}>
+            <Card title={t("common.setup-guide")} icon={<IconZap />}>
               {confirmSetup ? (
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0 text-sm text-[var(--text-dim)]">
-                    The guide takes over the window. Your current setup stays
-                    exactly as it is — you can walk away at any point.
+                    {t("common.the-guide-takes-over-the-window-your-current-set")}
                   </div>
                   <div className="flex shrink-0 gap-2.5">
-                    <Btn onClick={() => setConfirmSetup(false)}>Cancel</Btn>
+                    <Btn onClick={() => setConfirmSetup(false)}>
+                      {t("common.cancel")}
+                    </Btn>
                     <Btn
                       variant="primary"
                       onClick={async () => {
@@ -550,19 +604,18 @@ export default function GeneralTab() {
                         await save((c) => (c.general.onboarded = false));
                       }}
                     >
-                      Start the guide
+                      {t("common.start-the-guide")}
                     </Btn>
                   </div>
                 </div>
               ) : (
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0 text-sm text-[var(--text-dim)]">
-                    Replay the first-run guide — pick a wallpaper, import media,
-                    set up lighting and autostart.
+                    {t("common.replay-the-first-run-guide-pick-a-wallpaper-impo")}
                   </div>
                   <div className="shrink-0">
                     <Btn onClick={() => setConfirmSetup(true)}>
-                      Run setup again
+                      {t("common.run-setup-again")}
                     </Btn>
                   </div>
                 </div>
@@ -600,16 +653,14 @@ function DangerZone({
   onCancel: () => void;
 }) {
   return (
-    <Card title="Danger zone">
+    <Card title={t("common.danger-zone")}>
       {confirming ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
           <div className="text-sm font-semibold text-red-200">
-            Wipe ALL LumenDeck data?
+            {t("common.wipe-all-lumendeck-data")}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-red-200/80">
-            Deletes your settings, the wallpaper vault, stickers and cached
-            thumbnails, then closes the app. Your media files are not touched.
-            This cannot be undone.
+            {t("common.deletes-your-settings-the-wallpaper-vault-sticke")}
           </p>
           <div className="mt-3 flex gap-2.5">
             <Btn
@@ -621,35 +672,41 @@ function DangerZone({
                   .then(() =>
                     useStore
                       .getState()
-                      .toast("info", "App data wiped — closing LumenDeck…"),
+                      .toast(
+                        "info",
+                        t("common.app-data-wiped-closing-lumendeck"),
+                      ),
                   )
                   .catch((e) => {
                     console.error("factory reset failed", e);
                     useStore
                       .getState()
-                      .toast("error", `Factory reset failed: ${truncateError(e)}`);
+                      .toast(
+                        "error",
+                        t("common.factory-reset-failed-{error}", {
+                          error: truncateError(e),
+                        }),
+                      );
                   });
               }}
             >
-              Yes, wipe everything
+              {t("common.yes-wipe-everything")}
             </Btn>
             <Btn variant="ghost" onClick={onCancel}>
-              Cancel
+              {t("common.cancel")}
             </Btn>
           </div>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2.5">
           <Btn variant="danger" onClick={onConfirm}>
-            Wipe app data
+            {t("common.wipe-app-data")}
           </Btn>
-          <Btn onClick={() => api.quit?.()}>Quit LumenDeck</Btn>
+          <Btn onClick={() => api.quit?.()}>{t("common.quit-lumendeck")}</Btn>
         </div>
       )}
       <p className="mt-4 text-xs leading-relaxed text-[var(--text-faint)]">
-        Wiping removes every setting, your wallpaper vault and your stickers,
-        then closes the app. Your media files on disk stay untouched. Quitting
-        just closes it — the wallpaper and lighting stop with it.
+        {t("common.wiping-removes-every-setting-your-wallpaper-vaul")}
       </p>
     </Card>
   );
@@ -660,7 +717,9 @@ function SaveScene({ onSave }: { onSave: (name: string) => Promise<void> }) {
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const submit = async () => {
-    const n = name.trim() || `Scene ${new Date().toLocaleDateString()}`;
+    const n =
+      name.trim() ||
+      t("common.scene-{date}", { date: new Date().toLocaleDateString() });
     setSaving(true);
     await onSave(n);
     setName("");
@@ -672,11 +731,11 @@ function SaveScene({ onSave }: { onSave: (name: string) => Promise<void> }) {
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && !saving && submit()}
-        placeholder="Name this look (e.g. Night gaming)"
+        placeholder={t("common.name-this-look-e-g-night-gaming")}
         className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)] focus:outline-none"
       />
       <Btn variant="primary" disabled={saving} onClick={submit}>
-        {saving ? "Saving…" : "Capture current look"}
+        {t(saving ? "common.saving" : "settings.capture-current-look")}
       </Btn>
     </div>
   );

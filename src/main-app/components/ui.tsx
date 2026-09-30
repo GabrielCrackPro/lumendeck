@@ -6,6 +6,7 @@ import { useStore } from "../store";
 import { SHADER_ART } from "@shared/constants";
 import type { ThemeMode } from "@shared/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { t } from "../i18n";
 
 /**
  * The app mark — the one place the logo is drawn.
@@ -61,11 +62,11 @@ export function DevBadge() {
   if (__APP_BUILD_MODE__ !== "dev") return null;
   return (
     <span
-      title="Development build — local changes, not a release"
+      title={t("common.development-build-local-changes-not-a-release")}
       className="inline-flex shrink-0 select-none items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-[1px] font-mono text-[9px] font-medium uppercase leading-[14px] tracking-[0.14em] text-amber-300"
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-[lpulse_1.8s_ease-in-out_infinite]" />
-      Dev
+      {t("common.dev")}
       <span className="normal-case text-amber-400/70">v{__APP_VERSION__}</span>
     </span>
   );
@@ -697,11 +698,12 @@ export function ColorInput({
   const commitHex = (text: string) => {
     const m = /^#?([0-9a-fA-F]{6})$/.exec(text.trim());
     if (m && m[1]) {
-      const t = m[1];
+      // `digits`, not `t`: `t` is the translator in this file.
+      const digits = m[1];
       onChange([
-        parseInt(t.slice(0, 2), 16),
-        parseInt(t.slice(2, 4), 16),
-        parseInt(t.slice(4, 6), 16),
+        parseInt(digits.slice(0, 2), 16),
+        parseInt(digits.slice(2, 4), 16),
+        parseInt(digits.slice(4, 6), 16),
       ]);
     }
     setHexDraft(null);
@@ -721,7 +723,7 @@ export function ColorInput({
             background: `linear-gradient(135deg, ${hex} 0%, ${hex}CC 60%, rgb(0 0 0 / 0.35) 160%)`,
             boxShadow: `inset 0 0 18px -4px ${hex}CC, inset 0 0 0 1px rgb(255 255 255 / 0.12)`,
           }}
-          title="Edit color"
+          title={t("common.edit-color")}
         />
       </div>
 
@@ -800,7 +802,7 @@ export function ColorInput({
           {/* eyedropper row + hex input */}
           <div className="mt-3 flex items-center gap-2">
             <button
-              title="Pick a color from the screen"
+              title={t("common.pick-a-color-from-the-screen")}
               onClick={async () => {
                 try {
                   // EyeDropper API (Chromium / WebView2): full-screen pixel sampling.
@@ -835,7 +837,7 @@ export function ColorInput({
               }}
               spellCheck={false}
               className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--panel)] px-3 py-1.5 font-mono text-xs uppercase tracking-wider text-[var(--text)] outline-none transition-colors focus:border-[rgb(var(--glow)/0.5)]"
-              placeholder="#RRGGBB"
+              placeholder={t("common.rrggbb")}
             />
           </div>
         </div>
@@ -1082,9 +1084,9 @@ export type SettingsSectionDef = {
 // ---------- Theme picker ----------
 
 const THEME_OPTIONS: { id: ThemeMode; label: string }[] = [
-  { id: "dark", label: "Dark" },
-  { id: "light", label: "Light" },
-  { id: "system", label: "Follow system" },
+  { id: "dark", label: "common.theme-dark" },
+  { id: "light", label: "common.theme-light" },
+  { id: "system", label: "common.theme-system" },
 ];
 
 /**
@@ -1107,11 +1109,15 @@ export function ThemePicker({
 }) {
   return (
     <div className="py-3">
-      <div className="mb-2 text-sm font-medium text-[var(--text)]">Theme</div>
-      <Segmented label="Theme" options={THEME_OPTIONS} value={value} onChange={onChange} />
+      <div className="mb-2 text-sm font-medium text-[var(--text)]">{t("common.theme")}</div>
+      <Segmented
+        label={t("common.theme")}
+        options={THEME_OPTIONS.map((o) => ({ id: o.id, label: t(o.label) }))}
+        value={value}
+        onChange={onChange}
+      />
       <p className="mt-2 text-xs leading-relaxed text-[var(--text-faint)]">
-        Follow system tracks your Windows light or dark setting and switches
-        with it.
+        {t("common.follow-system-tracks-your-windows-light-or-dark")}
       </p>
     </div>
   );
@@ -1156,7 +1162,7 @@ export function SettingsLayout({
           type="button"
           onClick={() => onSelect(s.id)}
           aria-current={isActive ? "true" : undefined}
-          title={s.blurb}
+          title={t(s.blurb)}
           className={`flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors ${
             isActive
               ? "bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]"
@@ -1164,7 +1170,7 @@ export function SettingsLayout({
           }`}
         >
           <Icon className="h-4 w-4 shrink-0" />
-          <span className="whitespace-nowrap">{s.label}</span>
+          <span className="whitespace-nowrap">{t(s.label)}</span>
         </button>
       );
     });
@@ -1182,7 +1188,7 @@ export function SettingsLayout({
           className="pointer-events-none absolute inset-0 bg-[var(--panel)]"
         />
         <nav
-          aria-label="Settings sections"
+          aria-label={t("common.settings-sections")}
           className="relative flex gap-1 overflow-x-auto px-5 py-2"
         >
           {navItems(active)}
@@ -1190,7 +1196,7 @@ export function SettingsLayout({
       </div>
       <div className="flex items-start gap-5">
         <nav
-          aria-label="Settings sections"
+          aria-label={t("common.settings-sections")}
           className="sticky top-0 hidden w-[190px] shrink-0 space-y-0.5 lg:block"
         >
           {navItems(active)}
@@ -1274,7 +1280,7 @@ export function ItemTitle({
 
 /** Standardized refresh/retry button. */
 export function RefreshBtn({
-  label = "Refresh",
+  label = t("common.refresh"),
   variant = "ghost",
 }: {
   label?: string;
@@ -1328,7 +1334,7 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
   const globalKind = cfg?.wallpaper.kind ?? "";
   const globalSource = cfg?.wallpaper.source ?? "";
   return (
-    <Card title="Displays" icon={<IconMonitor />}>
+    <Card title={t("common.displays")} icon={<IconMonitor />}>
       <div className={`grid gap-3 ${compact ? "sm:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
         {mons.map((m, i) => {
           // Effective wallpaper for this monitor: override or global.
@@ -1375,19 +1381,20 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
                 <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_55%,rgb(0_0_0/0.55))]" />
                 {m.primary && (
                   <span className="absolute right-1.5 top-1.5 rounded-md bg-black/50 px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-wider text-white/85">
-                    primary
+                    {t("common.primary")}
                   </span>
                 )}
                 {ovr && (
                   <span className="absolute left-1.5 top-1.5 rounded-md bg-black/50 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wider text-white/85">
-                    override
+                    {t("common.override")}
                   </span>
                 )}
               </div>
               <div className="flex items-center gap-2.5 px-3 py-2.5">
                 <div className="min-w-0">
                   <div className="truncate text-[13px] font-medium text-[var(--text)]">
-                    {m.device.replace(/\\/g, "") || `Display ${i + 1}`}
+                    {m.device.replace(/\\/g, "") ||
+                      t("common.display-{n}", { n: i + 1 })}
                   </div>
                   <div className="font-mono text-[10px] text-[var(--text-faint)]">
                     {m.w} × {m.h}{compact ? "" : ` @ (${m.x}, ${m.y})`}
@@ -1398,7 +1405,9 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
           );
         })}
         {mons.length === 0 && (
-          <div className="col-span-full text-sm text-[var(--text-faint)]">Detecting displays…</div>
+          <div className="col-span-full text-sm text-[var(--text-faint)]">
+            {t("common.detecting-displays")}
+          </div>
         )}
       </div>
     </Card>
