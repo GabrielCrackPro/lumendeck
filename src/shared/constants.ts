@@ -26,6 +26,12 @@ export const EVENTS = {
   VOLUME_CHANGED: "volume-changed",
   /** A global hotkey could not be bound, or a pressed one had nothing to do. */
   HOTKEY_ERROR: "hotkey-error",
+  /**
+   * After every registration pass: the full list of bindings the OS refused.
+   * Unlike HOTKEY_ERROR this is not a one-off announcement — the settings row
+   * keeps the warning up for as long as the combo is genuinely unbound.
+   */
+  HOTKEY_STATUS: "hotkey-status",
 } as const;
 
 export const STICKER_MIN_SIZE = 48;

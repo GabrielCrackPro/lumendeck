@@ -51,6 +51,7 @@ function HotkeyRow({
   suggested,
   value,
   conflict,
+  refused,
   disabled,
   onChange,
 }: {
@@ -60,6 +61,12 @@ function HotkeyRow({
   value: string;
   /** Accelerator already used by a different action, if any. */
   conflict: string | null;
+  /**
+   * Why the OS would not take this combo, if it refused it. Distinct from
+   * `conflict`: that is a clash inside this app (the other row wins), while
+   * this is another program on the machine owning the keys.
+   */
+  refused: string | null;
   /** Master switch is off: the row is inert but its binding is kept. */
   disabled: boolean;
   onChange: (accelerator: string) => void;
@@ -129,7 +136,19 @@ function HotkeyRow({
             {error}
           </div>
         )}
-        {!error && conflict && (
+        {!error && refused && (
+          <div
+            className="mt-1 text-[11px] leading-relaxed text-red-300"
+            // The raw OS message is debug-flavoured (`HotKey { mods: … }`), so
+            // the row says it in plain words and keeps the original in the
+            // tooltip for anyone reporting a bug.
+            title={refused}
+          >
+            Not active — this combo is taken, so the key does nothing. Another
+            app may already own it; pick a different one.
+          </div>
+        )}
+        {!error && !refused && conflict && (
           <div className="mt-1 text-[11px] leading-relaxed text-amber-300/90">
             Already used by another action — the first one bound wins.
           </div>
@@ -182,6 +201,10 @@ function HotkeyRow({
 export default function HotkeysCard() {
   const general = useStore((s) => s.cfg?.general);
   const save = useStore((s) => s.save);
+  // What the OS actually took on the last registration pass. Matched on the
+  // combo as well as the action, so a binding edited since the last pass does
+  // not inherit the previous combo's warning.
+  const failures = useStore((s) => s.hotkeyFailures);
   // While a row is recording, the value under it has not been written yet, so
   // duplicate detection needs the pending combo too. Tracked here rather than
   // in each row so every row agrees on who has what.
@@ -272,6 +295,14 @@ export default function HotkeysCard() {
               suggested={a.suggested}
               value={accel}
               conflict={accel ? boundBy(accel, a.id) : null}
+              refused={
+                enabled && accel
+                  ? (failures.find(
+                      (f) => f.action === a.id && f.accelerator === accel,
+                    )?.message ??
+                    null)
+                  : null
+              }
               disabled={!enabled}
               onChange={(next) => {
                 setDraft({ id: a.id, accel: next });

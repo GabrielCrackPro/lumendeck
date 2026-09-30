@@ -39,6 +39,11 @@ pub const VOLUME_CHANGED: &str = "volume-changed";
 /// combo) or when a pressed hotkey had nothing to act on. Payload:
 /// `HotkeyError { action, accelerator, message }`.
 pub const HOTKEY_ERROR: &str = "hotkey-error";
+/// Emitted after every registration pass with the full list of bindings the OS
+/// refused; payload: `Vec<HotkeyError>` (empty when everything bound). Drives
+/// the persistent warning on each settings row, so a combo that silently does
+/// nothing is visible where it is configured.
+pub const HOTKEY_STATUS: &str = "hotkey-status";
 
 /// Final preview size chosen with the wheel during the last placement.
 static PLACEMENT_SIZE: std::sync::Mutex<Option<i32>> = std::sync::Mutex::new(None);

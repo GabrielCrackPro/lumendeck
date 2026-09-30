@@ -53,6 +53,13 @@ interface Store {
   /** Latest [volume_percent, muted_flag] from the backend volume watcher. */
   systemVolume: [number, number] | null;
   wallpaperPaused: boolean;
+  /**
+   * Bindings the OS refused on the last registration pass. Held here rather
+   * than only toasted, so the settings row can keep saying "this combo does
+   * nothing" for as long as it is true — a toast is gone in four seconds,
+   * which is easy to miss for a binding that silently never fires.
+   */
+  hotkeyFailures: HotkeyError[];
   updateAvailable: AvailableUpdate | null;
   loaded: boolean;
   /** True while a config save is in flight (optimistic UI already applied). */
@@ -67,6 +74,7 @@ interface Store {
   setWallpaperColor: (c: [number, number, number]) => void;
   setSystemAccent: (c: [number, number, number] | null) => void;
   setWallpaperPaused: (p: boolean) => void;
+  setHotkeyFailures: (failures: HotkeyError[]) => void;
   setUpdateAvailable: (update: AvailableUpdate | null) => void;
   /** Transient notifications (auto-dismiss in Shell). */
   toasts: Toast[];
@@ -123,6 +131,7 @@ export const useStore = create<Store>((set, get) => ({
   systemAccent: null,
   systemVolume: null,
   wallpaperPaused: false,
+  hotkeyFailures: [],
   updateAvailable: null,
   loaded: false,
   saving: false,
@@ -256,6 +265,7 @@ export const useStore = create<Store>((set, get) => ({
   setWallpaperColor: (wallpaperColor) => set({ wallpaperColor }),
   setSystemAccent: (systemAccent) => set({ systemAccent }),
   setWallpaperPaused: (wallpaperPaused) => set({ wallpaperPaused }),
+  setHotkeyFailures: (hotkeyFailures) => set({ hotkeyFailures }),
   setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),
 }));
 
@@ -363,6 +373,14 @@ export async function bindEvents(): Promise<() => void> {
             : `${label} — ${message}`,
           { key: `hotkey:${action}:${accelerator}` },
         );
+    }),
+  );
+  // The full post-registration picture. Replaces the list outright each pass,
+  // so a combo the user has just fixed stops showing as broken without any
+  // extra bookkeeping on the frontend.
+  unsubs.push(
+    await listen<HotkeyError[]>(EVENTS.HOTKEY_STATUS, (e) => {
+      useStore.getState().setHotkeyFailures(e.payload ?? []);
     }),
   );
   return () => {

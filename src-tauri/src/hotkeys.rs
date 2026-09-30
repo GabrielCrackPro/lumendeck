@@ -16,10 +16,16 @@
 //! * **One implementation per action.** Every action routes through
 //!   `crate::tray` / `crate::playlist`, the same functions the tray menu calls.
 //! * **Failures are surfaced, never silent.** A combo another app already owns
-//!   is a real problem, so it produces a log line plus a `HOTKEY_ERROR` event
-//!   the dashboard turns into a toast (when it happens to be open).
+//!   is a real problem, so it is reported once and then shown persistently on
+//!   its settings row — not re-toasted on every re-registration, which turned
+//!   a single stale conflict into an error every time the switch was toggled.
+//! * **One stuck combo must not cascade.** The plugin's `unregister_all` stops
+//!   at the first failure *after* clearing its own map, so one unregisterable
+//!   key would leave the rest held by the OS with nothing left to release them.
+//!   Release is therefore done per key, tolerating individual failures.
 
 use crate::config::HotkeyConfig;
+use std::collections::HashSet;
 use std::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -32,6 +38,46 @@ const VOLUME_STEP: f32 = 0.05;
 /// fire constantly (a slider drag is dozens), and each pass unregisters
 /// everything before rebuilding it.
 static ACTIVE: Mutex<Option<(bool, HotkeyConfig)>> = Mutex::new(None);
+
+/// Registration failures already surfaced, keyed by `failure_key`. A conflict
+/// like "Ctrl+Alt+M belongs to another app" is permanent until the user
+/// changes the binding, so re-announcing it on every re-registration — every
+/// slider save, every switch toggle — would be pure noise.
+static REPORTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Stable identity for one registration failure, so the same problem is only
+/// announced once. A user who changes the combo, or frees it, gets a fresh
+/// report if it fails again.
+fn failure_key(action: &str, accelerator: &str, message: &str) -> String {
+    format!("{action}\u{1}{accelerator}\u{1}{message}")
+}
+
+/// Fold this pass's refusals into what has already been announced, and return
+/// only the ones worth telling the user about.
+///
+/// A remembered failure is dropped as soon as the combo stops failing, so a
+/// binding the user fixed and later breaks again is reported again rather than
+/// silently swallowed by its own past.
+fn note_failures(reported: &mut Vec<String>, refused: &[HotkeyError]) -> Vec<HotkeyError> {
+    let live: HashSet<String> = refused
+        .iter()
+        .map(|e| failure_key(&e.action, &e.accelerator, &e.message))
+        .collect();
+    let fresh: Vec<HotkeyError> = refused
+        .iter()
+        .filter(|e| !reported.contains(&failure_key(&e.action, &e.accelerator, &e.message)))
+        .cloned()
+        .collect();
+    reported.retain(|k| live.contains(k));
+    // `retain` keeps a failure that is still live, so only genuinely new keys
+    // need adding — extending blindly would duplicate every repeat.
+    for key in live {
+        if !reported.contains(&key) {
+            reported.push(key);
+        }
+    }
+    fresh
+}
 
 /// A hotkey that could not be taken, reported to the dashboard.
 #[derive(Clone, serde::Serialize)]
@@ -65,18 +111,21 @@ pub fn sync(app: &tauri::AppHandle, enabled: bool, cfg: &HotkeyConfig) {
 /// binding first so a removed, re-pointed, or switched-off combo is actually
 /// released rather than lingering as an invisible key grab.
 fn register_all(app: &tauri::AppHandle, enabled: bool, cfg: &HotkeyConfig) {
-    let gs = app.global_shortcut();
-    if let Err(e) = gs.unregister_all() {
-        log::warn!("hotkey: could not release previous bindings: {e}");
-    }
+    release_all(app, cfg);
 
     if !enabled {
         log::info!("hotkey: disabled by the user; no keys are held");
+        // REPORTED is deliberately left alone. Nothing is held, but the reason
+        // a combo was refused — another program owns those keys — is a fact
+        // about that program, not about us, and it is still true. Forgetting it
+        // here is what made switching off and on again re-raise the very same
+        // "already registered" error the user had already been shown.
+        publish_status(app, &Vec::new());
         return;
     }
 
     let mut bound = 0usize;
-    let mut refused = 0usize;
+    let mut refused: Vec<HotkeyError> = Vec::new();
     for (action, binding) in cfg.entries() {
         if binding.is_empty() {
             continue;
@@ -88,20 +137,74 @@ fn register_all(app: &tauri::AppHandle, enabled: bool, cfg: &HotkeyConfig) {
                 log::info!("hotkey: {action} = {accel}");
             }
             Err(message) => {
-                refused += 1;
-                log::warn!("hotkey: {action} ({accel}) refused: {message}");
-                report(
-                    app,
-                    HotkeyError {
-                        action: action.to_string(),
-                        accelerator: accel.to_string(),
-                        message,
-                    },
-                );
+                // Deliberately not `warn`: a refusal that is already known is
+                // expected on every re-registration, and logging it loudly each
+                // time is what made the log look like the app was failing.
+                log::debug!("hotkey: {action} ({accel}) refused: {message}");
+                refused.push(HotkeyError {
+                    action: action.to_string(),
+                    accelerator: accel.to_string(),
+                    message,
+                });
             }
         }
     }
-    log::info!("hotkey: {bound} bound, {refused} refused");
+
+    // Announce each distinct failure once, then keep it on the settings row.
+    if let Ok(mut reported) = REPORTED.lock() {
+        for err in note_failures(&mut reported, &refused) {
+            log::warn!(
+                "hotkey: {action} ({accel}) could not be bound: {message}",
+                action = err.action,
+                accel = err.accelerator,
+                message = err.message,
+            );
+            report(app, err);
+        }
+    }
+
+    // The full current picture, so the dashboard can show what is actually
+    // bound rather than only what the user asked for.
+    publish_status(app, &refused);
+    log::info!("hotkey: {bound} bound, {} refused", refused.len());
+}
+
+/// Release every combo we might be holding, one at a time.
+///
+/// The plugin's own `unregister_all` takes its map and then stops at the first
+/// failure, so one un-unregisterable key leaves the rest held by the OS with
+/// nothing left in the map to release them — and the next registration pass
+/// then fails with "already registered" against *our own* keys, permanently.
+/// Releasing per key and tolerating failures makes that impossible.
+fn release_all(app: &tauri::AppHandle, cfg: &HotkeyConfig) {
+    let gs = app.global_shortcut();
+    // Best effort: clears the plugin's bookkeeping in one call.
+    if let Err(e) = gs.unregister_all() {
+        log::debug!("hotkey: bulk release reported {e}; releasing individually");
+    }
+    // Then per key, so a single failure cannot skip the ones after it.
+    for (_, binding) in cfg.entries() {
+        if binding.is_empty() {
+            continue;
+        }
+        let accel = binding.accelerator.trim();
+        let Ok(shortcut) = accel.parse::<Shortcut>() else {
+            continue;
+        };
+        if let Err(e) = gs.unregister(shortcut) {
+            log::debug!("hotkey: release {accel} failed: {e}");
+        }
+    }
+}
+
+/// Tell the dashboard which bindings the OS actually refused, so a combo that
+/// silently does nothing is visible on its own row.
+fn publish_status(app: &tauri::AppHandle, refused: &Vec<HotkeyError>) {
+    if let Some(w) = app.get_webview_window("main") {
+        if w.is_visible().unwrap_or(false) {
+            crate::events::emit_all(app, crate::events::HOTKEY_STATUS, refused);
+        }
+    }
 }
 
 /// Flip the master switch without going through the dashboard. Returns the
@@ -312,6 +415,123 @@ mod tests {
         // on right now" — a user must be able to edit their bindings while the
         // switch is off and turn it on afterwards.
         assert!(validate("Ctrl+Alt+M").is_ok());
+    }
+
+    // ---------- failure reporting ----------
+
+    /// A refused binding, as the registration pass reports it.
+    fn refused(action: &str, accelerator: &str, message: &str) -> HotkeyError {
+        HotkeyError {
+            action: action.into(),
+            accelerator: accelerator.into(),
+            message: message.into(),
+        }
+    }
+
+    #[test]
+    fn the_same_conflict_is_only_announced_once() {
+        // The reported symptom: every re-registration re-raised a conflict that
+        // had not changed.
+        let mut reported: Vec<String> = Vec::new();
+        let errs = [refused("toggleMute", "Ctrl+Alt+M", "already registered")];
+
+        assert_eq!(note_failures(&mut reported, &errs).len(), 1, "first pass announces");
+        for pass in 2..6 {
+            assert!(
+                note_failures(&mut reported, &errs).is_empty(),
+                "re-registration (pass {pass}) must not re-announce an unchanged conflict"
+            );
+        }
+        assert_eq!(reported.len(), 1);
+    }
+
+    #[test]
+    fn switching_off_and_on_does_not_re_raise_a_permanent_conflict() {
+        // The exact user report: disable the hotkeys, enable them again, and
+        // the same "already registered" error came back every single time.
+        let mut reported: Vec<String> = Vec::new();
+        let errs = [refused("toggleMute", "Ctrl+Alt+M", "already registered")];
+
+        assert_eq!(note_failures(&mut reported, &errs).len(), 1, "announced when first bound");
+
+        // Switching off runs no registration pass, so it must not touch the
+        // remembered failures. Another app owning Ctrl+Alt+M is a fact about
+        // that app and is still true with our switch off.
+        for _ in 0..4 {
+            assert!(
+                note_failures(&mut reported, &errs).is_empty(),
+                "re-enabling must not repeat a conflict the user already saw"
+            );
+        }
+    }
+
+    #[test]
+    fn a_different_combo_or_message_is_still_announced() {
+        let mut reported: Vec<String> = Vec::new();
+        note_failures(&mut reported, &[refused("toggleMute", "Ctrl+Alt+M", "already registered")]);
+
+        // Same action, different combo.
+        assert_eq!(
+            note_failures(&mut reported, &[refused("toggleMute", "Ctrl+Alt+N", "already registered")]).len(),
+            1
+        );
+        // Same combo, different reason.
+        assert_eq!(
+            note_failures(&mut reported, &[refused("toggleMute", "Ctrl+Alt+M", "access denied")]).len(),
+            1
+        );
+        // Different action, same combo.
+        assert_eq!(
+            note_failures(&mut reported, &[refused("playPause", "Ctrl+Alt+M", "already registered")]).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_fixed_binding_does_not_suppress_a_later_different_failure() {
+        let mut reported: Vec<String> = Vec::new();
+        note_failures(&mut reported, &[refused("toggleMute", "Ctrl+Alt+M", "already registered")]);
+
+        // The user re-points the combo and it registers cleanly: nothing is
+        // refused, so the stale entry is dropped.
+        assert!(note_failures(&mut reported, &[]).is_empty());
+        assert!(reported.is_empty(), "a resolved failure should be forgotten");
+
+        // If the new combo later fails too, it must not be swallowed by the
+        // old one's memory.
+        assert_eq!(
+            note_failures(&mut reported, &[refused("toggleMute", "Ctrl+Alt+7", "already registered")]).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn failures_still_live_are_kept_across_a_sync() {
+        let mut reported: Vec<String> = Vec::new();
+        note_failures(&mut reported, &[
+            refused("toggleMute", "Ctrl+Alt+M", "already registered"),
+            refused("playPause", "Ctrl+Alt+Space", "already registered"),
+        ]);
+
+        // One of the two is fixed; the other is still refused and must be
+        // remembered, but the fixed one is announced a second time only if it
+        // is genuinely refused again.
+        let fresh = note_failures(
+            &mut reported,
+            &[refused("toggleMute", "Ctrl+Alt+M", "already registered")],
+        );
+        assert!(fresh.is_empty(), "the untouched conflict should stay quiet");
+        assert_eq!(reported.len(), 1, "the resolved one is forgotten");
+    }
+
+    #[test]
+    fn a_failure_key_cannot_collide_across_its_fields() {
+        // The separator must not be typeable into a combo, so "a|b" and
+        // "a" + "b" cannot produce the same key.
+        assert_ne!(
+            failure_key("toggleMute", "Ctrl+Alt+M", "x"),
+            failure_key("toggleMute", "Ctrl+Alt+Mx", "")
+        );
     }
 
     #[test]
