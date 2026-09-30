@@ -105,6 +105,14 @@ export const IconZap = (props: P) => (
     <path d="M13 2.5 4.5 13.5H11l-1 8 8.5-11H12z" />
   </svg>
 );
+/** Star, for favourites. `filled` rather than a second icon so the two
+ *  states cannot drift apart in shape. */
+export const IconStar = ({ filled, ...props }: P & { filled?: boolean }) => (
+  <svg {...base({ ...props, fill: filled ? "currentColor" : "none" })}>
+    <path d="m12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z" />
+  </svg>
+);
+
 
 export const IconSun = (props: P) => (
   <svg {...base(props)}>

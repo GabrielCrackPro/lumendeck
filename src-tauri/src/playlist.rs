@@ -229,6 +229,9 @@ mod tests {
             source: format!("C:/{id}.mp4"),
             added_ms: 0,
             thumb: None,
+            opts: None,
+            favorite: false,
+            last_applied_ms: None,
         }
     }
 

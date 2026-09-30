@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { IconRefresh, IconMonitor, IconCheck, IconPipette, IconChevronDown } from "./icons";
+import { IconRefresh, IconMonitor, IconCheck, IconPipette, IconChevronDown, IconPencil } from "./icons";
 import { rgbToHex } from "../utilities";
 import { useStore } from "../store";
 import { SHADER_ART } from "@shared/constants";
 import type { ThemeMode } from "@shared/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { t } from "../i18n";
+import { useAnchoredPopover } from "./usePopover";
 
 /**
  * The app mark — the one place the logo is drawn.
@@ -345,39 +346,33 @@ export function Dropdown<T extends string | number>({
   options,
   onChange,
   className,
+  compact = false,
+  ariaLabel,
 }: {
   value: T;
   options: { id: T; label: string }[];
   onChange: (v: T) => void;
   className?: string;
+  /** Toolbar sizing: the form-field default is far too tall for a top bar. */
+  compact?: boolean;
+  /** The button shows the current value, so it needs a name of its own. */
+  ariaLabel?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
+  const pop = useAnchoredPopover();
   const current = options.find((o) => o.id === value);
   return (
-    <div ref={ref} className={`relative ${className ?? ""}`}>
+    <div ref={pop.rootRef} className={`relative ${className ?? ""}`}>
       <button
+        ref={pop.triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={pop.toggle}
         aria-haspopup="listbox"
-        aria-expanded={open}
-        className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
-          open
+        aria-expanded={pop.shown}
+        aria-label={ariaLabel}
+        className={`flex w-full items-center justify-between gap-2 rounded-lg border text-left transition-colors ${
+          compact ? "px-2.5 py-1 text-xs" : "px-3 py-2 text-sm"
+        } ${
+          pop.shown
             ? "border-[rgb(var(--glow)/0.6)]"
             : "border-[var(--line-strong)] hover:border-[rgb(var(--glow)/0.5)]"
         } bg-[var(--panel-strong)] text-[var(--text)]`}
@@ -385,7 +380,7 @@ export function Dropdown<T extends string | number>({
         <span className="min-w-0 truncate">{current?.label ?? String(value)}</span>
         <svg
           viewBox="0 0 24 24"
-          className={`h-4 w-4 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          className={`${compact ? "h-3 w-3" : "h-4 w-4"} shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${pop.shown ? "rotate-180" : ""}`}
           fill="none"
           stroke="currentColor"
           strokeWidth="1.8"
@@ -395,24 +390,27 @@ export function Dropdown<T extends string | number>({
           <path d="m6 9 6 6 6-6" />
         </svg>
       </button>
-      {open && (
+      {pop.shown && (
         <div
+          ref={pop.panelRef}
           role="listbox"
-          className="page-enter-header absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-64 overflow-y-auto rounded-lg border border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] p-1 shadow-[0_20px_50px_-16px_rgb(0_0_0/0.7)] backdrop-blur-xl"
+          onKeyDown={pop.onPanelKeyDown}
+          className={`${pop.animClass} absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-64 overflow-y-auto rounded-lg border border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] p-1 shadow-[0_20px_50px_-16px_rgb(0_0_0/0.7)] outline-none backdrop-blur-xl`}
         >
-          {options.map((o) => {
+          {options.map((o, i) => {
             const active = o.id === value;
             return (
               <button
                 key={String(o.id)}
+                ref={pop.registerItem(i)}
                 type="button"
                 role="option"
                 aria-selected={active}
                 onClick={() => {
                   onChange(o.id);
-                  setOpen(false);
+                  pop.close();
                 }}
-                className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
+                className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-sm outline-none transition-colors focus-visible:bg-[var(--panel-strong)] ${
                   active
                     ? "bg-[rgb(var(--glow)/0.12)] font-semibold text-[rgb(var(--glow))]"
                     : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
@@ -437,12 +435,18 @@ export function Btn({
   variant = "default",
   size = "md",
   disabled,
+  className,
+  type = "button",
 }: {
   children: ReactNode;
   onClick?: () => void;
   variant?: "default" | "primary" | "danger" | "ghost";
   size?: "md" | "sm";
   disabled?: boolean;
+  /** For the cases where the button has to fill or shrink to its container. */
+  className?: string;
+  /** Defaults to "button", not HTML's implicit "submit". */
+  type?: "button" | "submit";
 }) {
   const styles = {
     default:
@@ -458,9 +462,10 @@ export function Btn({
       : "rounded-lg px-4 py-2 text-sm";
   return (
     <button
+      type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex select-none items-center gap-2 font-semibold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${sizing} ${styles}`}
+      className={`inline-flex select-none items-center justify-center gap-2 font-semibold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${sizing} ${styles} ${className ?? ""}`}
     >
       {children}
     </button>
@@ -1299,12 +1304,65 @@ export function RefreshBtn({
   );
 }
 
+/**
+ * Marks a name the user chose over the one the driver or Windows reported, and
+ * doubles as the way back to it.
+ *
+ * Without this a renamed device is indistinguishable from one the hardware
+ * happened to call "Desk", so an alias set once on something you rarely touch
+ * is invisible right up until you go looking for it. Clicking reverts, which
+ * saves hunting for the pencil to clear the box by hand.
+ */
+export function AliasHint({ onReset }: { onReset: () => void }) {
+  return (
+    <button
+      onClick={onReset}
+      title={t("common.reset-to-default-name")}
+      aria-label={t("common.reset-to-default-name")}
+      className="rounded border border-dashed border-[var(--line-strong)] px-1 py-px font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--text-faint)] transition-colors hover:border-[var(--glow)] hover:text-[var(--text)]"
+    >
+      {t("common.renamed")}
+    </button>
+  );
+}
+
+/** One monitor as the backend reports it. */
+export type MonitorEntry = {
+  device: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  primary: boolean;
+};
+
+/**
+ * What to call a display, in order of preference: the user's alias, the
+ * Windows device name, then its position in the reported list.
+ *
+ * The device name is the only thing that identifies a display to Windows, but
+ * it is not something a person would say out loud — the panel used to show
+ * ".DISPLAY1". Shared so the wallpaper per-display picker and the panel cannot
+ * disagree about what a screen is called.
+ */
+export function displayName(
+  m: Pick<MonitorEntry, "device">,
+  index: number,
+  screenNames: Record<string, string> = {},
+): string {
+  const alias = screenNames[m.device]?.trim();
+  if (alias) return alias;
+  return m.device.replace(/\\/g, "") || t("common.display-{n}", { n: index + 1 });
+}
+
 /** Shared displays panel used across multiple tabs. */
 export function DisplaysCard({ compact }: { compact?: boolean }) {
-  const [mons, setMons] = useState<
-    { device: string; x: number; y: number; w: number; h: number; primary: boolean }[]
-  >([]);
-  const { cfg } = useStore(useShallow((s) => ({ cfg: s.cfg })));
+  const [mons, setMons] = useState<MonitorEntry[]>([]);
+  const { cfg, save } = useStore(
+    useShallow((s) => ({ cfg: s.cfg, save: s.save })),
+  );
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
   useEffect(() => {
     let disposed = false;
     const load = () => {
@@ -1333,6 +1391,31 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
   const pm = cfg?.wallpaper.perMonitor ?? {};
   const globalKind = cfg?.wallpaper.kind ?? "";
   const globalSource = cfg?.wallpaper.source ?? "";
+  const screenNames = cfg?.general.screenNames ?? {};
+
+  // Hotplug can remove the display being renamed mid-edit, so a commit for a
+  // display that is no longer present is dropped rather than written.
+  function startRename(device: string) {
+    setRenaming(device);
+    setDraft(screenNames[device] ?? "");
+  }
+  function commitRename(device: string, value?: string) {
+    setRenaming(null);
+    if (!mons.some((m) => m.device === device)) return;
+    const next = (value ?? draft).trim();
+    // Emptying the box forgets the alias rather than naming a screen "".
+    if (next === (screenNames[device] ?? "").trim()) return;
+    save((c) => {
+      const names = { ...c.general.screenNames };
+      if (next) names[device] = next;
+      else delete names[device];
+      c.general.screenNames = names;
+    });
+  }
+  function cancelRename() {
+    setRenaming(null);
+    setDraft("");
+  }
   return (
     <Card title={t("common.displays")} icon={<IconMonitor />}>
       <div className={`grid gap-3 ${compact ? "sm:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
@@ -1392,13 +1475,50 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
               </div>
               <div className="flex items-center gap-2.5 px-3 py-2.5">
                 <div className="min-w-0">
-                  <div className="truncate text-[13px] font-medium text-[var(--text)]">
-                    {m.device.replace(/\\/g, "") ||
-                      t("common.display-{n}", { n: i + 1 })}
-                  </div>
+                  {renaming === m.device ? (
+                    <input
+                      value={draft}
+                      autoFocus
+                      maxLength={64}
+                      placeholder={displayName(m, i, screenNames)}
+                      aria-label={t("common.rename-screen", { name: displayName(m, i, screenNames) })}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onBlur={() => commitRename(m.device)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitRename(m.device);
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          cancelRename();
+                        }
+                      }}
+                      className="w-full rounded-md border border-[rgb(var(--glow)/0.5)] bg-[var(--panel-strong)] px-1.5 py-0.5 text-[13px] font-medium text-[var(--text)] outline-none"
+                    />
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <div className="truncate text-[13px] font-medium text-[var(--text)]">
+                        {displayName(m, i, screenNames)}
+                      </div>
+                      <button
+                        onClick={() => startRename(m.device)}
+                        title={t("common.rename-screen", { name: displayName(m, i, screenNames) })}
+                        aria-label={t("common.rename-screen", { name: displayName(m, i, screenNames) })}
+                        className="shrink-0 rounded p-0.5 text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
+                      >
+                        <IconPencil className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
                   <div className="font-mono text-[10px] text-[var(--text-faint)]">
                     {m.w} × {m.h}{compact ? "" : ` @ (${m.x}, ${m.y})`}
                   </div>
+                  {screenNames[m.device]?.trim() && (
+                    <div className="mt-1">
+                      <AliasHint onReset={() => commitRename(m.device, "")} />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

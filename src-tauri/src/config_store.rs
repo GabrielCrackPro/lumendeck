@@ -228,6 +228,41 @@ mod tests {
     }
 
     #[test]
+    fn custom_names_survive_the_write_read_cycle() {
+        // persist() is a pretty-print of the whole Config followed by a file
+        // write, and load() is the inverse parse. A full round trip is that
+        // path minus the filesystem itself, so if a rename is going to be lost
+        // on the way to disk, it is lost here.
+        let mut cfg = Config::default();
+        cfg.rgb.device_names.insert(7, "Desk strip".to_string());
+        cfg.general
+            .screen_names
+            .insert(r"\.\DISPLAY2".to_string(), "Desk".to_string());
+
+        let json = serde_json::to_string_pretty(&cfg).unwrap();
+        // Assert on the parsed value, never on substrings: persist() writes
+        // pretty JSON, so matching a literal block would only prove the indent
+        // is two spaces. What matters is the key *shape* — a device id must
+        // stay "7" rather than become "7.0", and a backslashed display name
+        // must not lose an escape — or every alias silently stops matching and
+        // the rename looks like it was forgotten.
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["rgb"]["deviceNames"]["7"], "Desk strip", "{v:#}");
+        assert_eq!(
+            v["general"]["screenNames"][r"\.\DISPLAY2"],
+            "Desk",
+            "{v:#}"
+        );
+
+        let back: Config = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.rgb.device_names.get(&7).map(String::as_str), Some("Desk strip"));
+        assert_eq!(
+            back.general.screen_names.get(r"\.\DISPLAY2").map(String::as_str),
+            Some("Desk")
+        );
+    }
+
+    #[test]
     fn migration_sets_current_version() {
         // A versionless legacy file migrates to the current schema version.
         let mut raw: serde_json::Value = serde_json::from_str("{}").unwrap();

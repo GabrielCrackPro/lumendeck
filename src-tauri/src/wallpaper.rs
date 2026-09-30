@@ -182,6 +182,19 @@ pub fn resolve_for_monitor(cfg: &WallpaperConfig, device: &str) -> (WallpaperKin
     }
 }
 
+/// The effective (kind, source) for one display *before* media-URL resolution.
+///
+/// The vault indexes entries by the path it stored, not by the `media://` URL
+/// the webview actually renders, so anything that has to line a config up with
+/// a gallery entry has to match against this rather than against
+/// `resolve_for_monitor`.
+pub fn raw_for_monitor(cfg: &WallpaperConfig, device: &str) -> (WallpaperKind, String) {
+    match cfg.per_monitor.get(device) {
+        Some(pm) => (pm.kind, pm.source.clone()),
+        None => (cfg.kind, cfg.source.clone()),
+    }
+}
+
 fn resolve_source_of(kind: WallpaperKind, source: &str) -> String {
     match kind {
         WallpaperKind::Video | WallpaperKind::Image => crate::media::to_media_url(source),

@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
-import { IconDevice, IconEye, IconEyeOff } from "./icons";
+import { useEffect, useRef, useState } from "react";
+import { IconDevice, IconEye, IconEyeOff, IconPencil } from "./icons";
 import { rgbToHex } from "../utilities";
 import type { DeviceColor, RgbDeviceInfo } from "@shared/types";
 import { t } from "../i18n";
+import { AliasHint } from "./ui";
 
 /**
  * OpenRGB type names are CamelCase with a trailing index: "LEDStrip1",
@@ -18,8 +19,15 @@ function typeLabel(typeName: string): string {
     .toLowerCase();
 }
 
-/** What to call a device when the driver gave us no name for it. */
-export function deviceName(d: RgbDeviceInfo): string {
+/** What to call a device, in order of preference: the user's alias, the
+ * driver's own name, then the device type. Shared by every place a device is
+ * named so the accent picker and the zone lists cannot disagree with the row. */
+export function deviceName(
+  d: RgbDeviceInfo,
+  deviceNames: Record<string, string> = {},
+): string {
+  const alias = deviceNames[String(d.id)]?.trim();
+  if (alias) return alias;
   const fallback = typeLabel(d.typeName);
   if (d.name?.trim()) return d.name.trim();
   if (!fallback) return t("lighting.device-{id}", { id: d.id });
@@ -225,19 +233,62 @@ export function DeviceRow({
   live,
   muted,
   onToggleMute,
+  onRename,
+  deviceNames = {},
 }: {
   device: RgbDeviceInfo;
   live?: DeviceColor;
   muted: boolean;
   onToggleMute: () => void;
+  /** Omit to render the row read-only, with no rename affordance. */
+  onRename?: (name: string) => void;
+  deviceNames?: Record<string, string>;
 }) {
-  const name = deviceName(device);
+  const name = deviceName(device, deviceNames);
+  // Whether the name on screen is the user's, rather than the driver's. Drives
+  // the "renamed" hint, which is the only thing distinguishing the two.
+  const aliased = !!deviceNames[String(device.id)]?.trim();
   const type = typeLabel(device.typeName);
   // When the name is just the type back (an unnamed device), repeating it in
   // the meta line reads as a stutter: "Mouse / Mouse · 12 LEDs".
   const showType = !!type && type !== name.toLowerCase();
   const rgb = live?.rgb ?? null;
   const hex = rgb ? rgbToHex(rgb) : null;
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState("");
+  // OpenRGB re-reports its device list at any time, so a row can be recycled
+  // onto a different device mid-edit. Remembering which device the draft was
+  // started for is what stops an alias being written onto the wrong hardware.
+  const renameFor = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (renameFor.current !== null && renameFor.current !== device.id) {
+      renameFor.current = null;
+      setRenaming(false);
+      setDraft("");
+    }
+  }, [device.id]);
+
+  function startRename() {
+    renameFor.current = device.id;
+    setDraft(deviceNames[String(device.id)] ?? "");
+    setRenaming(true);
+  }
+  function commitRename() {
+    setRenaming(false);
+    renameFor.current = null;
+    const next = draft.trim();
+    // An empty box means "forget my name", not "call it nothing": an absent
+    // entry falls back to whatever the driver said.
+    if (next === (deviceNames[String(device.id)] ?? "").trim()) return;
+    onRename?.(next);
+  }
+  function cancelRename() {
+    setRenaming(false);
+    renameFor.current = null;
+    setDraft("");
+  }
+
   return (
     <li
       className={`rounded-xl border px-3.5 py-3 transition-colors duration-200 ${
@@ -268,13 +319,50 @@ export function DeviceRow({
         </span>
 
         <div className="min-w-0 flex-1">
-          <div
-            className={`truncate text-sm font-semibold ${
-              muted ? "text-[var(--text-faint)] line-through" : "text-[var(--text)]"
-            }`}
-          >
-            {name}
-          </div>
+          {renaming ? (
+            <input
+              value={draft}
+              autoFocus
+              maxLength={64}
+              placeholder={name}
+              aria-label={t("lighting.rename-device", { name })}
+              // Preselect so typing replaces the old name instead of appending
+              // to it, which is what renaming usually means.
+              onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitRename();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelRename();
+                }
+              }}
+              className="w-full rounded-md border border-[rgb(var(--glow)/0.5)] bg-[var(--panel-strong)] px-1.5 py-0.5 text-sm font-semibold text-[var(--text)] outline-none"
+            />
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <div
+                className={`truncate text-sm font-semibold ${
+                  muted ? "text-[var(--text-faint)] line-through" : "text-[var(--text)]"
+                }`}
+              >
+                {name}
+              </div>
+              {onRename && (
+                <button
+                  onClick={startRename}
+                  title={t("lighting.rename-device", { name })}
+                  aria-label={t("lighting.rename-device", { name })}
+                  className="shrink-0 rounded p-0.5 text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
+                >
+                  <IconPencil className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          )}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-[var(--text-faint)]">
             {showType && (
               <>
@@ -291,6 +379,13 @@ export function DeviceRow({
                 <span className="truncate">
                   {t("lighting.{n}-zones", { n: device.zones.length })}
                 </span>
+              </>
+            )}
+            {aliased && (
+              <>
+                <span className="h-0.5 w-0.5 rounded-full bg-[var(--line-strong)]" />
+                {/* Reverting is the point: the hint is also the undo. */}
+                <AliasHint onReset={() => onRename?.("")} />
               </>
             )}
           </div>

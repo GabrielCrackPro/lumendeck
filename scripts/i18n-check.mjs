@@ -80,6 +80,15 @@ const MODEL_KEY_FIELDS = /(?:label|blurb|hint|title|description):\s*"([a-z][\w-]
 // Tuple models (`["overview", "palette.go-overview", IconZap]`) hold the key
 // in the second slot rather than in a named field.
 const TUPLE_KEY_SLOT = /\[\s*"[a-z][\w-]*"\s*,\s*"([a-z][\w-]*(?:\.[\w{}-]+)+)"/g;
+// An explicit key map — `const GALLERY_KIND_LABEL: Record<K, string> = { video:
+// "gallery.kind-video" }` — is the recommended way to keep a key out of a
+// template expression, and it is the one shape the walks above miss entirely:
+// the literal is an object value, not a `label:` field and not inside `t()`.
+// Without this rule every key in the map reads as unused, which trains you to
+// ignore the unused report exactly when the map is at its largest.
+const EXPLICIT_KEY_MAP =
+  /\b[A-Z][A-Z0-9_]*(?:_LABEL|_LABELS|_KEY|_KEYS)\b[^=]{0,120}=\s*\{([^}]*)\}/g;
+
 // Every source file, not a hand-listed few — see the copy-leak scan below for
 // why an enumerated list silently rots.
 for (const f of [...files, "src/shared/constants.ts"]) {
@@ -87,6 +96,9 @@ for (const f of [...files, "src/shared/constants.ts"]) {
   const src = readFileSync(f, "utf8");
   for (const m of src.matchAll(MODEL_KEY_FIELDS)) used.add(m[1]);
   for (const m of src.matchAll(TUPLE_KEY_SLOT)) used.add(m[1]);
+  for (const m of src.matchAll(EXPLICIT_KEY_MAP)) {
+    for (const lit of m[1].matchAll(/"([a-z][\w-]*(?:\.[\w{}-]+)+)"/g)) used.add(lit[1]);
+  }
 }
 
 // A model field holding English copy rather than a key is a defect: report it
@@ -257,10 +269,25 @@ for (const f of files) {
     // in an expression buries the signal under className templates, comparison
     // operands and enum values — 1466 hits, of which 4 were real. A branch is
     // almost always a choice of what to put on screen.
+    //
+    // `a || "fallback"` is the same idea and has to be here too: it is how
+    // `{media.artist || "Unknown artist"}` stayed English through a check that
+    // claimed to cover bare JSX. Only the logical operators count — a
+    // comparison's right side is a value being tested (`e.key === "Enter"`),
+    // not a choice of what to put on screen.
+    const FALLBACK_OPS = new Set([
+      ts.SyntaxKind.BarBarToken,
+      ts.SyntaxKind.AmpersandAmpersandToken,
+    ]);
     if (ts.isJsxExpression(n) && n.expression) {
       (function w(e) {
-        if (ts.isConditionalExpression(e) && !insideStyling(e)) {
-          for (const branch of [e.whenTrue, e.whenFalse]) {
+        const pick = ts.isConditionalExpression(e)
+          ? [e.whenTrue, e.whenFalse]
+          : ts.isBinaryExpression(e) && FALLBACK_OPS.has(e.operatorToken.kind)
+            ? [e.right]
+            : [];
+        if (pick.length && !insideStyling(e)) {
+          for (const branch of pick) {
             if (ts.isStringLiteralLike(branch) && !isTranslationKey(branch)) {
               if (!SLUG.test(branch.text)) flag(branch, branch.text);
             }

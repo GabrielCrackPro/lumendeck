@@ -34,6 +34,8 @@ export interface WallpaperConfig {
   videoHue: number;
   /** Per-display wallpaper overrides keyed by monitor device string. */
   perMonitor: Record<string, PerMonitorWallpaper>;
+  /** Whether importing a wallpaper also puts it on the displays. */
+  applyAfterImport?: boolean;
 }
 
 /** Per-display wallpaper override (kind+source only; playback opts are global). */
@@ -73,6 +75,11 @@ export interface RgbConfig {
   mixer: RgbMixer;
   minUpdateMs: number;
   excludedDevices: number[];
+  /**
+   * User-chosen names keyed by device id. JSON object keys are strings, so the
+   * id arrives as text; absent or blank means "use the driver's name".
+   */
+  deviceNames: Record<string, string>;
   /** Animation playback speed multiplier (0.1..5, 1 = normal). */
   animationSpeed: number;
   /** Seconds of inactivity before lights turn off (0 = disabled, min 30). */
@@ -143,6 +150,11 @@ export interface GeneralConfig {
    *  is a locale tag ("en", "es"). An unknown tag falls back to English
    *  rather than back to "auto", so a choice is never silently overridden. */
   language: string;
+  /**
+   * User-chosen display names, keyed by the Windows device name
+   * ("\\.\DISPLAY1"). Absent or blank means "fall back to the device name".
+   */
+  screenNames: Record<string, string>;
   pauseOnBatterySaver: boolean;
   pauseOnFullscreen: boolean;
   wallpaperEnabled: boolean;
@@ -225,6 +237,26 @@ export interface HotkeyError {
   message: string;
 }
 
+/**
+ * Playback overrides for one vault entry.
+ *
+ * Every field is optional and `undefined` means "inherit the global setting".
+ * That distinction matters: inheriting is what lets the global setting keep
+ * applying to the rest of the vault when you change it, and an entry that has
+ * never been touched carries none of this at all.
+ */
+export interface EntryOptions {
+  /** "cover" | "contain" | "fill" | "auto". */
+  fit?: string;
+  /** Playback rate; the runtime clamps to 0.1..8. */
+  speed?: number;
+  /** Audio volume for this entry only. */
+  volume?: number;
+  brightness?: number;
+  saturation?: number;
+  hue?: number;
+}
+
 export interface GalleryEntry {
   id: string;
   name: string;
@@ -234,6 +266,13 @@ export interface GalleryEntry {
   addedMs: number;
   /** media:// URL of the generated thumbnail (videos/images), when ready. */
   thumb?: string | null;
+  /** Per-entry playback overrides, absent when the entry inherits everything. */
+  opts?: EntryOptions | null;
+  /** Starred by hand. Not a collection: a collection is a named membership list
+   *  you set up deliberately, this is the one-click "I like this one". */
+  favorite?: boolean;
+  /** When this entry was last put on a display, for the "recently used" sort. */
+  lastAppliedMs?: number | null;
 }
 
 /** A named group of vault entries (membership only, no copies). */

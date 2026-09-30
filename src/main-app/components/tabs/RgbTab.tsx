@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
 import { Card, Toggle, Slider, Btn, ColorInput, Dropdown, Section, Segmented, InfoNote, ItemTitle } from "../ui";
-import { DeviceRow } from "../DeviceRow";
+import { DeviceRow, deviceName } from "../DeviceRow";
 import { IconRefresh, IconZap, IconWave, IconPlus, IconTrash } from "../icons";
 import { RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import { rgbToHex } from "../../utilities";
@@ -48,8 +48,14 @@ const NUMPAD_ROWS: Key[][] = [
  * The shown device is auto-selected: first keyboard, else first device.
  */
 export function KeyboardPreview() {
-  const { rgb, deviceColors } = useStore(
-    useShallow((s) => ({ rgb: s.rgb, deviceColors: s.deviceColors })),
+  const { rgb, deviceColors, deviceNames } = useStore(
+    useShallow((s) => ({
+      rgb: s.rgb,
+      deviceColors: s.deviceColors,
+      // The map's identity only changes when a device is renamed, so a
+      // shallow compare keeps this from re-rendering on every config write.
+      deviceNames: s.cfg?.rgb.deviceNames ?? {},
+    })),
   );
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [previewId, setPreviewId] = useState<number | null>(null);
@@ -352,7 +358,7 @@ export function KeyboardPreview() {
             value={kb?.id ?? ""}
             options={rgb.devices.map((d) => ({
               id: d.id,
-              label: `${d.name || `Device ${d.id}`} · ${d.leds}`,
+              label: `${deviceName(d, deviceNames)} · ${d.leds}`,
             }))}
             onChange={(v) => setPreviewId(Number(v))}
           />
@@ -730,7 +736,7 @@ export default function RgbTab() {
                     { id: -1, label: t("common.off-static-color") },
                     ...rgb.devices.map((d) => ({
                       id: d.id,
-                      label: d.name || t("common.device-{id}", { id: d.id }),
+                      label: deviceName(d, rgbCfg.deviceNames),
                     })),
                   ]}
                   onChange={(v) =>
@@ -792,6 +798,15 @@ export default function RgbTab() {
                         if (set.has(d.id)) set.delete(d.id);
                         else set.add(d.id);
                         c.rgb.excludedDevices = [...set];
+                      })
+                    }
+                    deviceNames={rgbCfg.deviceNames}
+                    onRename={(name) =>
+                      save((c) => {
+                        const names = { ...c.rgb.deviceNames };
+                        if (name) names[String(d.id)] = name;
+                        else delete names[String(d.id)];
+                        c.rgb.deviceNames = names;
                       })
                     }
                   />

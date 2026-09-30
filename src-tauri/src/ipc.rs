@@ -214,6 +214,20 @@ pub fn get_wallpaper_info(webview_window: tauri::WebviewWindow) -> WallpaperInfo
     let mut effective = cfg.wallpaper.clone();
     effective.kind = pm_kind;
     effective.source = pm_source.clone();
+    // Per-entry playback overrides, layered on last. They are matched against
+    // the *raw* source, because the gallery stores the path it was given while
+    // the webview renders a resolved media:// URL, and those two are different
+    // strings. An entry with nothing set leaves the global config untouched, so
+    // the other four hundred clips in the vault are unaffected.
+    let (raw_kind, raw_source) = crate::wallpaper::raw_for_monitor(&cfg.wallpaper, &mon.device);
+    if let Some(opts) = cfg
+        .gallery
+        .iter()
+        .find(|g| g.kind == raw_kind && g.source == raw_source)
+        .and_then(|g| g.opts.clone())
+    {
+        opts.apply_to(&mut effective);
+    }
     WallpaperInfo {
         monitor: mon,
         scale,
@@ -448,6 +462,9 @@ pub fn gallery_add(
                 source,
                 added_ms: now_ms(),
                 thumb,
+                opts: None,
+                favorite: false,
+                last_applied_ms: None,
             });
         }
     })
@@ -498,6 +515,9 @@ pub fn gallery_import_folder(folder: String) -> Result<Vec<crate::config::Galler
                 source,
                 added_ms: now_ms(),
                 thumb: None,
+                opts: None,
+                favorite: false,
+                last_applied_ms: None,
             });
             imported += 1;
         }
@@ -563,6 +583,9 @@ pub fn gallery_import_paths(
                 source,
                 added_ms: now_ms(),
                 thumb: None,
+                opts: None,
+                favorite: false,
+                last_applied_ms: None,
             });
             imported += 1;
         }
@@ -597,6 +620,13 @@ pub fn gallery_apply(app: AppHandle, id: String) -> Result<(), String> {
     crate::config_store::update(|c| {
         c.wallpaper.kind = entry.kind;
         c.wallpaper.source = entry.source.clone();
+        // Stamped here rather than by the caller, so every path that puts a
+        // wallpaper on a screen records it. That is what the "recently used"
+        // sort reads, and it has to be the backend's job or a caller will
+        // forget.
+        if let Some(g) = c.gallery.iter_mut().find(|g| g.id == id) {
+            g.last_applied_ms = Some(now_ms());
+        }
     })?;
     if crate::config_store::get().general.wallpaper_enabled {
         crate::wallpaper::ensure(&app)?;
@@ -628,6 +658,11 @@ pub fn gallery_apply_monitor(
     crate::config_store::update(|c| {
         match id {
             Some(_id) => {
+                // Same stamp as gallery_apply: a wallpaper shown on one display
+                // has been used, and the "recently used" sort should know it.
+                if let Some(g) = c.gallery.iter_mut().find(|g| g.id == _id) {
+                    g.last_applied_ms = Some(now_ms());
+                }
                 c.wallpaper.per_monitor.insert(
                     monitor,
                     crate::config::PerMonitorWallpaper {
@@ -743,11 +778,19 @@ fn md5_lite(bytes: &[u8]) -> u64 {
     h
 }
 
+/// One browse dialog for every media kind, with multi-select.
+///
+/// It used to be two commands — one labelled "video", one "image" — but the
+/// filter list was already the union of both, so all the choice ever decided
+/// was which kind string the caller hardcoded alongside the same dialog. The
+/// kind is now inferred from the extension. Taking a list rather than one path
+/// is the part that matters: selecting a folder's worth of wallpapers in one go
+/// is the difference between one dialog and twenty.
 #[tauri::command]
-pub async fn pick_media_file() -> Result<Option<String>, String> {
+pub async fn pick_media_files() -> Result<Vec<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     let Some(app) = crate::app_handle() else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
@@ -756,6 +799,119 @@ pub async fn pick_media_file() -> Result<Option<String>, String> {
             "Media",
             &["png", "jpg", "jpeg", "gif", "webp", "bmp", "mp4", "webm", "mov", "mkv"],
         )
+        .pick_files(move |paths| {
+            let _ = tx.send(
+                paths
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>(),
+            );
+        });
+    rx.await.map_err(crate::error::err_str)
+}
+
+/// Star or unstar one entry.
+#[tauri::command]
+pub fn gallery_set_favorite(id: String, favorite: bool) -> Result<Vec<crate::config::GalleryEntry>, String> {
+    let cfg = crate::config_store::update(|c| {
+        if let Some(g) = c.gallery.iter_mut().find(|g| g.id == id) {
+            g.favorite = favorite;
+        }
+    })?;
+    Ok(cfg.gallery)
+}
+
+/// Set (or clear) one gallery entry's playback overrides.
+///
+/// An all-`None` bag is stored as `None` rather than as an empty object, so
+/// "back to the global setting" leaves no residue in the config file and the
+/// entry compares equal to one that never had the drawer opened.
+#[tauri::command]
+pub fn gallery_set_opts(
+    id: String,
+    opts: Option<crate::config::EntryOptions>,
+) -> Result<Vec<crate::config::GalleryEntry>, String> {
+    let cleaned = opts.filter(|o| !o.is_empty());
+    let cfg = crate::config_store::update(|c| {
+        if let Some(entry) = c.gallery.iter_mut().find(|g| g.id == id) {
+            entry.opts = cleaned;
+        }
+    })?;
+    Ok(cfg.gallery)
+}
+
+/// Open the containing folder in Explorer with this file selected.
+///
+/// `/select,` is what makes it a "show me where this lives" rather than a
+/// folder open that leaves you to hunt for the file yourself.
+#[tauri::command]
+pub fn reveal_in_folder(path: String) -> Result<(), String> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.exists() {
+        return Err(format!("not found: {path}"));
+    }
+    std::process::Command::new("explorer")
+        .arg(format!("/select,{}", p.display()))
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("explorer: {e}"))
+}
+
+/// Gallery entry ids whose file is no longer on disk.
+///
+/// Only the kinds that point at a path are checked: a web wallpaper is a URL
+/// and a shader is a preset id, and calling either of them "missing" would be a
+/// lie rather than a warning. The duplicate half of the health check is
+/// computed in the frontend, where it can be unit-tested without a filesystem.
+#[tauri::command]
+pub fn vault_missing() -> Vec<String> {
+    use crate::config::WallpaperKind;
+    let cfg = crate::config_store::get();
+    cfg.gallery
+        .iter()
+        .filter(|g| matches!(g.kind, WallpaperKind::Video | WallpaperKind::Image))
+        .filter(|g| !std::path::Path::new(&g.source).exists())
+        .map(|g| g.id.clone())
+        .collect()
+}
+
+/// Throw away a cached poster frame and extract a fresh one.
+#[tauri::command]
+pub fn gallery_regenerate_thumb(id: String) -> Result<Vec<crate::config::GalleryEntry>, String> {
+    let source = {
+        let cfg = crate::config_store::get();
+        match cfg.gallery.iter().find(|g| g.id == id) {
+            Some(g) => g.source.clone(),
+            None => return Err(format!("no gallery entry {id}")),
+        }
+    };
+    let path = crate::thumbs::regenerate_thumb(&source, 480)?;
+    let media = crate::thumbs::thumb_media_url(&path);
+    let cfg = crate::config_store::update(|c| {
+        if let Some(entry) = c.gallery.iter_mut().find(|g| g.id == id) {
+            entry.thumb = Some(media);
+        }
+    })?;
+    Ok(cfg.gallery)
+}
+
+/// One image, for the sticker picker.
+///
+/// Stickers are images only, so this stays a single-file dialog with an
+/// image-only filter. It is deliberately not `pick_media_files` with a `[0]`
+/// on the end: a picker that lets you select five and silently uses one is
+/// worse than one that never offered you the choice.
+#[tauri::command]
+pub async fn pick_image_file() -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(app) = crate::app_handle() else {
+        return Ok(None);
+    };
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("Images", &["png", "jpg", "jpeg", "webp", "bmp"])
         .pick_file(move |path| {
             let _ = tx.send(path.map(|p| p.to_string()));
         });

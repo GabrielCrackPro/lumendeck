@@ -49,6 +49,20 @@ pub fn wants_thumb(entry: &GalleryEntry) -> bool {
         && std::path::Path::new(&entry.source).is_file()
 }
 
+/// Discard the cached poster frame and extract it again.
+///
+/// `ensure_thumb` is a no-op once the file exists, which is right for the
+/// background worker and wrong for an explicit "regenerate": a cached frame
+/// that is black, or was captured before a re-encode, would otherwise be
+/// unrecoverable short of hunting down the PNG in %APPDATA% by hand.
+pub fn regenerate_thumb(source: &str, size: u32) -> Result<PathBuf, String> {
+    let out = thumb_path(source);
+    if out.exists() {
+        std::fs::remove_file(&out).map_err(|e| format!("remove thumb: {e}"))?;
+    }
+    ensure_thumb(source, size)
+}
+
 fn extract_shell_thumb(source: &str, size: u32, out: &PathBuf) -> Result<(), String> {
     use windows::core::{Interface, HSTRING};
     use windows::Win32::Graphics::Gdi::{

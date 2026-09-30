@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   Config,
+  EntryOptions,
   GalleryEntry,
   MediaInfo,
   RgbStatus,
@@ -23,7 +24,8 @@ export const api = {
   setWallpaperEnabled: (enabled: boolean) =>
     invoke<void>("set_wallpaper_enabled", { enabled }),
 
-  pickMediaFile: () => invoke<string | null>("pick_media_file"),
+  pickMediaFiles: () => invoke<string[]>("pick_media_files"),
+  pickImageFile: () => invoke<string | null>("pick_image_file"),
   pickMediaFolder: () => invoke<string | null>("pick_media_folder"),
   listImages: (folder: string) => invoke<string[]>("list_images", { folder }),
 
@@ -44,6 +46,15 @@ export const api = {
     invoke<GalleryEntry[]>("gallery_import_paths", { paths }),
   galleryAddFromUrl: (url: string, name?: string) =>
     invoke<GalleryEntry[]>("gallery_add_from_url", { url, name: name ?? null }),
+  gallerySetOpts: (id: string, opts: EntryOptions | null) =>
+    invoke<GalleryEntry[]>("gallery_set_opts", { id, opts }),
+  gallerySetFavorite: (id: string, favorite: boolean) =>
+    invoke<GalleryEntry[]>("gallery_set_favorite", { id, favorite }),
+  galleryRegenerateThumb: (id: string) =>
+    invoke<GalleryEntry[]>("gallery_regenerate_thumb", { id }),
+  /** Ids whose file is no longer on disk. Web/shader entries are never listed. */
+  vaultMissing: () => invoke<string[]>("vault_missing"),
+  revealInFolder: (path: string) => invoke<void>("reveal_in_folder", { path }),
 
   collectionCreate: (name: string) =>
     invoke<WallpaperCollection>("collection_create", { name }),

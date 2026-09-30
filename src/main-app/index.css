@@ -448,6 +448,78 @@ input[type="color"]::-webkit-color-swatch {
 .stagger > *:nth-child(9) { animation-delay: 0.34s; }
 .stagger > *:nth-child(10) { animation-delay: 0.38s; }
 
+/* ---------- vault ---------- */
+
+/* Tiles reveal as they approach the viewport rather than all at once. A
+   vault of a few hundred wallpapers animating together is a wall of noise, and
+   the ones you cannot see do not need to finish moving before you do. */
+.tile-reveal {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.tile-revealed {
+  opacity: 1;
+  transform: none;
+  /* The transform is kept short because the same property carries the hover
+     lift, and a hover that takes 450ms to answer reads as lag rather than
+     motion. box-shadow and border-color are listed so overriding the Tailwind
+     `transition-all` does not cost the rest of the tile its hover. */
+  transition:
+    opacity 0.4s cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 0.28s cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 0.28s ease,
+    border-color 0.28s ease;
+}
+
+@keyframes starPop {
+  0% {
+    transform: scale(1);
+  }
+  38% {
+    transform: scale(1.45) rotate(-12deg);
+  }
+  70% {
+    transform: scale(0.92);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.star-pop {
+  animation: starPop 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* The live pill and the rotation badge mount when an entry goes live, so the
+   animation reads as the wallpaper arriving rather than as chrome. */
+@keyframes livePop {
+  0% {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+.live-pop {
+  animation: livePop 0.4s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+/* A collection chip while a tile is in flight. Slow on purpose: this runs for
+   as long as the drag does, and anything faster reads as a glitch. */
+@keyframes dropArm {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(var(--glow) / 0);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgb(var(--glow) / 0.18);
+  }
+}
+.drop-armed {
+  animation: dropArm 1.5s ease-in-out infinite;
+}
+
 /* ---------- command palette ---------- */
 
 @keyframes palOverlay {
@@ -496,6 +568,117 @@ input[type="color"]::-webkit-color-swatch {
 .pal-row {
   animation: palRow 0.2s ease-out both;
 }
+
+/* ---------- vault drawer ----------
+   A slide-over that covers the grid instead of taking width from it. The grid
+   underneath never reflows when a wallpaper is selected, so browsing a wide
+   vault does not shift under the pointer. */
+@keyframes drawerScrim {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes drawerSlide {
+  from {
+    opacity: 0;
+    transform: translateX(26px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.drawer-scrim {
+  animation: drawerScrim 0.16s ease-out both;
+}
+.drawer-panel {
+  animation: drawerSlide 0.24s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* ---------- anchored popovers ----------
+   A popover that grows out of the control that opened it reads as attached to
+   it; the page-level enter animation, which rises from below, made a select
+   look like it was arriving from nowhere. */
+@keyframes menuPop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Exits are shorter than entrances. A popover that takes as long to leave as
+   it took to arrive feels like it is hesitating, and it holds the pointer's
+   attention on something already gone. Keep in step with CLOSE_MS in
+   usePopover.ts — that timer is what unmounts the panel. */
+@keyframes menuPopOut {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.98);
+  }
+}
+.menu-pop {
+  animation: menuPop 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  will-change: opacity, transform;
+}
+.menu-pop-out {
+  animation: menuPopOut 0.12s ease-in both;
+  will-change: opacity, transform;
+}
+
+/* ---------- modal ----------
+   One modal entrance for the whole app, matching the command palette's timing
+   so a dialog arriving from two different components still arrives the same
+   way. The row stagger is short on purpose — past about 20ms per row a
+   four-item list feels slow rather than considered. */
+@keyframes modalFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes modalRow {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.modal-scrim {
+  animation: modalFade 0.18s ease-out both;
+}
+.modal-panel {
+  animation: modalIn 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  will-change: opacity, transform;
+}
+.modal-row {
+  animation: modalRow 0.14s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
 /* selection ring: transitions instead of an instant class swap */
 .pal-cmd {
   transition:
@@ -598,11 +781,28 @@ input[type="color"]::-webkit-color-swatch {
   .pal-panel,
   .pal-swap,
   .pal-row,
+  .drawer-scrim,
+  .drawer-panel,
+  .menu-pop,
+  .menu-pop-out,
+  .modal-scrim,
+  .modal-panel,
+  .modal-row,
   .track-swap,
   .track-slide,
   .transport-pulse,
   .player-icon-swap,
-  .player-toggle-pop {
+  .player-toggle-pop,
+  .star-pop,
+  .live-pop,
+  .drop-armed {
     animation: none !important;
+  }
+  /* The reveal is a transition, and the wildcard above already collapses its
+     duration, but the start state still has to be released or every tile stays
+     invisible. */
+  .tile-reveal {
+    opacity: 1;
+    transform: none;
   }
 }

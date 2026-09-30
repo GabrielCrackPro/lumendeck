@@ -402,7 +402,9 @@ function TrackIdentity({
           {media.title}
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[10.5px] text-[var(--text-faint)]">
-          <span className="truncate">{media.artist || "Unknown artist"}</span>
+          <span className="truncate">
+            {media.artist || t("overview.unknown-artist")}
+          </span>
           <span
             className="shrink-0 text-[10px] text-[var(--text-faint)]/70"
             title={media.appId}
@@ -1019,6 +1021,15 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                         if (set.has(d.id)) set.delete(d.id);
                         else set.add(d.id);
                         cc.rgb.excludedDevices = [...set];
+                      })
+                    }
+                    deviceNames={cfg.rgb.deviceNames}
+                    onRename={(name) =>
+                      save((cc) => {
+                        const names = { ...cc.rgb.deviceNames };
+                        if (name) names[String(d.id)] = name;
+                        else delete names[String(d.id)];
+                        cc.rgb.deviceNames = names;
                       })
                     }
                   />

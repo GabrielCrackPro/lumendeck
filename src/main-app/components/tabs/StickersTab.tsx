@@ -117,7 +117,7 @@ export default function StickersTab() {
     console.info("[stickers] add clicked");
     setBusy(true);
     try {
-      const file = await api.pickMediaFile();
+      const file = await api.pickImageFile();
       console.info("[stickers] picker returned", file);
       if (!file) return;
       const name = basename(file);

@@ -1,6 +1,7 @@
 //! Persistence model for LumenDeck settings, mirrored by src/shared/types.ts.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub const CONFIG_VERSION: u32 = 1;
 
@@ -51,6 +52,15 @@ pub struct GeneralConfig {
     /// "auto" so a Spanish Windows gets a Spanish app without anyone
     /// visiting Settings — the one thing nobody should have to configure.
     pub language: String,
+    /// User-chosen names for displays, keyed by the Windows device name
+    /// ("\.\DISPLAY1").
+    ///
+    /// The raw key is what identifies a display to Windows, but it is not a
+    /// name a person would use — the panel currently shows ".DISPLAY1" or
+    /// nothing at all. The alias is local to LumenDeck, and an absent or
+    /// blank entry means "fall back to the device name".
+    #[serde(default)]
+    pub screen_names: HashMap<String, String>,
     pub pause_on_battery_saver: bool,
     pub pause_on_fullscreen: bool,
     pub wallpaper_enabled: bool,
@@ -198,6 +208,7 @@ impl Default for GeneralConfig {
             autostart: false,
             theme: ThemeMode::System,
             language: "auto".to_string(),
+            screen_names: HashMap::new(),
             // Off by default: a laptop user's first run should show a live
             // wallpaper, not a frozen frame just because the charger is
             // unplugged. Opt in from the General tab.
@@ -278,10 +289,16 @@ pub struct WallpaperConfig {
     /// Video color grading: hue rotation in degrees (-180..180).
     pub video_hue: f32,
     /// Per-display wallpaper overrides, keyed by monitor device string
-    /// (e.g. "\\.\DISPLAY1"). A display with no entry uses the global
-    /// wallpaper config. Only kind+source are overridden; playback options
-    /// (fit, speed, grading, volume) stay global.
+    /// (e.g. "\.\DISPLAY1"). A display with no entry uses the global
+    /// wallpaper config. Only kind+source are overridden there; per-entry
+    /// playback options (see EntryOptions) are layered on afterwards.
     pub per_monitor: std::collections::BTreeMap<String, PerMonitorWallpaper>,
+    /// Whether importing a wallpaper also puts it on the displays.
+    ///
+    /// On by default, because for a single file that is almost always what you
+    /// meant. It is wrong for a folder: importing sixty files then leaves the
+    /// sixtieth one on your desktop, which is never the intent.
+    pub apply_after_import: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -304,6 +321,7 @@ impl Default for WallpaperConfig {
             video_saturation: 1.0,
             video_hue: 0.0,
             per_monitor: std::collections::BTreeMap::new(),
+            apply_after_import: true,
         }
     }
 }
@@ -387,6 +405,14 @@ pub struct RgbConfig {
     pub mixer: RgbMixer,
     pub min_update_ms: u64,
     pub excluded_devices: Vec<u32>,
+    /// User-chosen names for devices, keyed by OpenRGB device id.
+    ///
+    /// OpenRGB reports whatever the driver called the device, which is often a
+    /// model string repeated across a desk ("LEDStrip1", "LEDStrip2") and
+    /// never localised. The alias is local to LumenDeck — OpenRGB owns the
+    /// real name — and an absent or blank entry means "use the driver's".
+    #[serde(default)]
+    pub device_names: HashMap<u32, String>,
     /// Animation playback speed multiplier (0.1..5, 1 = normal).
     pub animation_speed: f64,
     /// Seconds of inactivity before lights turn off (0 = disabled, min 30).
@@ -456,6 +482,7 @@ impl Default for RgbConfig {
             mixer: RgbMixer::default(),
             min_update_ms: 100,
             excluded_devices: Vec::new(),
+            device_names: HashMap::new(),
             animation_speed: 1.0,
             idle_timeout_sec: 30,
             idle_check_interval_sec: 5,
@@ -584,6 +611,74 @@ pub struct GalleryEntry {
     pub added_ms: u64,
     /// Small JPEG data-URL preview captured client-side (optional).
     pub thumb: Option<String>,
+    /// Per-entry playback overrides. `None` on every field means "inherit the
+    /// global setting", which is what keeps a vault saved before this field
+    /// existed rendering exactly as it always did.
+    #[serde(default)]
+    pub opts: Option<EntryOptions>,
+    /// Starred by hand. Not a collection: a collection is a named membership
+    /// list you set up deliberately, this is the one-click "I like this one".
+    #[serde(default)]
+    pub favorite: bool,
+    /// When this entry was last put on a display, for the "recently used" sort.
+    /// `None` has never been applied, which is different from applied at epoch.
+    #[serde(default)]
+    pub last_applied_ms: Option<u64>,
+}
+
+/// Playback overrides for one vault entry.
+///
+/// Every field is an `Option` because "inherit" and "set to the same value as
+/// the global" are different things: inheriting is what lets the global setting
+/// keep applying to the other four hundred clips when you change it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EntryOptions {
+    /// "cover" | "contain" | "fill" | "auto".
+    pub fit: Option<String>,
+    /// Playback rate; the runtime clamps to 0.1..8.
+    pub speed: Option<f32>,
+    /// Audio volume for this entry only. A clip with a soundtrack can be muted
+    /// without muting the app.
+    pub volume: Option<f64>,
+    pub brightness: Option<f32>,
+    pub saturation: Option<f32>,
+    pub hue: Option<f32>,
+}
+
+impl EntryOptions {
+    /// True when nothing is set, so the caller can drop the whole object
+    /// instead of persisting an empty bag of nulls.
+    pub fn is_empty(&self) -> bool {
+        self.fit.is_none()
+            && self.speed.is_none()
+            && self.volume.is_none()
+            && self.brightness.is_none()
+            && self.saturation.is_none()
+            && self.hue.is_none()
+    }
+
+    /// Overlay these overrides onto the global wallpaper config.
+    pub fn apply_to(&self, cfg: &mut WallpaperConfig) {
+        if let Some(v) = &self.fit {
+            cfg.video_fit = v.clone();
+        }
+        if let Some(v) = self.speed {
+            cfg.video_speed = v;
+        }
+        if let Some(v) = self.volume {
+            cfg.volume = v;
+        }
+        if let Some(v) = self.brightness {
+            cfg.video_brightness = v;
+        }
+        if let Some(v) = self.saturation {
+            cfg.video_saturation = v;
+        }
+        if let Some(v) = self.hue {
+            cfg.video_hue = v;
+        }
+    }
 }
 
 /// A named group of vault entries. Entries keep their global vault ids;
@@ -743,6 +838,66 @@ impl Default for Config {
 }
 
 #[cfg(test)]
+mod device_name_tests {
+    use super::*;
+
+    #[test]
+    fn a_config_without_device_names_still_loads() {
+        // Renaming shipped after the first release, so every config already on
+        // disk predates the field. Serde's `default` is what keeps those from
+        // failing to parse, and it is the one thing here that must not regress.
+        let raw = serde_json::json!({ "version": CONFIG_VERSION, "rgb": {} });
+        let cfg: Config = serde_json::from_value(raw).expect("an older config parses");
+        assert!(cfg.rgb.device_names.is_empty());
+    }
+
+    #[test]
+    fn device_names_survive_a_round_trip() {
+        let mut names = HashMap::new();
+        names.insert(4u32, "Desk strip".to_string());
+        let mut rgb = RgbConfig::default();
+        rgb.device_names = names;
+
+        let json = serde_json::to_value(&rgb).expect("serialises");
+        // JSON object keys are strings, so serde writes the id as "4".
+        assert_eq!(json["deviceNames"]["4"], "Desk strip");
+        let back: RgbConfig = serde_json::from_value(json).expect("deserialises");
+        assert_eq!(back.device_names.get(&4).map(String::as_str), Some("Desk strip"));
+    }
+
+    #[test]
+    fn default_is_empty() {
+        assert!(RgbConfig::default().device_names.is_empty());
+    }
+
+    #[test]
+    fn a_config_without_screen_names_still_loads() {
+        let raw = serde_json::json!({ "version": CONFIG_VERSION, "general": {} });
+        let cfg: Config = serde_json::from_value(raw).expect("an older config parses");
+        assert!(cfg.general.screen_names.is_empty());
+    }
+
+    #[test]
+    fn screen_names_survive_a_round_trip() {
+        // The key is the Windows device name, backslashes and all: JSON has no
+        // escaping problem here, but getting the key wrong would silently
+        // orphan every alias the user has set.
+        let mut names = HashMap::new();
+        names.insert(r"\.\DISPLAY2".to_string(), "Desk".to_string());
+        let mut general = GeneralConfig::default();
+        general.screen_names = names;
+
+        let json = serde_json::to_value(&general).expect("serialises");
+        assert_eq!(json["screenNames"][r"\.\DISPLAY2"], "Desk");
+        let back: GeneralConfig = serde_json::from_value(json).expect("deserialises");
+        assert_eq!(
+            back.screen_names.get(r"\.\DISPLAY2").map(String::as_str),
+            Some("Desk")
+        );
+    }
+}
+
+#[cfg(test)]
 mod playlist_tests {
     use super::*;
 
@@ -896,5 +1051,93 @@ mod playlist_tests {
         assert_eq!(hk, back);
         assert!(!back.toggle_mute.is_empty());
         assert!(back.play_pause.is_empty(), "whitespace is not a binding");
+    }
+}
+
+/// Per-entry playback overrides, and the promise they make to an existing vault.
+#[cfg(test)]
+mod entry_options_tests {
+    use super::{EntryOptions, GalleryEntry, WallpaperConfig, WallpaperKind};
+
+    fn entry() -> GalleryEntry {
+        GalleryEntry {
+            id: "g1".into(),
+            name: "clip".into(),
+            kind: WallpaperKind::Video,
+            source: "C:/clip.mp4".into(),
+            added_ms: 0,
+            thumb: None,
+            opts: None,
+            favorite: false,
+            last_applied_ms: None,
+        }
+    }
+
+    /// A config file written before this field existed has no `opts` key at all.
+    /// If that failed to parse, every existing user would open the app to a
+    /// reset vault.
+    #[test]
+    fn an_entry_without_the_field_still_parses() {
+        let json = r#"{"id":"g1","name":"clip","kind":"video","source":"C:/clip.mp4","addedMs":0}"#;
+        let e: GalleryEntry = serde_json::from_str(json).unwrap();
+        assert!(e.opts.is_none());
+    }
+
+    /// And one that has it round-trips, so a per-entry speed survives a restart
+    /// rather than quietly reverting to the global value.
+    #[test]
+    fn a_set_option_survives_the_round_trip() {
+        let e = GalleryEntry {
+            opts: Some(EntryOptions {
+                speed: Some(0.5),
+                fit: Some("contain".into()),
+                ..Default::default()
+            }),
+            ..entry()
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        let back: GalleryEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.opts.as_ref().unwrap().speed, Some(0.5));
+        assert_eq!(back.opts.as_ref().unwrap().fit.as_deref(), Some("contain"));
+    }
+
+    /// "Inherit" and "set to the same value as the global" are different things.
+    /// An empty bag must leave the config completely alone, or changing the
+    /// global speed would stop affecting a wallpaper the user had touched.
+    #[test]
+    fn an_empty_bag_changes_nothing() {
+        let mut w = WallpaperConfig::default();
+        w.video_speed = 2.0;
+        let before = w.clone();
+        EntryOptions::default().apply_to(&mut w);
+        assert_eq!(w, before);
+        assert!(EntryOptions::default().is_empty());
+    }
+
+    #[test]
+    fn only_the_set_fields_are_overlaid() {
+        let mut w = WallpaperConfig::default();
+        w.video_fit = "cover".into();
+        w.video_speed = 1.0;
+        w.volume = 0.5;
+        let opts = EntryOptions {
+            volume: Some(0.0),
+            ..Default::default()
+        };
+        opts.apply_to(&mut w);
+        // Muted is a real value here, not "unset": an entry with a soundtrack
+        // has to be silenceable without muting the app.
+        assert_eq!(w.volume, 0.0);
+        assert_eq!(w.video_fit, "cover", "an unset field must not be reset");
+        assert_eq!(w.video_speed, 1.0);
+    }
+
+    #[test]
+    fn a_bag_with_one_field_in_it_is_not_empty() {
+        let opts = EntryOptions {
+            hue: Some(0.0),
+            ..Default::default()
+        };
+        assert!(!opts.is_empty());
     }
 }

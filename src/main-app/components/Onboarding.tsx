@@ -12,6 +12,7 @@ import { api } from "../ipc";
 import { Btn, Toggle, ThemePicker, ItemTitle } from "./ui";
 import { RGB_MODES } from "@shared/constants";
 import { basename, truncateError } from "../utilities";
+import { resolvePicked } from "./gallery/mediaKind";
 import type { RgbMode } from "@shared/types";
 import { t } from "../i18n";
 
@@ -55,12 +56,13 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   const importFile = async () => {
     setBusy(true);
     try {
-      const file = await api.pickMediaFile();
-      if (!file) return;
+      const files = await api.pickMediaFiles();
+      const first = resolvePicked(files)[0];
+      if (!first) return;
       await api.galleryAdd({
-        name: basename(file),
-        kind: /\.(mp4|webm|mov|m4v|mkv)$/i.test(file) ? "video" : "image",
-        source: file,
+        name: basename(first.path),
+        kind: first.kind,
+        source: first.path,
       });
       setImported((n) => n + 1);
       const fresh = await api.getConfig();
