@@ -165,7 +165,57 @@ function formatEntry(entry) {
   return `- ${breaking}${scope}${entry.parsed.text} (\`${shortHash(entry.hash)}\`)`;
 }
 
-function renderRelease(version, date, entries) {
+/** Section title -> a conventional type that renders under it. Carried lines
+ *  arrive as finished markdown from an earlier run, so they need a type only
+ *  to land back in the same heading. */
+const SECTION_TYPE = {
+  Added: "feat",
+  Changed: "refactor",
+  Fixed: "fix",
+  Performance: "perf",
+  Internal: "chore",
+};
+
+/**
+ * Entries the file already lists under this version, so regenerating adds to
+ * the section instead of replacing it.
+ *
+ * The old behaviour rebuilt the current version's section purely from
+ * `<newest tag>..HEAD`. That is only correct while the newest tag by *version
+ * string* is also the boundary of this release — and here it is not: tags run
+ * to v0.2.22 while the app is 0.2.7, so `v0.2.22..HEAD` excludes commits that
+ * genuinely belong to 0.2.7 and the next run deleted three real release
+ * notes. Merging keeps the promise in the comment below: a note that was
+ * written once is never dropped, whatever the tag situation looks like.
+ */
+function carryForward(section) {
+  const carried = [];
+  let counts = { internal: 0, misc: 0 };
+  let type = "feat";
+  for (const line of section.split("\n")) {
+    const heading = line.match(/^### (.+)$/);
+    if (heading) {
+      type = SECTION_TYPE[heading[1]] ?? "feat";
+      continue;
+    }
+    const bullet = line.match(/^- (.*) \(`([0-9a-f]{7,})`\)$/);
+    if (bullet) {
+      carried.push({
+        hash: bullet[2],
+        carried: true,
+        parsed: { type, text: bullet[1], scope: null, breaking: false },
+      });
+      continue;
+    }
+    // Internal commits are summarised as a count rather than listed, so the
+    // count is the only record of them that exists.
+    const summary = line.match(/^_(\d+) (internal|misc)/);
+    if (summary) counts[summary[2]] = Number(summary[1]);
+  }
+  return { carried, counts };
+}
+
+function renderRelease(version, date, entries, carriedCounts = { internal: 0, misc: 0 }) {
   const lines = [`## ${version} — ${date}`];
 
   const prose = notesFor(version);
@@ -187,10 +237,12 @@ function renderRelease(version, date, entries) {
     lines.push("", `### ${section.title}`, ...group.map(formatEntry));
   }
 
-  if (internal.length || unknown.length) {
+  const internalTotal = internal.length + carriedCounts.internal;
+  const miscTotal = unknown.length + carriedCounts.misc;
+  if (internalTotal || miscTotal) {
     const parts = [];
-    if (internal.length) parts.push(`${internal.length} internal`);
-    if (unknown.length) parts.push(`${unknown.length} misc`);
+    if (internalTotal) parts.push(`${internalTotal} internal`);
+    if (miscTotal) parts.push(`${miscTotal} misc`);
     lines.push("", `_${parts.join(", ")}._`);
   }
 
@@ -246,9 +298,22 @@ function build() {
   const head = `## ${version} — `;
   const [oldHeader, ...oldSections] = existing.split(/\n(?=## )/);
   const kept = oldSections.filter((s) => !s.startsWith(head));
+  const current = oldSections.find((s) => s.startsWith(head)) ?? "";
+  // New commits first (newest at the top), then everything the section
+  // already listed that this range did not rediscover. Re-running is stable:
+  // the second pass finds its own output and produces the same file.
+  const { carried, counts } = carryForward(current);
+  // Bullets carry the short hash while git gives the full one, so the
+  // comparison has to be in the same units.
+  const fresh = new Set(entries.map((e) => shortHash(e.hash)));
   const document = [
     header.trimEnd(),
-    renderRelease(version, today, entries),
+    renderRelease(
+      version,
+      today,
+      [...entries, ...carried.filter((e) => !fresh.has(e.hash))],
+      counts,
+    ),
     ...kept,
   ]
     .join("\n\n")
