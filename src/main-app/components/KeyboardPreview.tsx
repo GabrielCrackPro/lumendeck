@@ -5,14 +5,24 @@ import { Dropdown } from "./ui";
 import { deviceName } from "./DeviceRow";
 import { t } from "../i18n";
 import type { DeviceColor } from "@shared/types";
-import { DARK_LED, paintLedGlow, previewDpr, roundRectPath } from "./ledPaint";
+import {
+  DARK_LED,
+  frameSignature,
+  paintLedGlow,
+  previewDpr,
+  roundRectPath,
+} from "./ledPaint";
+import { paintCase, paintKeycap, paintZoneSeam } from "./keycap";
 import {
   buildKeyboardPlates,
+  caseRect,
   disposition,
   dispositionLabel,
   plateAt,
+  plateBounds,
   type DispositionLabel,
   type Plate,
+  type Rect,
 } from "./keyboardLayout";
 
 /**
@@ -48,7 +58,69 @@ const DISPOSITION_LABEL_KEYS: Record<DispositionLabel, string> = {
  * backing store was only sized when colours arrived, so resizing the window
  * left a stretched bitmap.
  */
-export function KeyboardPreview() {
+/** One LED in a non-keyboard preview. */
+interface Dot {
+  x: number;
+  y: number;
+  size: number;
+  index: number;
+}
+
+/**
+ * The dot-matrix a non-keyboard device is drawn as: strips, mousemats, RAM.
+ *
+ * Wrapped rows sized to the canvas, each row centred on its own so a short
+ * final row is not left-ragged. Extracted from the paint function because the
+ * case is now sized from this — the board has to exist before the case around
+ * it can be, and that is the same reason `plateBounds` exists for keys.
+ */
+function buildDotGrid(
+  w: number,
+  h: number,
+  count: number,
+  dpr: number,
+): Dot[] {
+  const cols = Math.min(count, Math.ceil(w / (14 * dpr)));
+  const rows = Math.ceil(count / cols);
+  const dotGap = 5 * dpr;
+  const size = Math.min(
+    (w - dotGap * (cols + 1)) / cols,
+    (h - dotGap * (rows + 1)) / rows,
+  );
+  const oy = (h - (rows * size + dotGap * (rows - 1))) / 2;
+  const dots: Dot[] = [];
+  for (let i = 0; i < count; i++) {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    const rowCols = Math.min(cols, count - r * cols);
+    const ox = (w - (rowCols * size + (rowCols - 1) * dotGap)) / 2;
+    dots.push({
+      x: ox + c * (size + dotGap),
+      y: oy + r * (size + dotGap),
+      size,
+      index: i,
+    });
+  }
+  return dots;
+}
+
+/** The rectangle a dot grid occupies, for sizing the case around it. */
+function dotBounds(dots: readonly Dot[]): Rect | null {
+  if (dots.length === 0) return null;
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const d of dots) {
+    x0 = Math.min(x0, d.x);
+    y0 = Math.min(y0, d.y);
+    x1 = Math.max(x1, d.x + d.size);
+    y1 = Math.max(y1, d.y + d.size);
+  }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+export function KeyboardPreview({ className }: { className?: string } = {}) {
   const { rgb, deviceColors, deviceNames } = useStore(
     useShallow((s) => ({
       rgb: s.rgb,
@@ -60,8 +132,16 @@ export function KeyboardPreview() {
   );
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [previewId, setPreviewId] = useState<number | null>(null);
-  /** Label of the keycap under the cursor, shown in the readout. */
-  const [hovered, setHovered] = useState<string | null>(null);
+  /**
+   * The keycap under the cursor: its legend and, on a zoned board, which zone
+   * owns it. The zone is the point of a zoned preview — the user is trying to
+   * work out which region drives which colour — and showing only the legend
+   * left the seams doing the explaining on their own.
+   */
+  const [hover, setHover] = useState<{ label: string; zone: number } | null>(
+    null,
+  );
+  const hovered = hover?.label ?? null;
 
   const kbDevice =
     rgb.devices.find((d) => /keyboard/i.test(d.typeName)) ?? rgb.devices[0];
@@ -104,21 +184,35 @@ export function KeyboardPreview() {
 
     const base = kbColors?.rgb ?? DARK_LED;
     const leds = kbColors?.ledColors ?? null;
-    const pad = 8 * dpr;
+    const pad = 15 * dpr;
     const gap = 2.5 * dpr;
 
-    // Brushed-metal plate behind the keys: vertical sheen, soft vignette.
-    const plateGrad = ctx.createLinearGradient(0, 0, 0, H);
-    plateGrad.addColorStop(0, "#14161d");
-    plateGrad.addColorStop(0.5, "#0b0c11");
-    plateGrad.addColorStop(1, "#08090d");
-    ctx.beginPath();
-    roundRectPath(ctx, 2 * dpr, 2 * dpr, W - 4 * dpr, H - 4 * dpr, 12 * dpr);
-    ctx.fillStyle = plateGrad;
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.07)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    // The board is laid out before anything is drawn, because the case is sized
+    // from what the layout produced. Drawing the case first meant it could only
+    // ever be the canvas, and a 60% board then sat in a band across the top of
+    // a full-size slab with dead space beneath it.
+    const plates = isKeyboard
+      ? buildKeyboardPlates(W, H, { pad, gap, disposition: disp, colorCount })
+      : [];
+    const dots = isKeyboard
+      ? []
+      : buildDotGrid(W, H, Math.max(1, Math.min(ledCount || 16, 240)), dpr);
+
+    // The case: the board plus a bezel, centred, and no bigger than the canvas.
+    const bounds = caseRect(
+      isKeyboard ? plateBounds(plates) : dotBounds(dots),
+      { w: W, h: H },
+    );
+    const { x: caseX, y: caseY, w: caseW, h: caseH } = bounds;
+    // Corner radius follows the case, so a short 60% case and a tall full-size
+    // one are rounded the same amount rather than one looking bulbous. The
+    // floor matters for the thin case a strip gets, which a purely
+    // proportional radius would leave with razor edges.
+    const caseR = Math.max(4 * dpr, Math.min(caseW, caseH) * 0.055);
+
+    // The case, shared with the device list so a keyboard in a card and the
+    // same keyboard in the stage are one object at two sizes.
+    paintCase(ctx, caseX, caseY, caseW, caseH, caseR, dpr);
 
     /** Light bleed: a halo under the cap, so the plate glows like real caps. */
     const drawGlow = (
@@ -144,123 +238,40 @@ export function KeyboardPreview() {
 
     const colorAt = (i: number): [number, number, number] => leds?.[i] ?? base;
 
-    const drawCap = (
-      x: number, y: number, w: number, h: number,
-      color: [number, number, number],
-      opts: { label?: string; home?: boolean; hover?: boolean } = {},
-    ) => {
-      const { label, home, hover } = opts;
-      const [cr, cg, cb] = color;
-      const radius = 4 * dpr;
-      drawGlow(x, y, w, h, color);
 
-      // Drop shadow under the cap.
-      ctx.beginPath();
-      roundRectPath(ctx, x + 1, y + 1.2 * dpr, w, h, radius);
-      ctx.fillStyle = "rgba(0,0,0,0.45)";
-      ctx.fill();
+  // Caps and their glows, clipped to the case. The haloes are drawn wider than
+    // the caps by design, so without this they bleed past the case's rounded
+    // corners and onto the panel behind it, which puts a smear of key colour in
+    // the bezel — most visible top-right, where a bright zone sits next to the
+    // corner radius.
+    ctx.save();
+    ctx.beginPath();
+    roundRectPath(ctx, caseX, caseY, caseW, caseH, caseR);
+    ctx.clip();
 
-      // Cap body with a vertical shade, so taller caps read as convex.
-      const bodyGrad = ctx.createLinearGradient(0, y, 0, y + h);
-      bodyGrad.addColorStop(
-        0,
-        shade(
-          Math.min(255, cr * 1.06),
-          Math.min(255, cg * 1.06),
-          Math.min(255, cb * 1.06),
-        ),
-      );
-      bodyGrad.addColorStop(1, shade(cr * 0.72, cg * 0.72, cb * 0.72));
-      ctx.beginPath();
-      roundRectPath(ctx, x, y, w, h, radius);
-      ctx.fillStyle = bodyGrad;
-      ctx.fill();
-
-      // Top gloss.
-      const gloss = ctx.createLinearGradient(0, y, 0, y + h * 0.5);
-      gloss.addColorStop(0, "rgba(255,255,255,0.22)");
-      gloss.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.beginPath();
-      roundRectPath(ctx, x + 1, y + 1, w - 2, h * 0.45, 3 * dpr);
-      ctx.fillStyle = gloss;
-      ctx.fill();
-
-      ctx.beginPath();
-      roundRectPath(ctx, x, y, w, h, radius);
-      ctx.strokeStyle = hover ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.25)";
-      ctx.lineWidth = hover ? 1.5 * dpr : 1;
-      ctx.stroke();
-
-      if (home) {
-        ctx.beginPath();
-        ctx.ellipse(x + w / 2, y + h - 3 * dpr, 3.5 * dpr, 1.4 * dpr, 0, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255,255,255,0.4)";
-        ctx.fill();
-      }
-
-      // Legends only on keys wide enough to hold text. The old guard was
-      // `w > max(7, 0.24 * w) * 1.6`, which is a tautology for any sane width,
-      // so single-character legends spilled across half-unit modifier keys.
-      const fontSize = Math.max(7 * dpr, h * 0.22);
-      if (label && label.trim() && w > fontSize * 2.1) {
-        ctx.font = `600 ${fontSize}px "JetBrains Mono", ui-monospace, monospace`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = "rgba(255,255,255,0.6)";
-        ctx.fillText(label, x + w / 2, y + h / 2 + h * 0.045);
-      }
-    };
-
-    if (isKeyboard) {
-      const plates = buildKeyboardPlates(W, H, {
-        pad,
-        gap,
-        disposition: disp,
-        colorCount,
+    for (const p of plates) {
+      paintKeycap(ctx, p.x, p.y, p.w, p.h, colorAt(p.ledIndex), {
+        label: p.label,
+        home: p.home,
+        hover: p.label === hovered,
+        dpr,
       });
-      for (const p of plates) {
-        drawCap(p.x, p.y, p.w, p.h, colorAt(p.ledIndex), {
-          label: p.label,
-          home: p.home,
-          hover: p.label === hovered,
-        });
-        if (p.boundary) {
-          // Zone divider on the leading edge of the key.
-          ctx.beginPath();
-          roundRectPath(ctx, p.x, p.y, 1.6 * dpr, p.h, 1 * dpr);
-          ctx.fillStyle = "rgba(255,255,255,0.65)";
-          ctx.fill();
-        }
-      }
-      platesRef.current = plates;
-    } else {
-      // Non-keyboard: dot-matrix of the device's LEDs, wrapped rows.
-      const count = Math.max(1, Math.min(ledCount || 16, 240));
-      const cols = Math.min(count, Math.ceil(W / (14 * dpr)));
-      const rows = Math.ceil(count / cols);
-      const dotGap = 5 * dpr;
-      const dot = Math.min(
-        (W - dotGap * (cols + 1)) / cols,
-        (H - dotGap * (rows + 1)) / rows,
-      );
-      const oy = (H - (rows * dot + dotGap * (rows - 1))) / 2;
-      for (let i = 0; i < count; i++) {
-        const r = Math.floor(i / cols);
-        const c = i % cols;
-        // Centre each row on its own, so a short final row is not left-ragged.
-        const rowCols = Math.min(cols, count - r * cols);
-        const ox = (W - (rowCols * dot + (rowCols - 1) * dotGap)) / 2;
-        const color = colorAt(i);
-        const dx = ox + c * (dot + dotGap);
-        const dy = oy + r * (dot + dotGap);
-        drawGlow(dx, dy, dot, dot, color);
-        ctx.beginPath();
-        roundRectPath(ctx, dx, dy, dot, dot, dot * 0.3);
-        ctx.fillStyle = shade(color[0], color[1], color[2]);
-        ctx.fill();
-      }
-      platesRef.current = [];
+      if (p.boundary) paintZoneSeam(ctx, p.x, p.y, p.h, dpr);
     }
+
+    for (const d of dots) {
+      const color = colorAt(d.index);
+      drawGlow(d.x, d.y, d.size, d.size, color);
+      ctx.beginPath();
+      roundRectPath(ctx, d.x, d.y, d.size, d.size, d.size * 0.3);
+      ctx.fillStyle = shade(color[0], color[1], color[2]);
+      ctx.fill();
+    }
+
+    // Hit-testing reads the plates from this frame's layout, which is now
+    // computed above rather than inside the keyboard branch.
+    platesRef.current = plates;
+    ctx.restore();
   }, [kb, kbColors, isKeyboard, disp, colorCount, ledCount, hovered]);
 
   /**
@@ -268,20 +279,24 @@ export function KeyboardPreview() {
    * colours are identical, and the full repaint is expensive (per-key
    * gradients plus a radial glow each). Skip when nothing actually changed.
    *
-   * The signature summarises rather than serialising every LED: hashing all
-   * ~140 colours on every frame is itself measurable at that rate. Hover is
-   * part of the key, because the highlight is a visible change.
+   * The signature is a rolling hash over every LED rather than a sample of a
+   * few, because sampling was the defect: on a zoned board zone 2 can change
+   * while zone 0 holds still, and the canvas sat there showing the old colour
+   * until some unrelated LED moved. Hover rides along in `extra`, since the
+   * highlight is itself a visible change.
    */
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const sig = kbColors
-      ? `${kbColors.rgb.join(",")}:${colorCount}:${kbColors.ledColors[0]?.join(",") ?? ""}:${hovered ?? ""}`
-      : `none:${hovered ?? ""}`;
+    const sig = frameSignature(
+      kbColors?.rgb ?? DARK_LED,
+      kbColors?.ledColors ?? [],
+      hovered ?? "",
+    );
     if (canvas.dataset.sig === sig) return;
     canvas.dataset.sig = sig;
     paint();
-  }, [kbColors, colorCount, hovered, paint]);
+  }, [kbColors, hovered, paint]);
 
   /**
    * Keep the bitmap matched to the element.
@@ -317,7 +332,9 @@ export function KeyboardPreview() {
     const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
     const hit = plateAt(platesRef.current, x, y);
     const label = hit && hit.label.trim() ? hit.label : null;
-    if (label !== hovered) setHovered(label);
+    if (label !== hovered) {
+      setHover(label == null ? null : { label, zone: hit!.zone });
+    }
   };
 
   const labelKey = kb
@@ -334,25 +351,44 @@ export function KeyboardPreview() {
         : undefined;
 
   return (
-    <div className="relative overflow-hidden panel-inset p-3.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]">
+    <div className="relative flex h-full flex-col justify-center overflow-hidden panel-inset p-3.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_50%_at_50%_0%,rgb(255_255_255/0.06),transparent_55%)]" />
-      <div className="relative z-10 mx-auto w-full max-w-[760px]">
+      {/* Canvas and caption are one centred group rather than two children of
+          a fixed-height box: the stage's two columns are the same height, and
+          centring is what makes that read as a deliberate rectangle instead of
+          a panel that ran out of content. */}
+      <div className="relative z-10 mx-auto flex w-full max-w-[760px] flex-col justify-center">
         <canvas
           ref={canvasRef}
-          className="h-52 w-full"
+          className={`w-full ${className ?? "h-52"}`}
           onPointerMove={onPointerMove}
-          onPointerLeave={() => setHovered(null)}
+          onPointerLeave={() => setHover(null)}
         />
-      </div>
-      <div className="relative z-10 mx-auto mt-2 flex w-full max-w-[760px] items-center gap-3">
-        <span className="kicker shrink-0">
-          {t(labelKey, labelVars)}
-        </span>
-        {/* What the cursor is over. Only shown when there is something to say,
-            so the caption does not jitter as the pointer crosses a gap. */}
-        <span className="ml-auto min-w-0 flex-1 truncate text-right font-mono text-[10px] text-[var(--text-faint)]">
-          {isKeyboard && hovered ? hovered : kb?.name ?? ""}
-        </span>
+      <div className="mt-2 flex items-center gap-3">
+          <span className="kicker shrink-0">
+            {t(labelKey, labelVars)}
+          </span>
+          {/* What the cursor is over, or the device name when there is no picker
+              to name it. It used to always show the name, which put "AcerHID…"
+              on screen next to a dropdown reading "AcerHID… · 96" — the same
+              fact twice, in two different sizes, side by side.
+              On a zoned board the zone rides alongside, because "G" alone does
+              not say which of the engine's regions owns that key, and on that
+              hardware the key's own colour cannot say it either. */}
+          <span className="ml-auto flex min-w-0 items-baseline justify-end gap-2">
+            {isKeyboard && hover && disp.zoned && (
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-[var(--text-faint)]/70">
+                {t("lighting.zone-{n}", { n: hover.zone + 1 })}
+              </span>
+            )}
+            <span className="min-w-0 truncate font-mono text-[10px] text-[var(--text-faint)]">
+              {isKeyboard && hover
+                ? hover.label
+                : rgb.devices.length > 1
+                  ? ""
+                  : (kb?.name ?? "")}
+            </span>
+          </span>
         {rgb.devices.length > 1 && (
           <Dropdown
             className="min-w-0 shrink-0"
@@ -364,6 +400,7 @@ export function KeyboardPreview() {
             onChange={(v) => setPreviewId(Number(v))}
           />
         )}
+      </div>
       </div>
       {!rgb.connected && (
         <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--bg)_75%,transparent)] text-xs font-medium tracking-wide text-[var(--text-dim)] backdrop-blur-[2px]">

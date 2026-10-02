@@ -422,9 +422,20 @@ const DEVICE_ICONS: Record<string, ReactNode> = {
   ),
 };
 
-export function IconDevice({ type, ...props }: { type: string } & P) {
+/**
+ * Which kind of thing a device is, from its OpenRGB type name.
+ *
+ * Exported because the glyph is not the only thing that has to know: the device
+ * card labels the same device with a human-readable type, and it has to reach
+ * the same conclusion the icon did, or the icon and the label can disagree
+ * about what a thing is.
+ *
+ * Returns "other" for anything unrecognised, which is a drawing instruction
+ * rather than a word — callers that need a name must supply their own fallback.
+ */
+export function deviceKind(type: string): string {
   const t = type.toLowerCase();
-  const key =
+  return (
     (t.includes("keyboard") && "keyboard") ||
     (t.includes("mouse") && !t.includes("mat") && !t.includes("pad") && "mouse") ||
     (t.includes("mouse") && "mousemat") ||
@@ -435,8 +446,12 @@ export function IconDevice({ type, ...props }: { type: string } & P) {
     (t.includes("strip") || t.includes("led") || t.includes("ambient") ? "strip" : false) ||
     (t.includes("fan") || t.includes("cooler") || t.includes("cooling") ? "fan" : false) ||
     (t.includes("keypad") ? "keypad" : false) ||
-    "other";
-  const glyph = DEVICE_ICONS[key] ?? (
+    "other"
+  );
+}
+
+export function IconDevice({ type, ...props }: { type: string } & P) {
+  const glyph = DEVICE_ICONS[deviceKind(type)] ?? (
     <>
       <rect x="4" y="4" width="16" height="16" rx="3" />
       <circle cx="12" cy="12" r="3.5" />

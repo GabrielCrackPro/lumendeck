@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deviceName } from "./DeviceRow";
+import { deviceName, deviceTypeLabel } from "./DeviceRow";
 import type { RgbDeviceInfo } from "@shared/types";
 
 function device(over: Partial<RgbDeviceInfo> = {}): RgbDeviceInfo {
@@ -45,5 +45,35 @@ describe("deviceName", () => {
 
   it("works without a names argument at all", () => {
     expect(deviceName(device())).toBe("LEDStrip1");
+  });
+});
+
+describe("deviceTypeLabel", () => {
+  it("names a keyboard in the catalog rather than echoing the driver", () => {
+    // OpenRGB type names are English and come from the driver, so a card that
+    // printed them raw would read as English to everyone.
+    expect(deviceTypeLabel("Keyboard")).toBe("Keyboard");
+  });
+
+  it("collapses a driver's type name onto the same word a person uses", () => {
+    // The number suffix and camel case are how the driver says it; nobody
+    // calls their RAM "DRAM3".
+    expect(deviceTypeLabel("LEDStrip2")).toBe("LED strip");
+    expect(deviceTypeLabel("DRAM")).toBe("Memory");
+  });
+
+  it("separates a mouse from a mouse pad", () => {
+    expect(deviceTypeLabel("Mouse")).toBe("Mouse");
+    expect(deviceTypeLabel("MouseMat")).toBe("Mouse pad");
+  });
+
+  it("falls back to the driver's own words for an unknown device", () => {
+    // "Other" is right for a glyph and wrong for a label: a user with hardware
+    // the app has never heard of needs to see what it called itself.
+    expect(deviceTypeLabel("TeslaCoil3")).toBe("Tesla coil");
+  });
+
+  it("returns nothing rather than throwing on an empty type", () => {
+    expect(deviceTypeLabel("")).toBe("");
   });
 });
