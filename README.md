@@ -1,159 +1,180 @@
+<div align="center">
+
 # LumenDeck
 
-**Wallpaper-driven RGB lighting, live wallpapers, and screen stickers — for Windows.**
+**Your wallpaper is the light source.**
 
-LumenDeck turns your desktop into a cohesive, living surface: your wallpaper becomes the
-light source for your whole RGB setup, a canvas you can decorate, and a stage for
-animated scenes — all running natively behind your desktop icons.
+Live wallpapers, RGB lighting driven by what is actually on screen, and stickers
+anywhere on your desktop — running natively behind your icons, on Windows.
 
-A first-run wizard walks you through importing media, connecting OpenRGB, picking a
-mood, and tuning the app, so it's usable within a minute of installing.
+[![CI](https://github.com/GabrielCrackPro/lumendeck/actions/workflows/ci.yml/badge.svg)](https://github.com/GabrielCrackPro/lumendeck/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/GabrielCrackPro/lumendeck?label=release)](https://github.com/GabrielCrackPro/lumendeck/releases/latest)
+[![platform](https://img.shields.io/badge/platform-Windows%2011-0078D4)](https://learn.microsoft.com/windows)
 
-## Features
+[Tauri 2](https://tauri.app) · [React 19](https://react.dev) · [Rust](https://www.rust-lang.org) · WebView2
 
-### Wallpaper-driven RGB
+</div>
 
-- Connects to **OpenRGB** (SDK server on `localhost:6742`) and streams colors to all
-  detected devices (keyboards, mice, RGB strips, motherboards…)
-- Modes: **Ambient** (whole-wallpaper dominant color), **Zone sync** (draw rectangles
-  on the wallpaper, map each to devices), **Pulse** (brightness-follow), **Static**
-- Color mixer: brightness, saturation, gamma, transition smoothing, min-update interval
-- Per-device exclude list; live device list with LED counts; multi-monitor aware —
-  zone sampling and ambient follow the primary display
-- With a video wallpaper, lighting flows with the footage (10 fps sampling)
-- **Night dimming**: schedule (`night_start` / `night_end` / brightness cap) that clamps
-  LED brightness during evening hours
-- **Accent sync**: pipe the wallpaper's dominant color into the app's UI accent
+---
 
-### Live wallpapers
+## What it does
 
-- Sources: **video** (looped, hardware-decoded), **image**, **slideshow** (folder,
-  interval + crossfade), **web page** (sandboxed), **shader** (4 built-in GLSL presets:
-  Aurora, Liquid, Plasma, Starfield)
-- Attaches **behind your desktop icons** via the Win32 WorkerW technique
-- **Per-monitor wallpapers**: override the global wallpaper on any display, with
-  smooth crossfade transitions between sources
-- The static desktop background and (optionally) the **Windows lock screen** follow
-  the wallpaper — captured from a real decoded frame, not a stale thumbnail
-- Auto-pauses on battery saver or when a fullscreen app is in the foreground; keeps
-  the last frame visible while paused instead of going black
-- Self-heals: re-attaches and re-positions after display topology or DPI changes,
-  and rebuilds the decode pipeline after transient video errors
-- Playback tuning: speed, brightness, saturation, hue, per-source object-fit
-  (auto / cover / contain / fill), muted volume
-- The blit loop caps itself to the video's native frame rate — a 24 fps source does
-  ~half the canvas work of a naive 60 fps loop, with no visible difference
+Pick a video wallpaper. LumenDeck samples the colours off the screen ten times a
+second and pushes them to your keyboard, mouse, strips and motherboard through
+[OpenRGB](https://openrgb.org). Change the wallpaper and the lighting changes
+with it. That is the whole idea; everything below is detail.
 
-### Stickers anywhere
+- **Reactive modes** — Ambient (whole-wallpaper dominant colour), Zone Sync (draw
+  rectangles over the wallpaper, map each to a device), Pulse, Static
+- **Animation modes** — Cycle, Wave, Breathe, and Audio Reactive, which samples
+  what you are actually playing rather than guessing from the artwork
+- **The wallpaper itself** — video, image, slideshow, sandboxed web page, or a
+  built-in shader, attached *behind* your desktop icons via the WorkerW technique
+- **Per-monitor** — override the wallpaper on any display, crossfading between
+  sources
+- **The OS follows too** — the static desktop background and, optionally, your
+  lock screen, captured from a real decoded frame rather than a thumbnail
+- **Stickers anywhere** — images, GIFs and short video, click to place, mirrored
+  across all monitors, click-through where you want it
+- **Scenes** — capture wallpaper plus lighting plus stickers as one look, recall
+  it in a click
 
-- Pin **images, GIFs, or short videos** anywhere on screen
-- Click-to-place overlay with aspect-aware sizing; dedicated transparent window per
-  sticker; stickers **mirror across all monitors** by default (configurable)
-- **Edit mode**: drag to move, corner-handle to resize, right-click or **ESC** to exit;
-  clicks pass through to the desktop everywhere except over LumenDeck windows
-- Per-sticker: click-through, z-order above/below taskbar, opacity, fit, mute,
-  visibility; duplicate and reorder from the tray or the manager UI
+A first-run wizard covers importing media, connecting OpenRGB and picking a
+mood, so it is useful about a minute after installing.
 
-### App
+---
 
-- Console-style UI (graphite/ivory, hairline frames) with light/dark theming,
-  **AMOLED mode** (true-black dark theme), and system-accent-derived highlight color
-- Tray menu: open, toggle wallpaper pause, switch lighting mode, edit stickers, quit
-- 12-column overview dashboard; scenes let you apply a saved wallpaper + lighting
-  - sticker profile in one click
-- Launch-on-startup, single-instance, factory reset from the UI
-- Quiet logging by default — routine diagnostics are debug-level; run with
-  `RUST_LOG=lumendeck=debug` to see them
+## Quick start
 
-## Tech stack
+```
+1.  Install OpenRGB, enable its SDK server (default localhost:6742)
+2.  Install LumenDeck and pick a wallpaper
+3.  Lighting follows
+```
 
-| Layer     | Tech                                                                                 |
-| --------- | ------------------------------------------------------------------------------------ |
-| Shell     | [Tauri 2](https://tauri.app) (Rust) + WebView2                                       |
-| UI        | React 19, TypeScript (strict), Tailwind CSS 4, Zustand                               |
-| Win32     | `windows` crate — WorkerW attach, click-through, monitor enum, low-level input hooks |
-| RGB       | [`openrgb`](https://crates.io/crates/openrgb) (native SDK client)                    |
-| Media     | Custom `media://` protocol (path-safe, extension-allowlisted)                        |
-| Packaging | NSIS installer via Tauri bundler (GitHub Actions on `v*` tags)                       |
+Prebuilt signed installers are on the
+[releases page](https://github.com/GabrielCrackPro/lumendeck/releases/latest).
+The first updater-enabled release has to be installed by hand; after that,
+updates are offered from inside the app.
 
-## Architecture notes
+### Keyboard
 
-- **Windows** — `wallpaper-*` windows sit behind desktop icons (WorkerW), one per
-  monitor; stickers get their own top-level transparent windows; a placement overlay
-  handles click-to-place under a low-level mouse/keyboard hook.
-- **Frame pipeline** — a hidden `<video>` decodes; a canvas blit presents frames into
-  the normal DOM tree (so stickers and UI always composite above), samples color zones
-  for the RGB engine every 100 ms, and pushes a JPEG snapshot to the backend once per
-  source change to use as the OS background / lock screen / decode-failure fallback.
-- **State** — one `config.json` drives everything; each webview polls `get_wallpaper_info`
-  (2 s self-heal) and the backend watches the config file for external edits.
-- **Config safety** — atomic writes, schema-versioned, hot-reloaded.
+`Ctrl`+`K` opens the command palette. Global hotkeys for pause, next scene,
+lighting mode and more are configurable, with a recorder that validates the
+combination before it is saved.
+
+---
+
+## How it works
+
+```
+  <video> decode ──> <canvas> blit ──> visible wallpaper webview
+                        │
+                        ├── sample the zones you drew, every 100 ms
+                        │      └──> RGB engine ──> OpenRGB ──> your devices
+                        │
+                        └── JPEG snapshot on source change
+                               └──> OS background · lock screen · fallback
+```
+
+The wallpaper window is reparented into Explorer's `WorkerW` layer, which is
+what puts it behind the icons instead of behind the whole desktop. A hidden
+`<video>` decodes; a canvas blits, which is what lets stickers and the UI always
+composite above and gives one place to sample colour from.
+
+The blit loop caps itself to the source's frame rate — a 24 fps wallpaper does
+roughly half the canvas work of a naive 60 fps loop, with no visible difference.
+
+Full details, including the threading model and the config schema, are in
+[`docs/architecture.md`](docs/architecture.md).
+
+---
+
+## Stack
+
+| Layer         | Choice                                                       |
+| ------------- | ------------------------------------------------------------ |
+| Shell         | Tauri 2 (Rust) + WebView2                                    |
+| UI            | React 19, TypeScript strict, Tailwind CSS 4, Zustand        |
+| Win32         | `windows` crate — WorkerW, click-through, monitors, input hooks |
+| RGB           | [`openrgb`](https://crates.io/crates/openrgb) SDK client     |
+| Media         | custom `media://` protocol, path-safe and extension-allowlisted |
+| Logging       | `tauri-plugin-log`, fixed 5 MB file, `RUST_LOG` override    |
+| Quality       | vitest, `cargo test`, `i18n-check`, `check-versions`, CI    |
+| Packaging     | NSIS installer, published by GitHub Actions on `main`         |
+
+---
 
 ## Development
 
 ```bash
 pnpm install
-pnpm app:dev      # run the desktop app (vite on :1420 + cargo run)
-pnpm test         # vitest (frontend)
-cargo test        # from src-tauri/ — Rust unit tests
-pnpm app:build    # NSIS installer in src-tauri/target/release/bundle/
+pnpm app:dev                      # the real app
+node scripts/verify.mjs           # everything CI runs, in CI's order
+node scripts/verify.mjs --no-build # skip the production bundle
 ```
 
-Prerequisites: Node 20+, pnpm 10, Rust (MSVC toolchain), WebView2 (preinstalled on
-Windows 11), and [OpenRGB](https://openrgb.org) with its SDK server enabled for RGB sync.
+Individual checks:
 
-CI runs `tsc`, `vitest`, Rust tests, and a version consistency check on every push/PR.
-After each successful push to `main`, GitHub Actions publishes a signed NSIS release.
-It uses an explicit version bump when present; otherwise it increments the patch from
-the latest release. The generated release version is applied only in the CI workspace,
-so publishing does not create a bot commit on `main`. Keep `package.json`,
-`src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`
-synchronized; the pre-commit hook and CI reject mismatches. `pnpm install` configures
-the local `.githooks` automatically. To retry or start a release manually, use
-**Actions → Release → Run workflow** on `main`; that commit must already have successful CI.
-
-### Signed in-app updates
-
-The first updater-enabled release must be installed manually by users of older builds.
-Future releases are checked at startup and can be installed from Settings.
-
-Generate the updater signing key locally and keep the private key out of the repository:
-
-```powershell
-pnpm tauri signer generate -w "$env:USERPROFILE\.tauri\lumendeck.key"
+```bash
+npx tsc --noEmit                   # types
+npx vitest run                     # frontend logic
+cd src-tauri && cargo test         # Rust
+node scripts/i18n-check.mjs        # locale catalogs
+node scripts/check-versions.mjs    # version files agree
 ```
 
-Set the generated public key as `plugins.updater.pubkey` in
-`src-tauri/tauri.conf.json`. Add the private key file contents to the GitHub Actions
-secret `TAURI_SIGNING_PRIVATE_KEY`; if the key has a password, add it as
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Successful pushes to `main` publish the signed NSIS
-installer, its signature, and `latest.json`. Never commit or share the private key.
+Needs Node 22 (what CI runs), pnpm 10, the Rust MSVC toolchain, and WebView2
+(preinstalled on Windows 11). RGB needs OpenRGB with its SDK server.
 
-The updater signature verifies update packages; it is separate from Windows
-Authenticode signing and does not by itself remove SmartScreen publisher warnings.
+CI runs every check above on each push and pull request, and publishes a signed
+NSIS installer after a successful push to `main`.
+
+### Working on this with Codebuff
+
+[`AGENTS.md`](AGENTS.md) is the agent entry point: conventions, the verification
+commands, and the traps that are expensive to rediscover — why `cargo fmt` must
+never be run here, why vitest cannot test components, which `Default` impl you
+are really changing, and why the log must not contain polls. It also works for
+any other tool that reads `AGENTS.md`.
+
+[`docs/architecture.md`](docs/architecture.md) explains how the pieces fit, and
+[`docs/development.md`](docs/development.md) has step-by-step recipes for the
+changes that come up repeatedly.
+
+---
 
 ## Configuration
 
-Settings persist to `%APPDATA%/LumenDeck/config.json` (atomic writes, schema-versioned,
-camelCase — mirrored by `src/shared/types.ts`). Notable groups:
+Settings live in `%APPDATA%/LumenDeck/config.json` — atomic writes,
+schema-versioned, camelCase, hot-reloaded when you edit it by hand.
 
-| Group       | What it controls                                                      |
-| ----------- | --------------------------------------------------------------------- |
-| `general`   | theme, AMOLED, autostart, pause toggles, accent sync, onboarding flag |
-| `wallpaper` | kind, source, fit, speed/brightness/saturation/hue, volume, slideshow |
-| `sticker`   | placement defaults, all-monitors mirroring                            |
-| `rgb`       | mode, zones, mixer, per-device excludes, night dimming schedule       |
-| `scenes`    | named wallpaper + lighting + sticker profiles                         |
+| Group       | Controls                                                     |
+| ----------- | ------------------------------------------------------------ |
+| `general`   | theme, AMOLED, autostart, pause rules, accent sync, language |
+| `wallpaper` | kind, source, fit, playback tuning, volume, slideshow        |
+| `sticker`   | placement defaults, all-monitor mirroring                    |
+| `rgb`       | mode, zones, mixer, per-device excludes, night dimming       |
+| `scenes`    | named wallpaper plus lighting plus sticker profiles          |
 
-## Notes & limits
+---
 
-- WorkerW attach works on stock Windows 10/11 shells; heavily modified shells may fall
-  back to a bottom-anchored window (the app flags this in the UI).
-- Sticker/video codec support follows WebView2 (H.264 and VP9 work out of the box; HEVC
-  depends on installed codec packs). A software-decode fallback exists for GPUs that
-  choke on 4K H.264 in WebView2's hardware pipeline.
-- `media://` only serves files with media extensions from directories you've picked in
-  the app — no arbitrary filesystem reads.
-- The static background is throttled to one push per wallpaper source change (plus a
-  30-minute refresh); repeated pushes per frame would flicker the desktop and spam the
-  log. If you see `desktop wallpaper set` more than that, it's a bug.
+## Notes and limits
+
+- WorkerW attach works on stock Windows 10 and 11 shells. Heavily modified shells
+  may fall back to a bottom-anchored window; the app tells you when it does.
+- Codec support follows WebView2. H.264 and VP9 work out of the box; HEVC depends
+  on installed codec packs. There is a software-decode fallback for GPUs that
+  struggle with 4K H.264 in the hardware pipeline.
+- `media://` serves media files only, from folders you chose in the app. It is not
+  a general filesystem reader.
+- WinRT toast notifications are implemented but not yet verified end to end.
+- The dashboard needs the Tauri shell to run. It will not start in a plain
+  browser, because the window APIs have no IPC host to talk to — use
+  `pnpm app:dev`.
+
+## License
+
+None has been chosen yet — there is no `LICENSE` file and no `license` field in
+`package.json` or `Cargo.toml`. Until one is added, the repository is unlicensed
+and nobody has been granted rights to redistribute it.

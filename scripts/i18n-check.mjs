@@ -145,6 +145,22 @@ const untranslated = [...used].filter(
 // turns a 63-backslash run into 31 literal backslashes plus the quote it was
 // meant to be. It still parses, it still typechecks, and it renders garbage
 // punctuation in one language only — so it has to be checked for explicitly.
+// i18next interpolates {{var}}, not {var}. A value written as "{n} selected"
+// renders literally, so the UI shows the placeholder instead of the count --
+// and because the key lookup still succeeds, nothing else in this script
+// notices. Keys keep their single braces (that is the naming convention), so
+// only the values are checked.
+const SINGLE_PLACEHOLDER = /(?<!\{)\{([a-zA-Z_]\w*)\}(?!\})/;
+const uninterpolated = [];
+for (const [lang, flat] of [
+  ["en", enFlat],
+  ["es", esFlat],
+]) {
+  for (const [k, v] of flat) {
+    if (typeof v === "string" && SINGLE_PLACEHOLDER.test(v)) uninterpolated.push(`${lang}:${k}`);
+  }
+}
+
 const mangled = [];
 for (const [lang, flat] of [
   ["en", enFlat],
@@ -231,6 +247,13 @@ function insideStyling(n) {
   return false;
 }
 
+/**
+ * Functions whose string arguments are always shown to a person.
+ *
+ * Kept short on purpose — see the note at the scan site.
+ */
+const SINKS = new Set(["toast"]);
+
 const jsxLeaks = [];
 for (const f of files) {
   const sf = ts.createSourceFile(
@@ -304,8 +327,63 @@ for (const f of files) {
       const name = ts.isIdentifier(n.name) ? n.name.text : "";
       if (TEXT_ATTR.has(name)) flag(n.initializer, n.initializer.text);
     }
+
+    // A string handed to a user-facing sink as a plain call argument.
+    //
+    // This is the gap the JSX pass above structurally cannot see:
+    // `toast("error", `Save failed: ${e}`)` contains no JSX text, no JSX
+    // attribute and no ternary, so it passed a check that claims to cover
+    // untranslated copy. Everything above was either JSX or a model field.
+    //
+    // The sink list is deliberately short. A general "any string argument" rule
+    // is the same mistake as widening the ternary check — it buries the signal
+    // under ids, CSS, enum values and API paths. Naming the functions whose
+    // arguments are *always* shown to a person keeps precision high, and a new
+    // sink is one line here rather than a false-positive investigation.
+    if (ts.isCallExpression(n)) {
+      const sink = callSinkName(n);
+      // Index 0 is the tone ("ok", "error"), not copy.
+      if (sink && n.arguments.length > 1) {
+        for (const arg of n.arguments.slice(1)) {
+          if (ts.isStringLiteralLike(arg) && !isTranslationKey(arg)) {
+            if (!SLUG.test(arg.text)) flag(arg, arg.text);
+          }
+          if (ts.isTemplateExpression(arg)) {
+            // Literal chunks only — the `${...}` holes are values, not copy.
+            // A template whose holes contain a t() call is already translated,
+            // so only the fixed words around it would be at fault.
+            const hasTranslation = arg.templateSpans.some((s) =>
+              s.expression.getChildren(sf).some((c) => ts.isCallExpression(c)),
+            );
+            if (hasTranslation) continue;
+            for (const chunk of [
+              arg.head.text,
+              ...arg.templateSpans.map((s) => s.literal.text),
+            ]) {
+              if (!SLUG.test(chunk)) flag(arg, chunk);
+            }
+          }
+        }
+      }
+    }
+
     ts.forEachChild(n, v);
   })(sf);
+}
+
+/**
+ * The user-facing sink a call targets, or null.
+ *
+ * Matches `toast(...)`, `store.toast(...)` and `getState().toast(...)` alike,
+ * since the codebase uses every spelling.
+ */
+function callSinkName(call) {
+  const e = call.expression;
+  if (ts.isIdentifier(e)) return SINKS.has(e.text) ? e.text : null;
+  if (ts.isPropertyAccessExpression(e)) {
+    return SINKS.has(e.name.text) ? e.name.text : null;
+  }
+  return null;
 }
 
 const report = (label, list) => {
@@ -321,7 +399,15 @@ report("MISSING FROM es.json", missingEs);
 report("IN en.json BUT UNUSED", unused);
 report("IDENTICAL IN BOTH (not translated)", untranslated);
 report("MANGLED ESCAPES (doubled backslashes)", mangled);
+report("SINGLE-BRACE PLACEHOLDER (will not interpolate)", uninterpolated);
 report("BARE JSX TEXT (not run through t)", jsxLeaks);
+
+if (uninterpolated.length) {
+  console.error(
+    "\nFAIL: a catalog value uses {var}; i18next needs {{var}} or the placeholder renders literally.",
+  );
+  process.exit(1);
+}
 
 if (mangled.length) {
   console.error("\nFAIL: a catalog value has doubled backslashes; it will render literal punctuation.");
