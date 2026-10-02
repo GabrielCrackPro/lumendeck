@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="./public/app-icon.png" alt="LumenDeck" width="128" />
+
 # LumenDeck
 
 **Your wallpaper is the light source.**
@@ -128,15 +130,17 @@ Needs Node 22 (what CI runs), pnpm 10, the Rust MSVC toolchain, and WebView2
 (preinstalled on Windows 11). RGB needs OpenRGB with its SDK server.
 
 CI runs every check above on each push and pull request, and publishes a signed
-NSIS installer after a successful push to `main`.
+NSIS installer after a successful push to `main`. Add `[skip release]` on a line
+of its own to a commit message to run every check and publish nothing — useful
+for a documentation or CI change that has no business spending a version number.
 
-### Working on this with Codebuff
+### Working on this
 
-[`AGENTS.md`](AGENTS.md) is the agent entry point: conventions, the verification
-commands, and the traps that are expensive to rediscover — why `cargo fmt` must
-never be run here, why vitest cannot test components, which `Default` impl you
-are really changing, and why the log must not contain polls. It also works for
-any other tool that reads `AGENTS.md`.
+[`AGENTS.md`](AGENTS.md) is the entry point for contributors and for any coding
+agent: conventions, the verification commands, and the traps that are expensive
+to rediscover — why `cargo fmt` must never be run here, why vitest cannot test
+components, which `Default` impl you are really changing, and why the log must
+not contain polls. Any tool that reads it will do.
 
 [`docs/architecture.md`](docs/architecture.md) explains how the pieces fit, and
 [`docs/development.md`](docs/development.md) has step-by-step recipes for the
@@ -171,10 +175,4 @@ schema-versioned, camelCase, hot-reloaded when you edit it by hand.
 - WinRT toast notifications are implemented but not yet verified end to end.
 - The dashboard needs the Tauri shell to run. It will not start in a plain
   browser, because the window APIs have no IPC host to talk to — use
-  `pnpm app:dev`.
-
-## License
-
-None has been chosen yet — there is no `LICENSE` file and no `license` field in
-`package.json` or `Cargo.toml`. Until one is added, the repository is unlicensed
-and nobody has been granted rights to redistribute it.
+  `pnpm app:dev`.
