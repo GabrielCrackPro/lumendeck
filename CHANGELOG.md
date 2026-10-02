@@ -6,7 +6,10 @@ and it lands under that release's heading.
 
 ## 0.2.30 — 2026-10-02
 
-_4 internal._
+### Fixed
+- **changelog:** stop assuming the newest release has user-facing notes (`b096beb`)
+
+_6 internal._
 
 ## 0.2.29 — 2026-10-02
 
