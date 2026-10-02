@@ -21,49 +21,7 @@
    thin rules, dots and fills — precision, not bloom.
    ============================================================ */
 
-:root {
-  color-scheme: light;
-
-  /* live accent triplet (r g b); Shell sets this at runtime */
-  --glow: 56 189 248;
-
-  --bg: #e9e7e0;
-  --panel: rgba(255, 255, 254, 0.78);
-  --panel-strong: rgba(255, 255, 255, 0.96);
-  --panel-sunken: rgba(12, 14, 18, 0.05);
-  --line: rgba(28, 27, 24, 0.12);
-  --line-strong: rgba(28, 27, 24, 0.24);
-  --text: #17150f;
-  --text-dim: #4d4a41;
-  --text-faint: #847f72;
-  --shadow: 0 0 0 1px rgba(28, 27, 24, 0.05), 0 2px 6px rgba(28, 27, 24, 0.06), 0 20px 48px -32px rgba(28, 27, 24, 0.4);
-}
-
-.dark {
-  color-scheme: dark;
-  --bg: #101214;
-  --panel: rgba(255, 255, 255, 0.026);
-  --panel-strong: rgba(255, 255, 255, 0.055);
-  --panel-sunken: rgba(0, 0, 0, 0.35);
-  --line: rgba(255, 255, 255, 0.075);
-  --line-strong: rgba(255, 255, 255, 0.17);
-  --text: #ecedef;
-  --text-dim: #a5a8ae;
-  --text-faint: #66696f;
-  --shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 24px 60px -34px rgba(0, 0, 0, 0.9);
-}
-
-/* AMOLED: true-black surfaces stacked on .dark — pixels fully off on OLED
-   panels. Hairlines dim to keep contrast from vibrating on pure black. */
-.dark.amoled {
-  --bg: #000000;
-  --panel: rgba(255, 255, 255, 0.02);
-  --panel-strong: rgba(255, 255, 255, 0.04);
-  --panel-sunken: rgba(0, 0, 0, 0.6);
-  --line: rgba(255, 255, 255, 0.09);
-  --line-strong: rgba(255, 255, 255, 0.2);
-  --shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 24px 60px -34px rgba(0, 0, 0, 1);
-}
+/* theme-tokens */
 
 @theme {
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;

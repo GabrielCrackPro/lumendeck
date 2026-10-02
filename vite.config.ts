@@ -1,9 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { defineConfig } from "vitest/config";
+import { defineConfig, type Plugin } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { injectThemeTokens } from "./src/shared/themeTokens";
 
 const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
@@ -38,6 +39,37 @@ function buildIdentity(): string | undefined {
   return git(["status", "--porcelain"]) ? `${sha}-dirty` : sha;
 }
 
+/**
+ * Write the theme blocks from src/shared/palette.ts into the dashboard
+ * stylesheet, replacing its `/* theme-tokens *\/` marker.
+ *
+ * The accent readability maths resolves the same declarations, so a panel
+ * background and the contrast decision made about it cannot disagree — which
+ * they did, as two unrelated sets of literals, until both came from here.
+ *
+ * Scoped to index.css by name on purpose: the transform asserts the marker is
+ * present exactly once, which would be a false alarm on the vendored
+ * @fontsource sheets it imports.
+ */
+function themeTokens(): Plugin {
+  return {
+    name: "lumendeck-theme-tokens",
+    // `pre` is load-bearing, not a style choice. @tailwindcss/vite also
+    // registers as `pre`, and its processor strips comments and inlines
+    // @imports on the way past — so a normal-order plugin sees a stylesheet
+    // with the marker already deleted. Among `pre` plugins Vite keeps array
+    // order, which is why this one is listed first.
+    enforce: "pre" as const,
+    transform(code, id) {
+      // A dev-time id can carry a query (`index.css?direct`); the file part is
+      // what identifies the stylesheet.
+      const file = id.split("?")[0];
+      if (!file.endsWith("index.css")) return null;
+      return { code: injectThemeTokens(code), map: null };
+    },
+  };
+}
+
 const host = process.env.TAURI_DEV_HOST;
 // App version from the Tauri config, injected as a compile-time global.
 const appVersion = JSON.parse(
@@ -47,7 +79,10 @@ const appVersion = JSON.parse(
 const buildMode = process.env.TAURI_ENV_DEBUG ? "dev" : "release";
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // themeTokens before tailwindcss: both register as `pre`, and Vite preserves
+  // array order among them, so this one sees the stylesheet before the Tailwind
+  // processor has stripped the marker comment out of it.
+  plugins: [react(), themeTokens(), tailwindcss()],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
     __APP_BUILD_MODE__: JSON.stringify(buildMode),

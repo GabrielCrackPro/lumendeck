@@ -54,6 +54,10 @@ function useGlow() {
   const themePref = useStore((s) => s.cfg?.general.theme);
   const theme = useEffectiveTheme(themePref);
   const autoShade = useStore((s) => s.cfg?.general.accentAutoShade ?? 1);
+  // AMOLED is a separate surface, not a darker dark: .dark.amoled drops --bg
+  // to #000000. The readability pass has to be told, or an accent tuned
+  // against graphite is left short of the contrast floor on true black.
+  const amoled = useStore((s) => s.cfg?.general.amoled ?? false);
   const wallpaperColor = useStore((s) => s.wallpaperColor);
   // The user's Windows accent color, seeded once via IPC and kept live by the
   // backend watcher (SYSTEM_ACCENT). This is the deep fallback for every
@@ -84,7 +88,7 @@ function useGlow() {
     // steps toward white/black until the accent is legible on this theme.
     // Strength is user-tunable (Settings > Appearance); 0 = raw colors.
     const pick = (c: [number, number, number]) =>
-      readableOnTheme(c, theme, Math.max(0, Math.min(1, autoShade)));
+      readableOnTheme(c, theme, Math.max(0, Math.min(1, autoShade)), amoled);
     const fallback =
       mode === "static" || mode === "breathe" ? staticColor : undefined;
     // Wallpaper color leads when present: the interface IS the wallpaper's
@@ -120,7 +124,7 @@ function useGlow() {
       activeIds.map((id) => deviceColors[id]?.rgb).find((c) => c != null) ??
       Object.values(deviceColors).find((c) => c.rgb.some((v) => v > 0))?.rgb;
     return pick(live ?? wpColor ?? fallback ?? sysAccent ?? DEFAULT_GLOW);
-  }, [deviceColors, mode, staticColor, excluded, devices, accentDevice, accentLive, wpColor, sysAccent, theme, autoShade]);
+  }, [deviceColors, mode, staticColor, excluded, devices, accentDevice, accentLive, wpColor, sysAccent, theme, autoShade, amoled]);
 }
 
 /** Full-window boot splash shown until the backend hands us the config. */
