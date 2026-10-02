@@ -78,9 +78,17 @@ describe("parseChangelog", () => {
 });
 
 describe("the bundled changelog", () => {
-  it("parses into at least one release with content", () => {
+  it("parses into at least one release", () => {
     expect(CHANGELOG.length).toBeGreaterThan(0);
-    expect(CHANGELOG[0]!.sections.length).toBeGreaterThan(0);
+  });
+
+  it("has at least one release with user-facing content", () => {
+    // Deliberately not the *newest* release. A release made only of tooling and
+    // documentation commits has no user-facing sections at all — v0.2.30 was
+    // exactly that — and the parser drops the internal-count footer, so such a
+    // release legitimately parses to zero of them. What has to hold is that the
+    // file parses and carries real notes somewhere.
+    expect(CHANGELOG.some((release) => release.sections.length > 0)).toBe(true);
   });
 });
 
