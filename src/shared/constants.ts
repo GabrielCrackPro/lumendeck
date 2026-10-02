@@ -34,18 +34,18 @@ export const EVENTS = {
   HOTKEY_STATUS: "hotkey-status",
 } as const;
 
-export const STICKER_MIN_SIZE = 48;
-export const STICKER_DEFAULT_W = 220;
-export const STICKER_DEFAULT_H = 220;
+// The sticker size and the default glow used to live here. Both are in
+// tokens.json now, because the backend needs the same numbers: 220 was
+// restated in four places in the placement overlay and again in Rust, and the
+// exports below were imported by nothing at all. Re-exported so the callers
+// that only need the glow keep importing from one module.
+export { DEFAULT_GLOW } from "./tokens";
 
 /** Default OpenRGB SDK port. */
 export const OPENRGB_PORT = 6742;
 
 /** Default zone-sampling rate. */
 export const SAMPLE_FPS = 10;
-
-/** Default glow color (sky-blue) used as fallback across UI and backend. */
-export const DEFAULT_GLOW: [number, number, number] = [56, 189, 248];
 
 /** Dark background for mode art thumbnails. */
 export const MODE_ART_BG = "#0a101d";

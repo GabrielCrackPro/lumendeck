@@ -359,7 +359,7 @@ fn sweep_base(cfg: &RgbConfig, latest: &[ZoneSample]) -> [u8; 3] {
     match cfg.mode {
         RgbMode::Static | RgbMode::Breathe | RgbMode::AudioReactive => cfg.static_color,
         RgbMode::Cycle | RgbMode::Wave => hsl_to_rgb(0.55),
-        _ => latest.last().map(|s| s.rgb).unwrap_or([56, 189, 248]),
+        _ => latest.last().map(|s| s.rgb).unwrap_or_else(crate::tokens::default_glow),
     }
 }
 

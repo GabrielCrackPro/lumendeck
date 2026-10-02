@@ -6,7 +6,6 @@ pub mod bgremove;
 pub mod config;
 pub mod config_store;
 pub mod config_watch;
-pub mod constants_sticker;
 pub mod dev_watchdog;
 pub mod display_watch;
 pub mod error;
@@ -23,6 +22,7 @@ pub mod ipc;
 rust_i18n::i18n!("../locales");
 
 pub mod i18n;
+pub mod tokens;
 pub mod media;
 pub mod media_session;pub mod mouse_hook;
 pub mod pause;

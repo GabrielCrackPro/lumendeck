@@ -8,6 +8,11 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { EVENTS } from "@shared/constants";
+import {
+  STICKER_DEFAULT_W,
+  STICKER_MAX_SIZE,
+  STICKER_MIN_SIZE,
+} from "@shared/tokens";
 import "../runtime.css";
 
 interface MonitorInfo {
@@ -19,7 +24,10 @@ interface MonitorInfo {
   primary: boolean;
 }
 
-const PREVIEW = 220;
+// The preview shows the size a click would produce, which is the size the
+// backend creates when placement supplies none — so both come from the shared
+// token rather than each holding its own copy of 220. STEP is the resize pad's
+// increment, unrelated to either.
 const STEP = 24;
 
 function PlacementRoot() {
@@ -30,7 +38,7 @@ function PlacementRoot() {
     name: string;
   } | null>(null);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
-  const [sizePx, setSizePx] = useState(220);
+  const [sizePx, setSizePx] = useState(STICKER_DEFAULT_W);
   const [padHover, setPadHover] = useState(false);
 
   useEffect(() => {
@@ -88,12 +96,15 @@ function PlacementRoot() {
   // Cursor physical screen px -> local logical px.
   const cx = ((cursor?.x ?? mon.x + mon.w / 2) - mon.x) / dpr;
   const cy = ((cursor?.y ?? mon.y + mon.h / 2) - mon.y) / dpr;
-  const size = (cursor ? sizePx : PREVIEW) / dpr;
-  const sizePhysical = cursor ? sizePx : PREVIEW;
+  const size = (cursor ? sizePx : STICKER_DEFAULT_W) / dpr;
+  const sizePhysical = cursor ? sizePx : STICKER_DEFAULT_W;
 
   const resize = (dir: 1 | -1) => {
     setSizePx((s) => {
-      const next = Math.min(2000, Math.max(48, s + dir * STEP));
+      const next = Math.min(
+        STICKER_MAX_SIZE,
+        Math.max(STICKER_MIN_SIZE, s + dir * STEP),
+      );
       invoke("placement_resize", { delta: dir * 4 }).catch(() => {});
       return next;
     });

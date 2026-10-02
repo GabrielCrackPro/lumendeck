@@ -481,7 +481,7 @@ fn default_hotkey_blink_ms() -> u64 {
 /// Blink colour for a fresh install. Also the fallback for a config saved
 /// before the blink colour was user-settable.
 fn default_hotkey_blink_color() -> [u8; 3] {
-    [255, 255, 255]
+    crate::tokens::hotkey_blink()
 }
 
 /// A named lighting profile bundling the most-tweaked RGB knobs.
@@ -564,8 +564,8 @@ impl Default for StickerDef {
             url: String::new(),
             x: 0,
             y: 0,
-            w: crate::constants_sticker::DEFAULT_W,
-            h: crate::constants_sticker::DEFAULT_H,
+            w: crate::tokens::sticker_default_w(),
+            h: crate::tokens::sticker_default_h(),
             rotation: 0.0,
             opacity: 1.0,
             muted: false,

@@ -3,14 +3,12 @@ import { useStore } from "../store";
 import { api } from "../ipc";
 import { Card, InfoNote, Btn, Toggle, Slider, ColorInput } from "./ui";
 import { HOTKEY_ACTIONS, type HotkeyActionId } from "@shared/constants";
+import { HOTKEY_BLINK_COLOR } from "@shared/tokens";
 import { IconKeyboard } from "./icons";
 import type { HotkeyConfig } from "@shared/types";
 import { acceleratorFromEvent, isSafeAccelerator, parseAccelerator } from "../eq";
 import { truncateError } from "../utilities";
 import { t } from "../i18n";
-
-/** Mirrors `default_hotkey_blink_color` in src-tauri/src/config.rs. */
-const DEFAULT_BLINK_COLOR: [number, number, number] = [255, 255, 255];
 
 /** Pretty labels for the modifier tokens, so the binding reads like a menu. */
 const MODIFIER_LABELS: Record<string, string> = {
@@ -240,7 +238,9 @@ export default function HotkeysCard() {
   // Older configs predate the blink; absence means on, matching the Rust
   // default so the card can never show a toggle the backend would ignore.
   const blinkMs = general.hotkeyBlinkMs ?? 450;
-  const blinkColor = general.hotkeyBlinkColor ?? DEFAULT_BLINK_COLOR;
+  // Falls back to the shared token, which is the same value the backend
+  // substitutes for a binding with no stored colour.
+  const blinkColor = general.hotkeyBlinkColor ?? HOTKEY_BLINK_COLOR;
 
   return (
     <Card

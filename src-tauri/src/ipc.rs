@@ -1400,9 +1400,12 @@ pub async fn begin_sticker_placement(
     *crate::mouse_hook::WHEEL_TX.lock().expect("wheel tx poisoned") = Some(wheel_tx);
     let app_wheel = app.clone();
     let wheel_forwarder = tauri::async_runtime::spawn(async move {
-        let mut size = 220i32;
+        let mut size = crate::tokens::sticker_default_w() as i32;
         while let Some(delta) = wheel_rx.recv().await {
-            size = (size + delta * 6).clamp(48, 2000);
+            size = (size + delta * 6).clamp(
+                crate::tokens::sticker_min_size() as i32,
+                crate::tokens::sticker_max_size() as i32,
+            );
             crate::events::set_placement_size(size);
             crate::events::emit_all(&app_wheel, crate::events::PLACING_SIZE, &size);
         }
@@ -1453,7 +1456,7 @@ pub async fn begin_sticker_placement(
             // (monitors above/left of the primary), so we clamp against the
             // real virtual-screen bounds rather than assuming (0,0) origin.
             let (x, y) = clamp_placement(x, y);
-            let size = placed_size.unwrap_or(crate::constants_sticker::DEFAULT_W as i32) as u32;
+            let size = placed_size.unwrap_or(crate::tokens::sticker_default_w() as i32) as u32;
             // Aspect-aware default: probe the media's natural dimensions and
             // scale the wheel-chosen size to fit, so a wide banner doesn't
             // land as a letterboxed square. Video probe is best-effort; the
@@ -1997,21 +2000,21 @@ fn media_aspect_size(url: &str, base: u32) -> (u32, u32) {
     if aspect >= 1.0 {
         (base, ((base as f64) / aspect).round().max(48.0) as u32)
     } else {
-        (((base as f64) * aspect).round().max(48.0) as u32, base)
+        (((base as f64) * aspect).round().max(crate::tokens::sticker_min_size() as f64) as u32, base)
     }
 }
 
 fn clamp_placement(x: i32, y: i32) -> (i32, i32) {
-    use crate::constants_sticker::{DEFAULT_H, DEFAULT_W};
+    use crate::tokens::{sticker_default_h, sticker_default_w};
     let mons = crate::win32::monitors();
     let (vx0, vy0, vx1, vy1) = mons.iter().fold(
         (i32::MAX, i32::MAX, i32::MIN, i32::MIN),
         |(a, b, c, d), m| (a.min(m.x), b.min(m.y), c.max(m.x + m.w), d.max(m.y + m.h)),
     );
-    let cx = x + DEFAULT_W as i32 / 2;
-    let cy = y + DEFAULT_H as i32 / 2;
-    let half_w = DEFAULT_W as i32 / 2;
-    let half_h = DEFAULT_H as i32 / 2;
+    let cx = x + sticker_default_w() as i32 / 2;
+    let cy = y + sticker_default_h() as i32 / 2;
+    let half_w = sticker_default_w() as i32 / 2;
+    let half_h = sticker_default_h() as i32 / 2;
     (
         cx.clamp(vx0 + half_w, vx1.saturating_sub(half_w)) - half_w,
         cy.clamp(vy0 + half_h, vy1.saturating_sub(half_h)) - half_h,
