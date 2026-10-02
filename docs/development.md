@@ -138,10 +138,13 @@ feat(settings): add a Developer section with build facts and logs
 Then, because `feat` and `fix` are user-facing:
 
 ```bash
-node scripts/generate-changelog.mjs
-git add CHANGELOG.md
-git commit -m "chore: list <hash> in the release notes"
+node scripts/generate-changelog.mjs --commit
 ```
+
+That writes the file and commits it in one step, as
+`chore(changelog): release notes for v0.2.29`. The version goes in the subject
+rather than a hash because GitHub names a workflow run after the subject of the
+commit at the tip — which is always this one.
 
 The changelog is generated from commits since the last tag. Do not hand-edit it,
 and do not skip the regeneration — the pre-push hook and CI both check it.

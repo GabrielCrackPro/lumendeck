@@ -13,6 +13,7 @@
 //   node scripts/generate-changelog.mjs --stdout        # print, write nothing
 //   node scripts/generate-changelog.mjs --release-notes # just this version
 //   node scripts/generate-changelog.mjs --check         # exit 1 if stale
+//   node scripts/generate-changelog.mjs --commit        # write, then commit it
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -256,6 +257,7 @@ function renderRelease(version, date, entries, carriedCounts = { internal: 0, mi
 function build() {
   const stdout = process.argv.includes("--stdout");
   const check = process.argv.includes("--check");
+  const commit = process.argv.includes("--commit");
   const releaseNotes = process.argv.includes("--release-notes");
   const sinceIndex = process.argv.indexOf("--since");
   const since = sinceIndex !== -1 ? process.argv[sinceIndex + 1] : null;
@@ -269,6 +271,13 @@ function build() {
   // an explicit --since, that range wins (used to backfill a single release).
   const allTags = tagsDescending();
   const from = since ?? allTags[0];
+  // Commits that touched this file are the ones recording it, not the ones it
+  // describes. Both bookkeeping commits would otherwise feed on themselves: the
+  // release job's `chore(release): record <version>` and the `--commit` above,
+  // each landing after its own tag and each guaranteeing the next run had
+  // something to write. `--check` has always excluded them; the write path has
+  // to agree, or `--commit` never reaches a fixed point.
+  const bookkeeping = commitsTouching(CHANGELOG_NAME, from);
   const entries = readCommits(from)
     .map((commit) => ({ ...commit, parsed: parseSubject(commit.subject) }))
     .filter((commit) => {
@@ -278,17 +287,7 @@ function build() {
         );
         return false;
       }
-      // The release job commits the four version files back to main after it
-      // publishes, so the repository is never behind the tag it just made. That
-      // commit lands *after* the tag, which would put it in the next release's
-      // range and make `--check` fail on the following push: the file on disk
-      // could not contain an entry for a commit whose hash did not exist when it
-      // was written. A commit that records a version is not a change worth a
-      // line, so it is not listed.
-      if (commit.parsed.type === "chore" && commit.parsed.scope === "release") {
-        return false;
-      }
-      return true;
+      return !bookkeeping.has(commit.hash);
     });
 
   const today = releaseDate();
@@ -359,7 +358,6 @@ function build() {
       fail("CHANGELOG.md is missing — run: node scripts/generate-changelog.mjs");
     }
     const present = listedHashes(normalize(readFileSync(CHANGELOG, "utf8")));
-    const bookkeeping = commitsTouching(CHANGELOG_NAME, from);
     const missing = entries
       .filter((e) => isUserFacing(e.parsed.type) && !bookkeeping.has(e.hash))
       .map((e) => shortHash(e.hash))
@@ -381,6 +379,36 @@ function build() {
   console.log(
     `Wrote CHANGELOG.md: ${entries.length} commit(s) since ${from ?? "the beginning"} → v${version}.`,
   );
+
+  if (!commit) return;
+
+  // The commit is named after the release rather than after the hash it listed.
+  // GitHub titles a run after the subject of the commit at the tip, and that
+  // commit is always this one — so a subject of `chore: list a2625fb in the
+  // release notes` is the name every push to main gets, and it tells you
+  // nothing you could not read off the release page instead.
+  // `git status --porcelain` cannot be used for this. With `core.autocrlf` on
+  // and an LF working tree, it reports the file as modified while `git diff`
+  // and a byte comparison both say it is identical to HEAD — the index stat
+  // cache, not a real change. Asking git for the diff is the only version of
+  // the question that agrees with what `git commit` will then decide.
+  if (!git(["diff", "--numstat", "--", CHANGELOG_NAME]).trim()) {
+    console.log("CHANGELOG.md already matches; nothing to commit.");
+    return;
+  }
+  execFileSync(
+    "git",
+    [
+      "commit",
+      "--quiet",
+      "-m",
+      `chore(changelog): release notes for v${version}\n\nGenerated with Codebuff`,
+      "--",
+      CHANGELOG_NAME,
+    ],
+    { cwd: ROOT, stdio: "inherit" },
+  );
+  console.log(`Committed the release notes for v${version}.`);
 }
 
 build();

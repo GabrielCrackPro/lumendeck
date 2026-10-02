@@ -190,10 +190,13 @@ After a `feat` or `fix` commit, the changelog needs regenerating or the pre-push
 hook and CI will reject the push:
 
 ```bash
-node scripts/generate-changelog.mjs
-git add CHANGELOG.md
-git commit -m "chore: list <hash> in the release notes"
+node scripts/generate-changelog.mjs --commit
 ```
+
+That writes the file and commits it as `chore(changelog): release notes for
+v0.2.29`. Naming the release rather than the hash it listed matters more than it
+looks: GitHub titles a run after the subject of the commit at the tip, and that
+commit is always this one, so its subject is the name every push to main gets.
 
 The changelog is generated from commits since the last tag — do not hand-edit
 it.
