@@ -9,7 +9,7 @@ and it lands under that release's heading.
 ### Added
 - **app:** a customization centre that can explain itself (`a2efb28`)
 
-_8 internal._
+_10 internal._
 
 ## 0.2.7 — 2026-10-02
 
