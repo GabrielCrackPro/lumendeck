@@ -6,10 +6,16 @@ and it lands under that release's heading.
 
 ## 0.2.30 — 2026-10-02
 
+### Changed
+- **theme:** generate the theme blocks from a palette instead of hand-authoring them (`27d486e`)
+- **tokens:** read the shared runtime constants from one file (`d98aea8`)
+
 ### Fixed
+- **i18n:** hold the locale across the set and the lookup (`d710109`)
+- **accent:** make the wallpaper-to-OS accent sync actually reversible (`a01fc80`)
 - **changelog:** stop assuming the newest release has user-facing notes (`b096beb`)
 
-_6 internal._
+_9 internal._
 
 ## 0.2.29 — 2026-10-02
 
