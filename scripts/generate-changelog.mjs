@@ -272,11 +272,23 @@ function build() {
   const entries = readCommits(from)
     .map((commit) => ({ ...commit, parsed: parseSubject(commit.subject) }))
     .filter((commit) => {
-      if (commit.parsed) return true;
-      console.warn(
-        `  skipping non-conventional commit: ${commit.subject.slice(0, 70)}`,
-      );
-      return false;
+      if (!commit.parsed) {
+        console.warn(
+          `  skipping non-conventional commit: ${commit.subject.slice(0, 70)}`,
+        );
+        return false;
+      }
+      // The release job commits the four version files back to main after it
+      // publishes, so the repository is never behind the tag it just made. That
+      // commit lands *after* the tag, which would put it in the next release's
+      // range and make `--check` fail on the following push: the file on disk
+      // could not contain an entry for a commit whose hash did not exist when it
+      // was written. A commit that records a version is not a change worth a
+      // line, so it is not listed.
+      if (commit.parsed.type === "chore" && commit.parsed.scope === "release") {
+        return false;
+      }
+      return true;
     });
 
   const today = releaseDate();
