@@ -70,7 +70,13 @@ for (const step of STEPS) {
   process.stdout.write(`\n--- ${step.name} ` + "-".repeat(Math.max(0, 46 - step.name.length)) + "\n");
   const res = spawnSync([step.cmd, ...step.args].join(" "), {
     cwd: step.cwd ? new URL(`../${step.cwd}/`, import.meta.url) : process.cwd(),
-    stdio: "inherit",
+    // Captured rather than inherited, so a failure can be reported with the
+    // name of the thing that failed. `stdio: "inherit"` streamed it past, and a
+    // rare intermittent failure then costs an afternoon of reruns trying to
+    // catch it again: one Rust test fails roughly once in thirty-five full runs
+    // and has never been caught twice in a row.
+    encoding: "utf8",
+    maxBuffer: 64 << 20,
     // A single command string rather than an argv array with `shell: true`:
     // Node deprecates the combination because the arguments are concatenated
     // unescaped. Every token used here is a space-free executable or flag, and
@@ -83,6 +89,18 @@ for (const step of STEPS) {
   } else {
     failed = true;
     results.push({ name: step.name, state: "FAILED", secs });
+    // The named failures first, because that is the one line nobody should have
+    // to go looking for, then enough of the surrounding output to read the
+    // assertion that failed with.
+    const output = `${res.stdout ?? ""}${res.stderr ?? ""}`;
+    const named = output
+      .split("\n")
+      .filter((line) => /^test .* FAILED|^failures:|panicked at/.test(line));
+    if (named.length > 0) {
+      console.log(`\n  ${step.name} failed:\n${named.map((l) => `    ${l}`).join("\n")}`);
+    }
+    const tail = output.trimEnd().split("\n").slice(-40).join("\n");
+    if (tail) console.log(`\n${tail}\n`);
     // Stop at the first failure. Running the remaining checks after something
     // is already broken produces noise that hides the real error.
     break;
