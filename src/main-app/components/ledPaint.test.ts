@@ -3,6 +3,7 @@ import {
   DARK_LED,
   EMITTER_BOOST,
   emitterColor,
+  frameSignature,
   glowAlpha,
   glowRadius,
   ledRadius,
@@ -128,5 +129,75 @@ describe("previewDpr", () => {
 
   it("honours an explicit cap", () => {
     expect(previewDpr(3, 2)).toBe(2);
+  });
+});
+describe("frameSignature", () => {
+  const rgb: [number, number, number] = [10, 20, 30];
+  const four = [
+    [1, 1, 1],
+    [2, 2, 2],
+    [3, 3, 3],
+    [4, 4, 4],
+  ] as [number, number, number][];
+
+  it("is stable when nothing changed", () => {
+    expect(frameSignature(rgb, four)).toBe(frameSignature(rgb, four));
+  });
+
+  it("notices a change in any single LED, at any position", () => {
+    // The bug: only ledColors[0] was sampled, so a zoned board whose zone 2
+    // changed sat on screen showing the old colour until something else moved.
+    // Every index is checked because "sample a few points" was the wrong fix —
+    // on a four-zone board, sampling 0/2/3 misses zone 1 entirely.
+    for (let i = 0; i < four.length; i++) {
+      const moved = four.map((c, j) =>
+        j === i ? ([9, 9, 9] as [number, number, number]) : c,
+      );
+      expect(frameSignature(rgb, moved), `LED ${i} went unnoticed`).not.toBe(
+        frameSignature(rgb, four),
+      );
+    }
+  });
+
+  it("notices a change in the last zone", () => {
+    const moved = four.map((c, i) => (i === 3 ? ([9, 9, 9] as [number, number, number]) : c));
+    expect(frameSignature(rgb, moved)).not.toBe(frameSignature(rgb, four));
+  });
+
+  it("notices a change on a full-size board's last LED too", () => {
+    // The 96-LED case is the one that actually ships, and the last key is the
+    // right-hand edge of the spacebar row.
+    const wide = Array.from({ length: 96 }, (_, i) => [
+      i,
+      i,
+      i,
+    ] as [number, number, number]);
+    const moved = wide.map((c, i) =>
+      i === 95 ? ([1, 1, 1] as [number, number, number]) : c,
+    );
+    expect(frameSignature(rgb, moved)).not.toBe(frameSignature(rgb, wide));
+  });
+
+  it("notices a change in the representative colour or the count", () => {
+    expect(frameSignature([9, 9, 9], four)).not.toBe(frameSignature(rgb, four));
+    expect(frameSignature(rgb, four.slice(0, 3))).not.toBe(frameSignature(rgb, four));
+  });
+
+  it("carries the extra token so a hover still repaints", () => {
+    expect(frameSignature(rgb, four, "W")).not.toBe(frameSignature(rgb, four, "Q"));
+    expect(frameSignature(rgb, four, "W")).toBe(frameSignature(rgb, four, "W"));
+  });
+
+  it("handles a board with no colours yet", () => {
+    expect(() => frameSignature(rgb, [])).not.toThrow();
+    expect(frameSignature(rgb, [])).not.toBe(frameSignature(rgb, four));
+  });
+
+  it("does not confuse one frame's samples with another's", () => {
+    // Guards against a separator that a colour could imitate, which would make
+    // two genuinely different frames compare equal and skip a repaint.
+    const a = frameSignature(rgb, [[1, 1, 1], [1, 1, 1], [1, 1, 1]]);
+    const b = frameSignature(rgb, [[1, 1, 1], [1, 1, 1], [1, 1, 2]]);
+    expect(a).not.toBe(b);
   });
 });

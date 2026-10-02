@@ -93,6 +93,44 @@ export function previewDpr(ratio?: number, max = 3): number {
   return Math.min(max, Math.max(1, r || 1));
 }
 
+/**
+ * A cheap summary of one frame, for deciding whether a repaint is needed.
+ *
+ * Previews are redrawn many times a second and the expensive part is the paint,
+ * not the colours, so a frame that has not visibly changed should be skipped.
+ * But "summarise" was done by sampling only `ledColors[0]`, which is wrong for
+ * exactly the boards this preview exists to show: on a zoned board zone 3 can
+ * change while zone 0 holds still, and nothing repainted until some other LED
+ * moved. The board sat there showing last week's zone colours.
+ *
+ * The fear behind that sample was that walking every LED was too expensive. It
+ * is not: this is a rolling integer hash, so it is one imul and one xor per
+ * channel with no allocation and no string building, and ~140 of them take
+ * microseconds. Sampling was the wrong trade — it bought almost nothing and
+ * cost correctness, because no fixed set of sample points covers a four-zone
+ * board without missing one.
+ *
+ * `extra` carries whatever else changes the picture (a hovered key), so a
+ * caller gets one comparable string rather than concatenating by hand.
+ */
+export function frameSignature(
+  rgb: Rgb,
+  leds: readonly Rgb[],
+  extra = "",
+): string {
+  // FNV-1a, 32-bit. Math.imul because a plain multiply on a value that has
+  // overflowed 32 bits silently loses low bits, which is how a hash starts
+  // reporting equality for different frames.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < leds.length; i++) {
+    const c = leds[i]!;
+    h = Math.imul(h ^ c[0], 16777619);
+    h = Math.imul(h ^ c[1], 16777619);
+    h = Math.imul(h ^ c[2], 16777619);
+  }
+  return `${rgb.join(",")}:${leds.length}:${h >>> 0}:${extra}`;
+}
+
 // ---------- canvas helpers ----------
 
 /**

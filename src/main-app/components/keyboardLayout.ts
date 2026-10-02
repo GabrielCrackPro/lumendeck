@@ -36,6 +36,14 @@ const NUMPAD_ROWS: readonly (readonly KeySpec[])[] = [
   [["0", 2], [".", 1]],
 ];
 
+/** A rectangle in the caller's pixel space. */
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /** Where a key sits, for hit-testing and for styling a cluster differently. */
 export type Cluster = "main" | "nav" | "arrow" | "numpad";
 
@@ -272,6 +280,70 @@ export function buildKeyboardPlates(
   }
 
   return plates;
+}
+
+/** The smallest rectangle containing every plate, or null for an empty board. */
+export function plateBounds(plates: readonly Plate[]): Rect | null {
+  if (plates.length === 0) return null;
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const p of plates) {
+    if (p.x < x0) x0 = p.x;
+    if (p.y < y0) y0 = p.y;
+    if (p.x + p.w > x1) x1 = p.x + p.w;
+    if (p.y + p.h > y1) y1 = p.y + p.h;
+  }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
+ * Bezel widths, as fractions of the board's key height.
+ *
+ * Proportional rather than pixels for the same reason the cap radius is: a
+ * board drawn 200px wide and one drawn 600px wide are the same object at two
+ * sizes. The bottom is the thickest edge because on real hardware that is where
+ * the case has room for a controller, and it is the edge that makes a keyboard
+ * read as a keyboard rather than a rectangle of keys.
+ */
+export const BEZEL = { top: 0.34, bottom: 0.62, side: 0.3 } as const;
+
+/**
+ * The case: the board's own bounds plus a bezel, centred in the canvas.
+ *
+ * The case used to be the canvas rectangle, so a 60% board was drawn on a slab
+ * the size of a full-size one — the keys sat in a band across the top with a
+ * wide empty margin beneath them, and no amount of bezel work made that read
+ * as hardware. The case has to be the size of the thing it contains.
+ *
+ * Centred because the layout top-aligns the main block (it is positioned from
+ * the top so the nav and numpad arithmetic below has a fixed origin), which
+ * leaves the leftover height all at the bottom. Clamped to the canvas last, so
+ * a board too large for its box loses the margin rather than the keys.
+ */
+export function caseRect(
+  board: Rect | null,
+  canvas: { w: number; h: number },
+  bezel: { top: number; bottom: number; side: number } = BEZEL,
+): Rect {
+  if (!board) return { x: 0, y: 0, w: canvas.w, h: canvas.h };
+  const bt = board.h * bezel.top;
+  const bb = board.h * bezel.bottom;
+  const bs = board.h * bezel.side;
+  const w = board.w + bs * 2;
+  const h = board.h + bt + bb;
+  // Over-wide or over-tall: take the canvas, since a case smaller than its own
+  // contents would crop the keys.
+  if (w >= canvas.w || h >= canvas.h) {
+    return { x: 0, y: 0, w: canvas.w, h: canvas.h };
+  }
+  return {
+    x: (canvas.w - w) / 2,
+    y: (canvas.h - h) / 2,
+    w,
+    h,
+  };
 }
 
 /** The keycap under a point, if any. Later plates win, as they draw on top. */
