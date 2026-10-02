@@ -134,19 +134,40 @@ jobs:
           }
           $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
           $appVersion = [version]$config.version
-          # A commit that only records a released version is not a release. The
-          # commit-back step below pushes one to main after every publish, and
-          # without this the very next run would see a fresh commit that is not
-          # the tagged one, decide 0.2.29 <= 0.2.29, and publish 0.2.30 — a loop
-          # that would ship an empty release every few minutes. The commit is
-          # pushed with GITHUB_TOKEN, which does not trigger a run at all; this
-          # is the belt to that pair of braces, and it is what makes the
-          # convention a rule rather than a hope.
+          # Two kinds of commit must never produce a release, and neither is
+          # obvious if it slips through.
+          #
+          # `chore(release)` is what this job writes back to main after every
+          # publish. Releasing it would find a fresh untagged commit, decide
+          # 0.2.30 <= 0.2.30, and publish 0.2.31 — an empty release every few
+          # minutes. The commit is pushed with GITHUB_TOKEN, which raises no run
+          # at all; this is the belt to that pair of braces.
+          #
+          # `[skip release]` is the escape hatch for work that should not ship —
+          # documentation, a CI fix, a comment — while still running every check.
+          # GitHub's own `[skip ci]` would skip the checks too, which is the
+          # opposite of what you want for a commit you still need verified.
           $headSubject = (git log -1 --format=%s $env:CI_HEAD_SHA)
+          $headMessage = (git log -1 --format=%B $env:CI_HEAD_SHA)
+          $skipReason = $null
           if ($headSubject -match '^chore\(release\)') {
-            Write-Host "Commit $env:CI_HEAD_SHA only records a release version ($headSubject); skipping."
+            $skipReason = "it only records a released version"
+          } elseif ($headMessage -match '(?m)^\s*\[skip release\]\s*$') {
+            # Trailer only, on a line of its own. Accepting the marker anywhere
+            # would mean a commit whose subject merely mentions it — one
+            # documenting this very rule, say — silently swallowed the release.
+            # Being strict errs towards publishing, and the note below turns the
+            # case where someone meant to skip into a line in the log rather than
+            # a mystery.
+            $skipReason = "the commit is marked [skip release]"
+          }
+          if ($skipReason) {
+            Write-Host "Not releasing $env:CI_HEAD_SHA because $skipReason."
             "should_release=false" >> $env:GITHUB_OUTPUT
             exit 0
+          }
+          if ($headMessage -match '\[skip release\]') {
+            Write-Host "Note: [skip release] is in this commit but not as a trailer on a line of its own, so it is releasing anyway."
           }
           $releaseJson = gh release list --limit 100 --json tagName,isDraft,isPrerelease | Out-String
           if ($LASTEXITCODE -ne 0) {

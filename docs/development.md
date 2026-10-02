@@ -158,8 +158,30 @@ Version lives in four files that must agree: `package.json`,
 `node scripts/set-release-version.mjs` handles it.
 
 Pushing to `main` with passing CI publishes the signed NSIS installer, its
-signature and `latest.json`. The release version is applied only in the CI
-workspace, so publishing does not create a bot commit on `main`.
+signature and `latest.json`, then commits the version and the regenerated
+changelog back to `main` as `chore(release): record <version>`. That commit is
+pushed with `GITHUB_TOKEN`, which raises no workflow run, so it cannot start the
+next release; the version step skips `chore(release)` subjects as a second line
+of defence.
+
+To run every check and publish nothing, put `[skip release]` on a line of its own
+in the commit message:
+
+```
+docs(readme): drop the stale licence note
+
+[skip release]
+```
+
+Use this instead of `[skip ci]`. GitHub's marker skips the whole workflow, so
+the commit would ship unverified, which is rarely what you want from a change
+you still need checked. A commit marked `[skip release]` is folded into the next
+release's notes, where it belongs.
+
+The marker must be a line of its own. Anywhere else — mid-sentence, or the only
+content of a fenced code block — it is ignored, and the workflow logs a line
+saying so, because a commit that documents this rule in passing should not
+quietly swallow its own release.
 
 Signing needs `TAURI_SIGNING_PRIVATE_KEY` (and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if it has one) in the repository secrets.

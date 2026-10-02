@@ -186,6 +186,21 @@ Generated with Codebuff
 Co-Authored-By: Codebuff <noreply@codebuff.com>
 ```
 
+Every push to `main` publishes a release, which is right for a feature and wrong
+for a README fix. Put `[skip release]` on a line of its own to run every check
+and publish nothing:
+
+```
+docs(readme): drop the stale licence note
+
+[skip release]
+```
+
+Prefer it over `[skip ci]`, which GitHub honours by skipping the workflow
+entirely and so leaves the commit unverified. Anywhere but a line of its own the
+marker is ignored, and the workflow logs that it ignored it — a commit that
+mentions the rule in passing must not swallow its own release.
+
 After a `feat` or `fix` commit, the changelog needs regenerating or the pre-push
 hook and CI will reject the push:
 
