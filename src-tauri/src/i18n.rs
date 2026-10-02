@@ -80,8 +80,18 @@ pub fn from_tag(tag: &str) -> &'static str {
 /// Point rust-i18n at the locale in force.
 ///
 /// Cheap and idempotent, so callers can invoke it before every tray rebuild
-/// rather than tracking the language themselves.
+/// rather than tracking the language themselves. Takes the locale lock so a
+/// bare `set_locale` from anywhere still cannot land between another thread's
+/// `set` and its lookup.
 pub fn set_locale(locale: &str) {
+  let _guard = locale_lock();
+  set_locale_locked(locale);
+}
+
+/// [set_locale] for a caller already holding the lock. A std Mutex is not
+/// reentrant, so [t] has to come through here rather than through
+/// [set_locale], or it would deadlock against its own guard.
+fn set_locale_locked(locale: &str) {
   let _ = rust_i18n::set_locale(locale);
 }
 
@@ -104,7 +114,7 @@ pub fn current() -> &'static str {
 /// quietly pass a test that only ever sees Spanish.
 #[cfg(test)]
 pub fn t_in(locale: &str, key: &str) -> String {
-  let _guard = test_locale_lock();
+  let _guard = locale_lock();
   t_in_locked(locale, key)
 }
 
@@ -116,19 +126,36 @@ pub fn t_in(locale: &str, key: &str) -> String {
 /// calls this instead.
 #[cfg(test)]
 pub fn t_in_locked(locale: &str, key: &str) -> String {
-  set_locale(locale);
+  set_locale_locked(locale);
   crate::_rust_i18n_t!(key).into_owned()
 }
 
-/// Held for the duration of any test that inspects a specific locale.
-#[cfg(test)]
-pub(crate) fn test_locale_lock() -> std::sync::MutexGuard<'static, ()> {
+/// Serialises the global locale: set it, read a string, and no other thread
+/// can swap it in between.
+///
+/// This is not a test-only concern. The locale is process-global state inside
+/// `rust_i18n`, the tray is rebuilt on its own thread, and [t] is called from
+/// the IPC handlers and the sample path — so an unlocked set-then-lookup pair
+/// could resolve one string in English and the next in Spanish, handing a
+/// user a half-translated tray. Holding the lock across both halves is what
+/// makes "the locale cannot drift from the lookup" true rather than intended.
+fn locale_lock() -> std::sync::MutexGuard<'static, ()> {
   use std::sync::{Mutex, OnceLock};
   static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
   let m = LOCK.get_or_init(|| Mutex::new(()));
-  // A poisoned lock means another locale test panicked, which is already a
-  // failure; recovering keeps one broken test from masking the rest.
+  // A poisoned lock means a caller panicked while holding it, which is already
+  // a failure; recovering keeps one broken call from masking the rest.
   m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Held for the duration of any test that inspects a specific locale.
+///
+/// Every test that asserts on a specific language must take this, and must use
+/// [t_in_locked] rather than [t] while holding it — a std Mutex is not
+/// reentrant, and [t] takes the lock itself.
+#[cfg(test)]
+pub(crate) fn test_locale_lock() -> std::sync::MutexGuard<'static, ()> {
+  locale_lock()
 }
 
 /// Look up one of the backend's strings by key, in the locale in force.
@@ -143,7 +170,12 @@ pub(crate) fn test_locale_lock() -> std::sync::MutexGuard<'static, ()> {
 /// The copy happens at most twenty times per tray rebuild, which is not a
 /// cost worth optimising at the price of a signature nobody can use.
 pub fn t(key: &str) -> String {
-  set_locale(current());
+  // The lock spans the set AND the lookup, not just the set. Releasing it
+  // between them is what let a concurrent tray rebuild land a different
+  // language in the gap, which showed up as a test that compared a Spanish
+  // string against an English one and failed roughly one run in forty.
+  let _guard = locale_lock();
+  set_locale_locked(current());
   crate::_rust_i18n_t!(key).into_owned()
 }
 
@@ -251,5 +283,55 @@ mod tests {
       t_in("es", "tray.some-string-added-later"),
       "tray.some-string-added-later"
     );
+  }
+
+  /// [t] has to resolve in ONE language per call, whatever another thread is
+  /// doing to the process-global locale while it runs.
+  ///
+  /// This is the flake that cost real time: a startup-hint test compared a
+  /// Spanish string against an English one roughly one run in forty, because
+  /// the pair of calls in `t` — set the locale, then look the key up — was
+  /// two separate critical sections, and a sibling test iterating the shipped
+  /// locales landed in the gap. In production the same gap is a tray half in
+  /// one language and half in another, so this asserts the invariant rather
+  /// than only re-running the flaky comparison.
+  #[test]
+  fn t_never_returns_two_languages_for_one_lookup() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    // Whichever locale this machine resolves to, the writer pins the OTHER
+    // one, so any string it leaks into a `t` call is visible.
+    let mine = current();
+    let other = if mine == "en" { "es" } else { "en" };
+    let expected = t_in(mine, "tray.quit");
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let writer = {
+      let stop = Arc::clone(&stop);
+      std::thread::spawn(move || {
+        while !stop.load(Ordering::Relaxed) {
+          set_locale(other);
+        }
+      })
+    };
+
+    let mut wrong = 0;
+    for _ in 0..20_000 {
+      if t("tray.quit") != expected {
+        wrong += 1;
+      }
+    }
+    stop.store(true, Ordering::Relaxed);
+    writer.join().unwrap();
+
+    assert_eq!(
+      wrong, 0,
+      "{wrong} of 20000 lookups resolved in the other thread's locale"
+    );
+    // Leave the process in the locale production code would pick, so this test
+    // does not leak `other` into whichever test happens to run next.
+    let _guard = locale_lock();
+    set_locale_locked(mine);
   }
 }
