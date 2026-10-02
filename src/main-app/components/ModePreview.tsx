@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { RgbMode } from "@shared/types";
 import { averageColor, stripFrame, STRIP_LEDS, type Rgb } from "./rgbStrip";
+import { emitterColor, ledRadius, paintLedGlow, previewDpr, roundRectPath } from "./ledPaint";
 
 export interface ModePreviewProps {
   mode: RgbMode;
@@ -72,9 +73,10 @@ export function ModePreview({
         schedule();
         return;
       }
-      // Real device pixel ratio, capped: the strip is redrawn every frame, and
-      // a 3x display would triple the fill cost for a few extra pixels of glow.
-      const dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
+      // Shared, capped device pixel ratio — the same one the device list and the
+      // keyboard preview use, so one strip is not drawn at a different
+      // resolution depending on which panel it happens to be in.
+      const dpr = previewDpr();
       const W = (canvas.width = Math.round(canvas.offsetWidth * dpr));
       const H = (canvas.height = Math.round(canvas.offsetHeight * dpr));
 
@@ -103,29 +105,28 @@ export function ModePreview({
       ctx.fillStyle = `rgb(${dim[0]},${dim[1]},${dim[2]})`;
       ctx.fillRect(0, 0, W, H);
 
-      // The strip itself.
+      // The strip itself. Halo, radius and overdrive come from the shared policy:
+      // this was the one preview with no glow at all, and the one that drew the
+      // raw colour rather than the emitter colour, so a mode tile and the same
+      // mode running on a device looked like two different products.
       const pad = 6 * dpr;
       const gap = 2 * dpr;
       const led = Math.min((W - pad * 2) / STRIP_LEDS - gap, (H - pad * 2) * 0.34);
       const stripW = STRIP_LEDS * (led + gap) - gap;
       const x0 = (W - stripW) / 2;
-      const y = H / 2 - led / 2;
-      const rad = led * 0.32;
+      const cx0 = x0 + led / 2;
+      const cy = H / 2;
       for (let i = 0; i < leds.length; i++) {
-        const [r, g, b] = leds[i]!;
-        const x = x0 + i * (led + gap);
-        ctx.beginPath();
-        ctx.roundRect(x - led * 0.4, y - led * 0.4, led * 1.8, led * 1.8, rad);
-        ctx.fillStyle = `rgb(${r} ${g} ${b} / 0.22)`;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.roundRect(x, y, led, led, rad);
-        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        const color = emitterColor(leds[i]!);
+        const cx = cx0 + i * (led + gap);
+        paintLedGlow(ctx, cx, cy, led, color);
+        roundRectPath(ctx, cx - led / 2, cy - led / 2, led, led, ledRadius(led));
+        ctx.fillStyle = `rgb(${color[0]},${color[1]},${color[2]})`;
         ctx.fill();
       }
 
       // Floor reflection.
-      const reflTop = y + led * 1.6;
+      const reflTop = cy + led * 0.9;
       const refl = ctx.createLinearGradient(0, reflTop, 0, H);
       refl.addColorStop(0, `rgba(${Math.min(255, dim[0] * 4)},${Math.min(255, dim[1] * 4)},${Math.min(255, dim[2] * 4)},0.5)`);
       refl.addColorStop(1, "transparent");

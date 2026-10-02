@@ -31,14 +31,28 @@ pub fn spawn() {
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0);
             let last = crate::mouse_hook::last_input_ms();
+            // Zero means no input has been observed yet, which is not the same
+            // as "no input since 1970". Treating it as an epoch timestamp is
+            // what produced `idle: no input for 1790755853423ms` on every fresh
+            // install: a number that looks like a hang and means nothing. Skip
+            // the tick instead, and let the next one decide once a hook has
+            // armed. The hooks call `mouse_hook::arm()` at startup, so this only
+            // covers the seconds before they do.
+            if last == 0 {
+                tokio::time::sleep(Duration::from_secs(interval)).await;
+                continue;
+            }
             let elapsed = now_ms.saturating_sub(last);
             let idle = elapsed >= timeout_ms;
 
             if idle && !was_idle {
+                // Whole seconds, not the raw millisecond count: 30901ms is
+                // harder to read at a glance than "31s", and the threshold is
+                // already in the same unit.
                 log::info!(
-                    "idle: no input for {}ms (threshold {}ms) — sleeping RGB",
-                    elapsed,
-                    timeout_ms
+                    "idle: no input for {}s (threshold {}s) — sleeping RGB",
+                    elapsed / 1_000,
+                    timeout_ms / 1_000
                 );
                 crate::rgb::set_sleeping(true);
                 was_idle = true;

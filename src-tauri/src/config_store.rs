@@ -15,8 +15,25 @@ static WATCH_TX: OnceLock<Mutex<watch::Sender<Config>>> = OnceLock::new();
 static LAST_MTIME_MS: AtomicU64 = AtomicU64::new(0);
 
 pub fn config_path() -> PathBuf {
-    let base = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("LumenDeck").join("config.json")
+    data_dir().join("config.json")
+}
+
+/// The folder holding the config, the log and the thumbnails.
+///
+/// Named once because "the app's data folder" is written in four places that
+/// have to agree — the log target, the log reveal, and the paths a user is told
+/// to attach — and a folder name that drifts between them is a bug report that
+/// arrives with the wrong file.
+pub fn data_dir() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("LumenDeck")
+}
+
+/// The current log file. Fixed name, fixed place: this is the path support asks
+/// for, so it must not move.
+pub fn log_path() -> PathBuf {
+    data_dir().join("lumendeck.log")
 }
 
 pub fn init() -> Config {
@@ -156,7 +173,22 @@ pub fn set(new_cfg: Config) -> Result<(), String> {
 }
 
 /// Mutate the config through a closure and save.
+///
+/// Serialised by its own mutex rather than by the config `RwLock`. The obvious
+/// implementation — read, mutate, write — releases the read lock before taking
+/// the write lock, so two concurrent updates both start from the same base and
+/// the second silently discards the first. That is not hypothetical: the
+/// collection commands are the caller, and a bulk "file these twenty wallpapers
+/// into a collection" is exactly the shape that loses entries.
+///
+/// A separate lock is used rather than holding the write lock across the whole
+/// operation because `set` publishes the change, and publishing emits events
+/// that read the config — re-entering the `RwLock` under a write guard would
+/// deadlock. This lock is held only across read-modify-write, and nothing under
+/// it re-enters `update`.
 pub fn update(f: impl FnOnce(&mut Config)) -> Result<Config, String> {
+    static UPDATE_LOCK: Mutex<()> = Mutex::new(());
+    let _guard = UPDATE_LOCK.lock().map_err(|_| "update lock poisoned")?;
     let mut cfg = get();
     f(&mut cfg);
     set(cfg.clone())?;
@@ -170,11 +202,34 @@ fn load() -> Config {
             Ok(cfg) => cfg,
             Err(e) => {
                 log::warn!("config rejected ({e}); using defaults");
+                // A file we cannot parse is not a fresh install: this machine
+                // already had a config, so it gets the deserialization
+                // defaults rather than the first-run ones. Flipping a
+                // long-standing user's display preferences because their file
+                // was briefly unreadable would be indefensible.
                 Config::default()
             }
         },
-        Err(_) => Config::default(),
+        // No file at all: the one genuinely new machine.
+        Err(_) => first_run_defaults(),
     }
+}
+
+/// Defaults for a machine that has never run LumenDeck.
+///
+/// Deliberately *not* `Config::default()`. The two differ, and the difference is
+/// the whole point of the function: `Config::default()` doubles as the value
+/// serde substitutes for a field a stored config predates, so it has to keep the
+/// old behaviour for existing users. A brand-new install has no such history
+/// and starts from the current product decision instead.
+///
+/// The only field that differs today is `show_color_hex`, because it is the only
+/// preference whose "current" answer is deliberately not the "old" one. Adding a
+/// second such field means adding it here too, and nothing else.
+fn first_run_defaults() -> Config {
+    let mut cfg = Config::default();
+    cfg.general.show_color_hex = false;
+    cfg
 }
 
 /// Parse config JSON through the migration pipeline so files written by
@@ -301,6 +356,53 @@ mod tests {
         let cfg = parse_and_migrate(&json.to_string()).unwrap();
         assert!(cfg.general.autostart);
         assert!(!cfg.general.show_dashboard_on_login);
+    }
+
+    #[test]
+    fn color_hex_readout_stays_on_for_older_configs() {
+        // The hex readout existed before this setting did. An older config must
+        // keep seeing it, or upgrading the app quietly removes something the
+        // user was reading — and there is no signal that anything changed.
+        let json = serde_json::json!({
+            "version": crate::config::CONFIG_VERSION,
+            "general": {"autostart": true}
+        });
+        let cfg = parse_and_migrate(&json.to_string()).unwrap();
+        assert!(cfg.general.show_color_hex);
+    }
+
+    #[test]
+    fn first_run_hides_the_hex_readout() {
+        // A machine with no config has no history to preserve, so it starts from
+        // the current product decision rather than the one this setting replaced.
+        assert!(!first_run_defaults().general.show_color_hex);
+    }
+
+    #[test]
+    fn first_run_differs_from_the_upgrade_default_only_in_the_hex() {
+        // The split has to stay narrow. If a future field also wants a different
+        // first-run value, it gets its own line in `first_run_defaults` — and a
+        // test that fails here is the thing that catches a second divergence
+        // being introduced by accident.
+        let mut expected = Config::default();
+        expected.general.show_color_hex = false;
+        let first = first_run_defaults();
+        // Compare by round-tripping both, so a new field added to either side
+        // shows up as a difference rather than silently defaulting.
+        assert_eq!(
+            serde_json::to_value(&first).unwrap(),
+            serde_json::to_value(&expected).unwrap()
+        );
+    }
+
+    #[test]
+    fn color_hex_readout_respects_an_explicit_opt_out() {
+        let json = serde_json::json!({
+            "version": crate::config::CONFIG_VERSION,
+            "general": {"autostart": true, "showColorHex": false}
+        });
+        let cfg = parse_and_migrate(&json.to_string()).unwrap();
+        assert!(!cfg.general.show_color_hex);
     }
 
     #[test]

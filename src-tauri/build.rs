@@ -12,6 +12,8 @@ fn main() {
     tauri_build::try_build(attrs)
         .expect("failed to run tauri-build");
 
+    stamp_build_identity();
+
     // Windows only: this shells out to the SDK's resource compiler.
     #[cfg(windows)]
     embed_manifest();
@@ -135,4 +137,86 @@ fn sdk_tool(tool: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Bake the source revision into the binary, so it can report which build it is.
+///
+/// The version alone cannot answer that. Every working build between two releases
+/// carries the same version number, so a bug report saying "0.2.7" is ambiguous:
+/// it does not distinguish a shipped installer from a build of a branch that
+/// happens to sit at 0.2.7.
+///
+/// The dirty flag matters as much as the SHA here, because this repository's
+/// development pattern is a long-running uncommitted working tree. A bare SHA
+/// reports the same commit for every local build regardless of what has changed on
+/// top of it, which is precisely the ambiguity being removed.
+///
+/// Failure is non-fatal. A build from an exported tarball has no git directory, and
+/// refusing to compile there would be worse than reporting "unknown".
+fn stamp_build_identity() {
+    declare_rerun_paths();
+
+    let sha = git(&["rev-parse", "--short", "HEAD"]);
+    let dirty = !git(&["status", "--porcelain"]).unwrap_or_default().is_empty();
+
+    // A dirty tree is the interesting case, so it has to be distinguishable at a
+    // glance rather than inferred from the surrounding commit message.
+    let identity = match (sha, dirty) {
+        (Some(sha), true) => Some(format!("{sha}-dirty")),
+        (Some(sha), false) => Some(sha),
+        (None, _) => None,
+    };
+
+    println!(
+        "cargo:rustc-env=LUMENDECK_BUILD_ID={}",
+        identity.as_deref().unwrap_or("unknown")
+    );
+    // Also separate, so the UI can say it in words rather than only in a suffix.
+    println!("cargo:rustc-env=LUMENDECK_BUILD_DIRTY={dirty}");
+}
+
+/// Tell cargo when to run this script again.
+///
+/// The default is "whenever any file in the package changes", but a single
+/// `rerun-if-changed` anywhere in a build script replaces that default with an
+/// explicit list — and `embed_manifest` already emits one for the manifest. So
+/// without this, the identity is frozen at the first build: commit something, or
+/// switch branches, and the badge keeps naming a build that no longer exists.
+/// That is worse than having no badge, because it is confidently wrong.
+///
+/// The git metadata is watched directly because a commit does not have to change
+/// a file to move HEAD, and `.git/HEAD` alone only catches a branch switch, not a
+/// commit on the current branch — hence the ref file as well. In a worktree or a
+/// repo with packed refs these paths may not exist, which is harmless: cargo
+/// simply never sees them change, and a missing `.git` means the values above are
+/// "unknown" regardless.
+fn declare_rerun_paths() {
+    println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=../.git/HEAD");
+    if let Some(reference) = git(&["symbolic-ref", "HEAD"]) {
+        println!("cargo:rerun-if-changed=../.git/{reference}");
+    }
+}
+
+/// Run a git command in the workspace, returning trimmed stdout.
+///
+/// Never panics and never inherits stderr: a missing git on a build agent is
+/// normal, not a reason to fail the build.
+fn git(args: &[&str]) -> Option<String> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(out.stdout).ok()?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }

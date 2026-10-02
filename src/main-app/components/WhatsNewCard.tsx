@@ -3,10 +3,10 @@
 // Release notes used to live only on the GitHub release page, which a user
 // who installed an update and relaunched would never think to visit. This is
 // the same file the release pipeline publishes, bundled at build time.
-import { useState } from "react";
 import { useStore } from "../store";
-import { truncateError } from "../utilities";
+import { useCopy } from "./useCopy";
 import { Card, Btn, Section, CollapsibleCard } from "./ui";
+import { IconHistory } from "./icons";
 import {
   CHANGELOG,
   currentRelease,
@@ -80,8 +80,6 @@ function ReleaseBody({ release }: { release: ChangelogRelease }) {
 export default function WhatsNewCard({ compact }: { compact?: boolean }) {
   const cfg = useStore((s) => s.cfg);
   const save = useStore((s) => s.save);
-  const toast = useStore((s) => s.toast);
-  const [copied, setCopied] = useState(false);
 
   const version = __APP_VERSION__;
   const release = currentRelease(version);
@@ -96,16 +94,13 @@ export default function WhatsNewCard({ compact }: { compact?: boolean }) {
     void save((c) => (c.general.changelogSeenVersion = version));
   };
 
-  const copy = async () => {
+  const { copy, justCopied } = useCopy();
+  const copyNotes = async () => {
     if (!release) return;
-    try {
-      await navigator.clipboard.writeText(releaseToMarkdown(release));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      toast("ok", t("changelog.copied-the-v{version}-notes", { version }));
-    } catch (e) {
-      toast("error", `Could not copy: ${truncateError(e)}`);
-    }
+    await copy(
+      releaseToMarkdown(release),
+      t("changelog.copied-the-v{version}-notes", { version }),
+    );
   };
 
   const changeCount =
@@ -119,8 +114,8 @@ export default function WhatsNewCard({ compact }: { compact?: boolean }) {
             <ReleaseBody release={release} />
           </div>
           <div className="mt-3 flex items-center gap-2 border-t border-[var(--line)] pt-3">
-            <Btn size="sm" onClick={() => void copy()}>
-              {copied ? t("changelog.copied") : t("changelog.copy-notes")}
+            <Btn size="sm" onClick={() => void copyNotes()}>
+              {justCopied ? t("changelog.copied") : t("changelog.copy-notes")}
             </Btn>
             {unread && (
               <Btn size="sm" variant="ghost" onClick={markRead}>
@@ -172,6 +167,7 @@ export default function WhatsNewCard({ compact }: { compact?: boolean }) {
     return (
       <CollapsibleCard
         title={t("changelog.whats-new")}
+        icon={<IconHistory />}
         defaultOpen={unread}
         summary={
           release ? (
@@ -200,6 +196,7 @@ export default function WhatsNewCard({ compact }: { compact?: boolean }) {
   return (
     <Card
       title={t("changelog.whats-new")}
+      icon={<IconHistory />}
       right={
         <span className="flex items-center gap-2">
           {unread && (

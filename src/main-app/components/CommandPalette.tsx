@@ -658,7 +658,7 @@ export default function CommandPalette({
             </span>
           )}
           <span className="ml-auto flex items-center gap-1 normal-case">
-            <IconPin filled={false} className="h-2.5 w-2.5" />{" "}
+            <IconPin filled={false} className="h-3 w-3" />{" "}
             {t("palette.pin-for-quick-access")}
           </span>
         </div>

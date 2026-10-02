@@ -67,7 +67,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
       setImported((n) => n + 1);
       const fresh = await api.getConfig();
       useStore.setState({ cfg: fresh });
-      toast("ok", "Added to vault");
+      toast("ok", t("common.added-to-vault"));
     } catch (e) {
       toast("error", t("onboarding.import-failed-{error}", { error: truncateError(e) }));
     } finally {
@@ -106,7 +106,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     setBusy(true);
     try {
       await api.galleryApply(id);
-      toast("ok", "Wallpaper applied");
+      toast("ok", t("common.wallpaper-applied"));
       setFolderChoices([]);
     } catch (e) {
       toast("error", t("onboarding.apply-failed-{error}", { error: truncateError(e) }));

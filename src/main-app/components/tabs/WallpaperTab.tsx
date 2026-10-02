@@ -3,11 +3,11 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section, InfoNote, chipStyle, ItemTitle, displayName } from "../ui";
+import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section, InfoNote, chipStyle, ItemTitle, displayName, EmptyState } from "../ui";
 import { Modal } from "../Modal";
-import { IconImage, IconGlobe, IconFolder, IconPlus, IconTrash, IconClipboard } from "../icons";
+import { IconImage, IconGlobe, IconFolder, IconPlus, IconTrash, IconClipboard, IconClose } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
-import type { Config, EntryOptions, GalleryEntry, ZoneDef } from "@shared/types";
+import type { Config, EntryOptions, GalleryEntry, WallpaperCollection, ZoneDef } from "@shared/types";
 import { api } from "../../ipc";
 import { truncateError } from "../../utilities";
 import { t } from "../../i18n";
@@ -21,10 +21,23 @@ import { DEFAULT_QUERY, selectGallery, type GalleryQuery, type SelectContext } f
 import { GalleryThumb } from "../gallery/GalleryThumb";
 import { resolvePicked } from "../gallery/mediaKind";
 import { duplicateIds, healthOf, type Unhealthy } from "../gallery/vaultHealth";
+import { membershipDiff, visibleSelection } from "../gallery/collections";
+import {
+  applyClick,
+  applyOrder,
+  clearSelection,
+  emptySelection,
+  pruneSelection,
+  selectAll,
+  selectAllState,
+  type ClickModifiers,
+  type Selection,
+} from "../gallery/selection";
 import {
   buildIndex,
   cachedCount,
   readCache,
+  type StampMap,
   type VaultIndex,
 } from "../gallery/vaultIndex";
 import { type GalleryDensity } from "../gallery/GalleryToolbar";
@@ -49,13 +62,23 @@ export default function WallpaperTab() {
   const [urlNameDraft, setUrlNameDraft] = useState("");
   const [density, setDensity] = useState<GalleryDensity>("cozy");
   const [vaultIndex, setVaultIndex] = useState<VaultIndex>({});
+  /** File stamps from the backend, so a replaced file can be re-probed. */
+  const [stamps, setStamps] = useState<StampMap>({});
   const [indexing, setIndexing] = useState(false);
   const [indexProgress, setIndexProgress] = useState<{ done: number; total: number } | null>(null);
   const [missing, setMissing] = useState<ReadonlySet<string>>(new Set());
-  /** Ids ticked for the bulk action bar. */
-  const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
-  /** The last id ticked, so shift-click can span from here. */
-  const checkAnchor = useRef<string | null>(null);
+  /**
+   * The bulk selection and the tile a shift-click spans from, as one piece of
+   * state.
+   *
+   * They belong together: the anchor is only meaningful relative to the set it
+   * was set from, and splitting them across `useState` plus a `useRef` meant the
+   * two could disagree -- the anchor survived a prune that removed its tile, and
+   * shift-click then silently degraded to a plain toggle. One value, one
+   * updater, no way to get out of step.
+   */
+  const [selection, setSelection] = useState<Selection>(emptySelection());
+  const checked = selection.selected;
   const [dropActive, setDropActive] = useState(false);
   const [dropCount, setDropCount] = useState(0);
   const [mons, setMons] = useState<MonEntry[]>([]);
@@ -69,7 +92,10 @@ export default function WallpaperTab() {
   // One query object for search + collection + kind + sort, so the toolbar, the
   // grid and the counts can never disagree about what is being shown.
   const [gq, setGq] = useState<GalleryQuery>({ ...DEFAULT_QUERY, collection: "all" });
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** The entry whose detail drawer is open. Deliberately not the selection: a
+   *  panel is not a selection, and conflating them is what made a bulk choice
+   *  quietly change which wallpaper the drawer was describing. */
+  const [inspectedId, setInspectedId] = useState<string | null>(null);
   const [limit, setLimit] = useState(GALLERY_PAGE);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState("");
@@ -117,11 +143,20 @@ export default function WallpaperTab() {
             .galleryImportPaths(paths)
             .then((list) => {
               if (seq !== importSeq) return;
-              toast("ok", `Imported ${list.length} item${list.length === 1 ? "" : "s"}`);
+              toast(
+                "ok",
+                t("common.imported-{n}-items", {
+                  n: list.length,
+                  s: list.length === 1 ? "" : "s",
+                }),
+              );
             })
             .catch((e) => {
               console.error("gallery drop import failed:", e);
-              toast("error", `Drop import failed: ${truncateError(e)}`);
+              toast(
+                "error",
+                t("common.drop-import-failed-{error}", { error: truncateError(e) }),
+              );
             })
             .finally(() => {
               if (seq === importSeq) setBusy(false);
@@ -198,7 +233,7 @@ export default function WallpaperTab() {
   }, []);
   // Only the first page of tiles is mounted; the rest waits for "show more".
   const visibleGallery = gallery.slice(0, limit);
-  const selectedEntry = gallery.find((g) => g.id === selectedId) ?? null;
+  const selectedEntry = gallery.find((g) => g.id === inspectedId) ?? null;
   const duplicateSet = duplicateIds(cfg.gallery);
   const health = new Map<string, Unhealthy>();
   for (const g of cfg.gallery) {
@@ -210,13 +245,27 @@ export default function WallpaperTab() {
   const indexTotal = cfg.gallery.filter(
     (g) => g.kind === "video" || g.kind === "image",
   ).length;
-  const indexReady = indexTotal > 0 && cachedCount(cfg.gallery, vaultIndex) === indexTotal;
+  const indexReady = indexTotal > 0 && cachedCount(cfg.gallery, vaultIndex, stamps) === indexTotal;
   /** Every query change re-pages from the top, so filtering does not leave you
    *  on page 4 of a list that is now one screen long. */
   const setQuery = (patch: Partial<GalleryQuery>) => {
     setGq((q) => ({ ...q, ...patch }));
     setLimit(GALLERY_PAGE);
   };
+
+  /** Whether anything is narrowing the grid, as opposed to the vault being
+   *  genuinely empty. This test was written out four times inline inside the
+   *  vault's empty state; a fifth filter would have been easy to forget there
+   *  and the two branches would disagree.
+   */
+  const filtered =
+    gq.search.trim() !== "" ||
+    gq.kind !== "all" ||
+    gq.collection !== "all" ||
+    gq.picks !== "all" ||
+    gq.display !== "all";
+  const resetQuery = () =>
+    setQuery({ search: "", kind: "all", collection: "all", picks: "all", display: "all" });
   const isActive = (g: GalleryEntry) => g.kind === wall.kind && g.source === wall.source;
   const activeEntry = cfg.gallery.find((x) => isActive(x)) ?? null;
 
@@ -237,7 +286,7 @@ export default function WallpaperTab() {
     api
       .galleryRemove(g.id)
       .then(() => {
-        if (selectedId === g.id) setSelectedId(null);
+        if (inspectedId === g.id) setInspectedId(null);
         undoDelete(t("gallery.removed-{name}", { name: g.name }), (next) => {
           next.gallery.push(g);
         });
@@ -250,7 +299,7 @@ export default function WallpaperTab() {
       );
 
   const startRename = (g: GalleryEntry) => {
-    setSelectedId(g.id);
+    setInspectedId(g.id);
     setRenamingId(g.id);
     setRenameVal(g.name);
   };
@@ -464,6 +513,55 @@ export default function WallpaperTab() {
   };
 
   /**
+   * Delete a collection, with undo.
+   *
+   * Shared by the collections grid and the filter chips so both places do the
+   * same thing — including leaving the view if you are looking at the one you
+   * just deleted.
+   */
+  const deleteCollection = (c: WallpaperCollection) => {
+    api
+      .collectionDelete(c.id)
+      .then(() => {
+        if (gq.collection === c.id) setQuery({ collection: "all" });
+        if (mode === "collections") setMode("wallpapers");
+        undoDelete(t("gallery.deleted-collection", { name: c.name }), (next) => {
+          next.collections.push(c);
+        });
+      })
+      .catch((e) =>
+        toast("error", t("gallery.delete-failed-{error}", { error: truncateError(e) })),
+      );
+  };
+
+  /**
+   * Open the name field on an existing collection, pre-filled with its name.
+   *
+   * `colNameVal`, not `renameVal`: those are two different fields for two
+   * different editors, and writing the collection name into the wallpaper-rename
+   * state opened the collection input blank while overwriting whatever the
+   * wallpaper rename box had in it.
+   */
+  const startRenameCollection = (c: WallpaperCollection) => {
+    setColNameVal(c.name);
+    setColNaming(true);
+    setColRenameId(c.id);
+  };
+
+  /**
+   * Open the name field for a new collection.
+   *
+   * `colRenameId` is cleared so the same form serves create and rename; leaving
+   * it set would rename whatever collection was opened last instead of making
+   * a new one.
+   */
+  const startNewCollection = () => {
+    setColRenameId(null);
+    setColNameVal("");
+    setColNaming(true);
+  };
+
+  /**
    * Ask the backend which files have gone, and re-read the persisted index.
    *
    * Both run on open and whenever the vault changes, because both are cheap and
@@ -479,17 +577,33 @@ export default function WallpaperTab() {
       // A failed health check must not empty the set: that would report the
       // whole vault as healthy when we simply do not know.
     }
+    // Stamps alongside the health check: the two are the same disk pass, and a
+    // stale stamp is what makes "index the vault" reappear after a re-encode.
+    try {
+      setStamps(await api.vaultStamps());
+    } catch {
+      // Same reasoning. An empty map makes every entry read as unmeasured,
+      // which is honest — it just means the index offers to rebuild.
+    }
     setVaultIndex(readCache());
   };
 
   useEffect(() => {
     void refreshHealth();
+    // A ticked entry whose file was removed elsewhere stays ticked forever
+    // otherwise, so the bar keeps counting a wallpaper that is not in the vault
+    // and the bulk actions include an id that matches nothing. The anchor is
+    // pruned alongside it: a span from a deleted tile has no position, and
+    // leaving it behind makes every later shift-click quietly degrade.
+    setSelection((prev) => pruneSelection(prev, cfg.gallery.map((g) => g.id)));
   }, [cfg.gallery.length]);
 
   const runIndex = async () => {
     setIndexing(true);
     try {
-      setVaultIndex(await buildIndex(cfg.gallery, (p) => setIndexProgress({ done: p.done, total: p.total })));
+      setVaultIndex(
+        await buildIndex(cfg.gallery, stamps, (p) => setIndexProgress({ done: p.done, total: p.total })),
+      );
     } catch (e) {
       toast("error", t("gallery.indexing-failed-{error}", { error: truncateError(e) }));
     } finally {
@@ -498,51 +612,92 @@ export default function WallpaperTab() {
     }
   };
 
-  const toggleChecked = (id: string, range: boolean) => {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (!range) {
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        checkAnchor.current = id;
-        return next;
-      }
-      // Shift-click: everything between the anchor and this entry, in the order
-      // currently on screen. Anything ticked in between stays ticked.
-      const ids = visibleGallery.map((g) => g.id);
-      const a = ids.indexOf(checkAnchor.current ?? id);
-      const b = ids.indexOf(id);
-      if (a < 0 || b < 0) {
-        next.add(id);
-        return next;
-      }
-      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) {
-        const id = ids[i];
-        if (id) next.add(id);
-      }
-      return next;
-    });
+  /** Whether the grid is showing its tick boxes. Off until asked for. */
+  const selectEntry = (id: string, mods: ClickModifiers) => {
+    setSelection((prev) => applyClick(prev, visibleGallery.map((g) => g.id), id, mods));
   };
 
-  const clearChecked = () => {
-    setChecked(new Set());
-    checkAnchor.current = null;
-  };
+  const clearChecked = () => setSelection(clearSelection());
 
   /**
-   * Apply the ticked entries in order and leave the last one showing. Applying
-   * each in turn is what the user asked for, but the end state is the last one
-   * either way — the difference is twenty wallpaper changes on the way there.
+   * Select or clear everything the current filter shows.
+   *
+   * Scoped to `gallery`, the filtered list, rather than the page on screen --
+   * so paging the grid does not silently cap what "select all" means -- and
+   * not the whole vault, so a filter is not a way to accidentally apply 300
+   * wallpapers.
+   */
+  const toggleSelectAll = (want: boolean) =>
+    setSelection(selectAll(gallery.map((g) => g.id), want));
+
+  const allState = selectAllState(selection.selected, gallery.map((g) => g.id));
+
+  /**
+   * File everything ticked into a collection.
+   *
+   * The diff matters more than it looks: `collection_toggle_entry` is a toggle,
+   * so calling it for every ticked id would *remove* the ones already in the
+   * collection. Adding a selection that is half-present is the normal case, not
+   * an edge case, and it would silently unfile the other half.
+   */
+  const addCheckedToCollection = async (collectionId: string) => {
+    const col = collections.find((c) => c.id === collectionId);
+    if (!col) return;
+    const { toAdd, alreadyIn } = membershipDiff(col, [...checked]);
+    if (toAdd.length === 0) {
+      toast("info", t("gallery.all-selected-already-collected"));
+      return;
+    }
+    try {
+      // One call, one config write. The batch command also skips ids already
+      // present, so the diff above is only about the message, not correctness.
+      await api.collectionAddEntries(collectionId, toAdd);
+      const name = col.name;
+      toast(
+        "ok",
+        alreadyIn.length > 0
+          ? t("gallery.added-{n}-to-{name}", { n: toAdd.length, name })
+          : t("common.added-to", { name }),
+      );
+    } catch (e) {
+      toast("error", t("common.failed-{error}", { error: truncateError(e) }));
+    }
+  };
+
+  /** Collections the current selection is not already filed under. */
+  const checkedCollectionOptions = useMemo(() => {
+    const picked = [...checked];
+    return collections
+      .map((c) => {
+        const { toAdd } = membershipDiff(c, picked);
+        return { id: c.id, name: c.name, pending: toAdd.length };
+      })
+      .filter((c) => c.pending > 0);
+  }, [checked, collections]);
+
+  /** Ticked entries the current filter has hidden off-screen. */
+  const hiddenChecked = useMemo(
+    () => visibleSelection(checked, visibleGallery.map((g) => g.id)).hiddenCount,
+    [checked, visibleGallery],
+  );
+
+  /**
+   * Apply the selection and leave the newest one showing.
+   *
+   * Applying each in turn is what a selection of many implies, but the end
+   * state is the last one either way — the difference is twenty wallpaper
+   * changes on the way there. `applyOrder` sorts by when each was added rather
+   * than by click order, so the same selection always ends in the same place.
    */
   const applyChecked = async () => {
-    const picked = cfg.gallery.filter((g) => checked.has(g.id));
+    const picked = applyOrder(cfg.gallery, checked);
     if (picked.length === 0) return;
     for (const g of picked) await applyToAll(g);
     clearChecked();
   };
 
   const removeChecked = async () => {
-    const picked = cfg.gallery.filter((g) => checked.has(g.id));
+    const picked = applyOrder(cfg.gallery, checked);
     if (picked.length === 0) return;
     for (const g of picked) await removeEntry(g);
     clearChecked();
@@ -612,7 +767,15 @@ export default function WallpaperTab() {
                 </button>
               )}
               <button
-                onClick={() => void refreshHealth()}
+                onClick={() => void (async () => {
+                  // Re-probe, not just re-check existence. "Rescan" next to a
+                  // list of entries needing attention is read as "fix these",
+                  // and it could not: it only ever asked whether the files were
+                  // still there. Now it also re-measures anything whose file
+                  // changed, which is the half that was missing.
+                  await refreshHealth();
+                  await runIndex();
+                })()}
                 className="rounded-md px-2 py-1 text-amber-200/75 underline underline-offset-2 transition-colors hover:text-amber-100"
               >
                 {t("gallery.rescan")}
@@ -625,10 +788,11 @@ export default function WallpaperTab() {
             onQuery={setQuery}
             entries={cfg.gallery}
             collections={collections}
-            totalInVault={cfg.gallery.length}
             searchRef={searchRef}
             density={density}
             onDensity={setDensity}
+            selectAllState={allState}
+            onSelectAll={toggleSelectAll}
             indexReady={indexReady}
             indexBuilding={indexing}
             indexProgress={indexProgress}
@@ -642,30 +806,8 @@ export default function WallpaperTab() {
             draggingId={draggingId}
             onDropOnCollection={dropOnCollection}
             onCollection={(id) => setQuery({ collection: id })}
-            onRenameCollection={(c) => {
-              setRenameVal(c.name);
-              setColNaming(true);
-              setColRenameId(c.id);
-            }}
-            onDeleteCollection={(c) =>
-              api
-                .collectionDelete(c.id)
-                .then(() => {
-                  if (gq.collection === c.id) setQuery({ collection: "all" });
-                  undoDelete(
-                    t("gallery.deleted-collection", { name: c.name }),
-                    (next) => {
-                      next.collections.push(c);
-                    },
-                  );
-                })
-                .catch((e) =>
-                  toast(
-                    "error",
-                    t("gallery.delete-failed-{error}", { error: truncateError(e) }),
-                  ),
-                )
-            }
+            onRenameCollection={startRenameCollection}
+            onDeleteCollection={deleteCollection}
             onNewCollection={() => {
               setColRenameId(null);
               setColNameVal("");
@@ -695,7 +837,18 @@ export default function WallpaperTab() {
                     } else {
                       api
                         .collectionCreate(name)
-                        .then((col) => setGq((q) => ({ ...q, collection: col.id })))
+                        .then(async (col) => {
+                          // Creating a collection while a pile of wallpapers is
+                          // ticked is almost always meant to be "put these
+                          // there". Creating an empty one and jumping to an
+                          // empty grid makes the user re-do the filing one tile
+                          // at a time.
+                          const picked = [...checked];
+                          setGq((q) => ({ ...q, collection: col.id }));
+                          if (picked.length === 0) return;
+                          await api.collectionAddEntries(col.id, picked);
+                          toast("ok", t("gallery.added-{n}-to-{name}", { n: picked.length, name }));
+                        })
                         .catch((e) =>
                           toast(
                             "error",
@@ -797,17 +950,20 @@ export default function WallpaperTab() {
               thumbFor={(g) => <GalleryThumb entry={g} />}
               activeEntry={activeEntry}
               perMonitor={overrides}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
               onApplyAll={applyToAll}
-              onInspect={(g) => setSelectedId(g.id)}
+              onInspect={(g) => setInspectedId(g.id)}
               onRename={startRename}
               onRemove={removeEntry}
               density={density}
               health={health}
-              checked={checked}
-              onToggleChecked={toggleChecked}
+            checked={checked}
+            onSelect={selectEntry}
+            onSelectAll={toggleSelectAll}
+            selectAllActive={allState === "all"}
               onApplyChecked={() => void applyChecked()}
+              onAddCheckedToCollection={(id) => void addCheckedToCollection(id)}
+              hiddenChecked={hiddenChecked}
+              collectionOptions={checkedCollectionOptions}
               onRemoveChecked={() => void removeChecked()}
               onClearChecked={clearChecked}
               onDragEntry={setDraggingId}
@@ -842,14 +998,11 @@ export default function WallpaperTab() {
                   setMode("wallpapers");
                   setQuery({ collection: id });
                 }}
-                onNewCollection={() => {
-                  setColRenameId(null);
-                  setColNameVal("");
-                  setColNaming(true);
-                }}
+                onNewCollection={startNewCollection}
+                onRename={startRenameCollection}
+                onDelete={deleteCollection}
               />
-            )}
-
+              )}
 
             {selectedEntry && (
               <GalleryDrawer
@@ -897,7 +1050,7 @@ export default function WallpaperTab() {
                     );
                 }}
                 onRemove={() => removeEntry(selectedEntry)}
-                onClose={() => setSelectedId(null)}
+                onClose={() => setInspectedId(null)}
                 health={health.get(selectedEntry.id) ?? null}
                 onSetOpts={(patch) => {
                   const current = cfg.gallery.find((g) => g.id === selectedEntry.id)?.opts ?? {};
@@ -1111,54 +1264,28 @@ export default function WallpaperTab() {
           )}
 
           {mode === "wallpapers" && gallery.length === 0 && (
-            <div className="mt-4 flex flex-col items-center gap-2.5 rounded-2xl border border-dashed border-[var(--line-strong)] px-6 py-12 text-center">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--panel-strong)] text-[var(--text-faint)]">
-                <IconImage className="h-5 w-5" />
-              </div>
-              <ItemTitle>
-                {t(
-                  gq.search.trim() ||
-                    gq.kind !== "all" ||
-                    gq.collection !== "all" ||
-                    gq.picks !== "all" ||
-                    gq.display !== "all"
-                    ? "common.no-matches"
-                    : "common.vault-is-empty",
+            <div className="mt-4">
+              <EmptyState
+                icon={<IconImage className="h-6 w-6" />}
+                title={t(
+                  filtered ? "common.no-matches" : "common.vault-is-empty",
                 )}
-              </ItemTitle>
-              <p className="max-w-sm text-xs leading-relaxed text-[var(--text-faint)]">
-                {gq.search.trim() ||
-                gq.kind !== "all" ||
-                gq.collection !== "all" ||
-                gq.picks !== "all" ||
-                gq.display !== "all" ? (
-                  <>
-                    {t("common.nothing-in-this-view-is-called", {
-                      query: gq.search.trim() || t("gallery.this-filter"),
-                    })}{" "}
-                    <button
-                      onClick={() =>
-                        setGq((q) => ({
-                          ...q,
-                          search: "",
-                          kind: "all",
-                          collection: "all",
-                          picks: "all",
-                          display: "all",
-                        }))
-                      }
-                      className="text-[rgb(var(--glow))] underline underline-offset-2"
-                    >
+                description={
+                  filtered
+                    ? t("common.nothing-in-this-view-is-called", {
+                        query: gq.search.trim() || t("gallery.this-filter"),
+                      })
+                    : t("common.add-a-video-or-image-or-drop-files-and-folders-h")
+                }
+                action={
+                  filtered ? (
+                    <Btn onClick={resetQuery}>
+                      <IconClose className="h-4 w-4" />
                       {t("common.clear-the-search")}
-                    </button>
-                    .
-                  </>
-                ) : (
-                  <>
-                    {t("common.add-a-video-or-image-or-drop-files-and-folders-h")}
-                  </>
-                )}
-              </p>
+                    </Btn>
+                  ) : undefined
+                }
+              />
             </div>
           )}
         </Card>
@@ -1305,7 +1432,12 @@ export default function WallpaperTab() {
                                 next.playlists.push(pl);
                               }),
                             )
-                            .catch((e) => toast("error", `Delete failed: ${truncateError(e)}`))
+                            .catch((e) =>
+                              toast(
+                                "error",
+                                t("common.delete-failed-{error}", { error: truncateError(e) }),
+                              ),
+                            )
                         }
                         className="text-[var(--text-faint)] transition-colors hover:text-red-400"
                       >
@@ -1438,7 +1570,7 @@ export default function WallpaperTab() {
                                   }
                                   className="text-[var(--text-faint)] transition-colors hover:text-red-400"
                                 >
-                                  <IconTrash className="h-3.5 w-3.5" />
+                                  <IconTrash className="h-4 w-4" />
                                 </button>
                               </div>
                             ))}
@@ -1463,7 +1595,7 @@ export default function WallpaperTab() {
                             }
                             className="mt-2 flex items-center gap-1.5 rounded-lg border border-dashed border-[var(--line-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-dim)] hover-glow"
                           >
-                            <IconPlus className="h-3.5 w-3.5" />
+                            <IconPlus className="h-4 w-4" />
                             {t("common.add-rule")}
                           </button>
                         </div>

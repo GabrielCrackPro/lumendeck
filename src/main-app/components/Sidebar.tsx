@@ -182,7 +182,7 @@ function SearchButton({
       aria-label={t("nav.search-commands")}
       className="flex h-8 w-full items-center gap-2 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] px-2.5 text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text-dim)]"
     >
-      <IconSearch className="h-3.5 w-3.5 shrink-0" />
+      <IconSearch className="h-4 w-4 shrink-0" />
       <span
         className={`min-w-0 flex-1 truncate text-left text-[12px] transition-[opacity,transform] duration-200 ease-out ${
           collapsed ? "-translate-x-2 opacity-0" : "translate-x-0 opacity-100"

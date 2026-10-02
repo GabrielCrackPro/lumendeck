@@ -237,6 +237,10 @@ pub fn handle(app: &tauri::AppHandle, id: &str) -> bool {
         }
         ID_RESTORE_WP => {
             let restored = crate::wallpaper_bg::restore_original_wallpaper();
+            // The lock screen is a separate registry value, so restoring the
+            // desktop leaves the lock screen showing our frame. Releasing it
+            // here too is what makes this button mean what it says.
+            crate::lock_screen_reg::release();
 
             if restored {
                 // Stop the engine so the live wallpaper doesn't immediately
@@ -244,7 +248,9 @@ pub fn handle(app: &tauri::AppHandle, id: &str) -> bool {
                 // can re-enable from the dashboard or tray pause toggle.
                 let _ = crate::config_store::update(|c| c.general.wallpaper_enabled = false);
                 if let Some(a) = crate::app_handle() {
-                    crate::wallpaper::remove(&a);
+                    if let Err(e) = crate::wallpaper::remove(&a) {
+                        log::warn!("tray: restore wallpaper could not remove the live window: {e}");
+                    }
                 }
             }
             restored

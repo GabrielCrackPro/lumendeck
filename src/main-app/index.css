@@ -36,8 +36,6 @@
   --text: #17150f;
   --text-dim: #4d4a41;
   --text-faint: #847f72;
-  --radius: 12px;
-  --radius-lg: 16px;
   --shadow: 0 0 0 1px rgba(28, 27, 24, 0.05), 0 2px 6px rgba(28, 27, 24, 0.06), 0 20px 48px -32px rgba(28, 27, 24, 0.4);
 }
 
@@ -52,8 +50,6 @@
   --text: #ecedef;
   --text-dim: #a5a8ae;
   --text-faint: #66696f;
-  --radius: 12px;
-  --radius-lg: 16px;
   --shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 24px 60px -34px rgba(0, 0, 0, 0.9);
 }
 
@@ -73,6 +69,30 @@
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Unbounded", "Outfit", ui-sans-serif, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
+
+  /* One radius scale for the whole app, redefined rather than sprinkled.
+     Before this the tree carried eight different radii (2/4/5/6/8/12/16 plus
+     full) and the two tokens this file declared for the job -- 12px and 16px --
+     were used by exactly one class each, so cards were 12px in most places and
+     16px wherever .glass happened to be. Redefining the Tailwind namespace
+     aligns every existing `rounded-*` call site at once, so the app reads as
+     one surface language without touching a component.
+
+       sm       mini buttons, checkboxes, badges
+       DEFAULT  inputs, small buttons
+       md       buttons and icon buttons  <- what Btn already used
+       lg       cards, panels, dropdowns  (the declared 12px)
+       xl       modals and sheets         (the declared 16px)
+       2xl/3xl  the largest surfaces
+
+     Pills stay `rounded-full`: a capsule is a shape, not a radius to normalise. */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 28px;
 
   /* The app is a window that gets maximized, so it has to stay composed on a
      32" 1440p/4K panel as well as in a 900px side-by-side column. Tailwind
@@ -165,7 +185,7 @@ body {
    no hover lift (panels are furniture, not buttons). */
 .glass {
   position: relative;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   border: 1px solid var(--line);
   background: var(--panel);
   box-shadow: var(--shadow);
@@ -184,7 +204,7 @@ body {
 
 /* Inset tile: a card-inside-a-card row (device rows, profile chips). */
 @utility panel-inset {
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   border: 1px solid var(--line);
   background: var(--panel-strong);
 }
@@ -217,7 +237,7 @@ body {
 
 /* Callout note: glow-tinted inline explanation box (pairs with InfoNote). */
 @utility note-box {
-  border-radius: calc(var(--radius-lg) - 4px);
+  border-radius: var(--radius-lg);
   border: 1px solid rgb(var(--glow) / 0.25);
   background: rgb(var(--glow) / 0.07);
   padding: 0.625rem 0.75rem;

@@ -258,6 +258,51 @@ export const IconCheck = (props: P) => (
 );
 
 /** Toast tones: a check, a warning triangle, a plain info dot. */
+/** Dismiss: clear a selection, close a menu. The one unambiguous "cancel". */
+export const IconClose = (props: P) => (
+  <svg {...base(props)}>
+    <path d="m6 6 12 12M18 6 6 18" />
+  </svg>
+);
+
+/** Sort: a descending arrow over a baseline, rather than sliders, which the
+ *  filter button already uses. */
+export const IconSort = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M4 7h11M4 12h8M4 17h5" />
+    <path d="M19 8v9M16.5 14.5 19 17l2.5-2.5" />
+  </svg>
+);
+
+/** Tile size: a 2x2 block that reads as "how big are the tiles". */
+export const IconGrid = (props: P) => (
+  <svg {...base(props)}>
+    <rect x="4" y="4" width="7" height="7" rx="1.5" />
+    <rect x="13" y="4" width="7" height="7" rx="1.5" />
+    <rect x="4" y="13" width="7" height="7" rx="1.5" />
+    <rect x="13" y="13" width="7" height="7" rx="1.5" />
+  </svg>
+);
+
+/**
+ * Select all: two tiles, one carrying the mark.
+ *
+ * Deliberately not a single box. The toolbar's select-all sits directly above a
+ * grid whose every tile shows a checkbox on hover, and a lone square there read
+ * as one of those tiles drawn twice. Two squares say "all of them" in a way one
+ * square never can, and the mark moves with the tri-state.
+ */
+export function IconSelectAll({ state, ...props }: { state: "none" | "some" | "all" } & P) {
+  return (
+    <svg {...base(props)}>
+      <rect x="2.75" y="2.75" width="10.5" height="10.5" rx="2.25" />
+      <rect x="10.75" y="10.75" width="10.5" height="10.5" rx="2.25" />
+      {state === "all" && <path d="m5.2 8.2 1.9 1.9 3.7-3.7" />}
+      {state === "some" && <path d="M5.6 8.1h4.8" />}
+    </svg>
+  );
+}
+
 export const IconAlert = (props: P) => (
   <svg {...base(props)}>
     <path d="M12 4.5 21 19.5H3L12 4.5Z" />
@@ -279,6 +324,29 @@ export const IconDownload = (props: P) => (
     <path d="M12 4v10" />
     <path d="m8 11 4 4 4-4" />
     <path d="M5 19h14" />
+  </svg>
+);
+
+export const IconCopy = (props: P) => (
+  <svg {...base(props)}>
+    <rect x="9" y="9" width="11" height="11" rx="2.2" />
+    <path d="M15 6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15" />
+  </svg>
+);
+
+export const IconTerminal = (props: P) => (
+  <svg {...base(props)}>
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <path d="m7 10 2.5 2.5L7 15" />
+    <path d="M13 15h4" />
+  </svg>
+);
+
+export const IconHistory = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M4 11a8.5 8.5 0 1 1 1.6 5.6" />
+    <path d="M4 6v5h5" />
+    <path d="M12 8v4.5l3 1.8" />
   </svg>
 );
 

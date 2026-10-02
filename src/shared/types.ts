@@ -168,6 +168,8 @@ export interface GeneralConfig {
   accentSyncArmed: boolean;
   /** Apply wallpaper changes to the Windows lock screen too. */
   lockScreenFollowsWallpaper: boolean;
+  /** Internal: original lock screen backed up on first sync (for restore). */
+  lockScreenArmed: boolean;
   /** First-run onboarding wizard has been completed. */
   onboarded: boolean;
   /**
@@ -177,6 +179,14 @@ export interface GeneralConfig {
   accentAutoShade: number;
   /** True-black surfaces in dark theme (saves power on OLED panels). */
   amoled: boolean;
+  /**
+   * Show the `#RRGGBB` readout beside colour swatches.
+   *
+   * Defaults on so adding the setting changed nobody's appearance. When off the
+   * swatch still shows the colour; the picker's own hex field is unaffected,
+   * because that is how a colour is entered rather than a label describing it.
+   */
+  showColorHex: boolean;
   /** The minimize button hides the dashboard to the tray instead of the taskbar. */
   minimizeToTray: boolean;
   /** A launch-at-login start shows the dashboard instead of starting in the tray. */
@@ -421,3 +431,50 @@ export interface MediaInfo {
   /** Repeat mode: 0 off, 1 track, 2 list/queue. null = not exposed. */
   repeat: 0 | 1 | 2 | null;
 }
+
+/**
+ * What a bug report needs to have in it, as the running process reports it.
+ *
+ * Mirrors the backend `dev_info` command. The frontend has its own build-time
+ * copy of the version, which is right for rendering but not for a diagnostics
+ * panel: only the backend can say which log level it installed or where it
+ * actually wrote.
+ */
+export type DevInfo = {
+  /** `Cargo.toml` version of the running binary. */
+  version: string;
+  /** True for a `tauri dev` build. */
+  debug: boolean;
+  /**
+   * The commit this binary was built from, with `-dirty` appended when the
+   * working tree had uncommitted changes. `unknown` outside a git checkout.
+   *
+   * Stamped into the binary at build time rather than asked for at runtime, so
+   * it describes the executable itself and cannot change under us.
+   */
+  buildId: string;
+  /** Whether the tree was dirty when this binary was built. */
+  buildDirty: boolean;
+  /** Resolved logger level, e.g. "INFO". */
+  logLevel: string;
+  /** Absolute path of config.json. */
+  configPath: string;
+  /** Absolute path of lumendeck.log. */
+  logPath: string;
+  /** Folder holding both. */
+  dataDir: string;
+  /**
+   * The most recent panic this process survived, as one log line, or `null`.
+   *
+   * A panicking thread does not always take the app down, so the only trace of
+   * one can be this field.
+   */
+  lastPanic: string | null;
+  /**
+   * First line of a pasted bug report: version, build identity and log level.
+   *
+   * Built in the backend so the header a user pastes and the panic line in the
+   * log always name the same build.
+   */
+  reportHeader: string;
+};

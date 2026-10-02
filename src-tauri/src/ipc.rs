@@ -70,7 +70,38 @@ pub fn set_config(app: AppHandle, cfg: Config) -> Result<Config, String> {
         crate::sys_theme::restore_original_accent();
         cfg.general.accent_sync_armed = false;
     }
+    // Once sync is off we no longer own the accent, so the watcher must stop
+    // treating our last write as an echo — otherwise a user change that happens
+    // to match it would be silently dropped.
+    if !cfg.general.accent_sync_enabled {
+        crate::sys_theme::forget_last_write();
+    }
+    // Lock screen lifecycle: back up the user's image on first enable, and
+    // put it back when the toggle goes off.
+    //
+    // Without the release half the toggle is one-way — the registry keeps
+    // pointing at wallpaper-bg.jpg forever after the user said no. The arming
+    // flag mirrors the accent sync above: it records that we took over, which
+    // is the only thing that distinguishes "never touched" from "took over and
+    // the user has since turned it off".
+    let lock_screen_taking_over =
+        cfg.general.lock_screen_follows_wallpaper && !cfg.general.lock_screen_armed;
+    let lock_screen_releasing =
+        !cfg.general.lock_screen_follows_wallpaper && cfg.general.lock_screen_armed;
+    if lock_screen_taking_over {
+        cfg.general.lock_screen_armed = true;
+    } else if lock_screen_releasing {
+        cfg.general.lock_screen_armed = false;
+    }
+    // Persist before touching the registry: the lock screen decision reads the
+    // config store to see whether the feature is on, so doing it first would
+    // plan against the *previous* toggle and do the opposite of what was asked.
     crate::config_store::set(cfg)?;
+    if lock_screen_taking_over {
+        crate::wallpaper_bg::force_lock_screen_sync();
+    } else if lock_screen_releasing {
+        crate::wallpaper_bg::restore_original_lock_screen();
+    }
     let fresh = crate::config_store::get();
     crate::ipc::apply_side_effects(&app, &fresh);
     Ok(fresh)
@@ -317,6 +348,190 @@ fn spawn_editor_forwarder(app: AppHandle) {
 /// Frontend diagnostics channel: webview console messages don't reach the
 /// log file, so wallpaper/sticker pages forward important events here.
 ///
+/// What a bug report needs to have in it, read from the process rather than
+/// guessed in the UI.
+///
+/// Everything here used to be assembled in React: the version came from a Vite
+/// define, the log level was hardcoded to "info", and the paths were not shown
+/// at all. Each of those is a way to be confidently wrong. The build mode is
+/// still a compile-time constant, because that is the only place it is true;
+/// everything else the backend already knows.
+///
+/// One command rather than five, so the panel cannot render a half-populated
+/// grid while the facts trickle in one invoke at a time.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DevInfo {
+    /// `Cargo.toml` version. The backend's own copy, so it cannot drift from
+    /// the binary the user is actually running.
+    pub version: &'static str,
+    /// `true` for a `tauri dev` build.
+    pub debug: bool,
+    /// The commit this binary was built from, with `-dirty` when the tree had
+    /// uncommitted changes. `unknown` outside a git checkout.
+    ///
+    /// This is what makes a bug report actionable. "0.2.7" alone cannot
+    /// distinguish a shipped installer from a build of a branch that happens to
+    /// sit at the same version, and with a long-running uncommitted working tree
+    /// it cannot even distinguish two local builds.
+    pub build_id: &'static str,
+    /// Whether the tree was dirty when this binary was built.
+    pub build_dirty: bool,
+    /// The level [crate::log_level] resolved to, as the logger will print it.
+    pub log_level: String,
+    /// Absolute path of the config file, so a hand edit has a target.
+    pub config_path: String,
+    /// Absolute path of the log file, the same one `reveal_log` opens.
+    pub log_path: String,
+    /// The folder holding both, for "open the data dir".
+    pub data_dir: String,
+    /// The most recent panic, if the process survived one.
+    ///
+    /// `None` until something panics. Present because a thread that panics can
+    /// be caught at a join point or simply be a background task, in which case
+    /// the app keeps running and the only trace is the log line nobody reads.
+    pub last_panic: Option<String>,
+    /// The first line of a pasted bug report: version, build and log level.
+    ///
+    /// Composed in Rust rather than in the frontend so this header and the
+    /// panic line in the log cannot drift apart, and so the build identity the
+    /// user pastes is the one compiled into the binary they are running.
+    pub report_header: String,
+}
+
+#[tauri::command]
+pub fn dev_info() -> DevInfo {
+    DevInfo {
+        version: env!("CARGO_PKG_VERSION"),
+        debug: cfg!(debug_assertions),
+        build_id: env!("LUMENDECK_BUILD_ID"),
+        build_dirty: env!("LUMENDECK_BUILD_DIRTY") == "true",
+        log_level: crate::log_level().to_string(),
+        config_path: display_path(&crate::config_store::config_path()),
+        log_path: display_path(&crate::config_store::log_path()),
+        data_dir: display_path(&crate::config_store::data_dir()),
+        last_panic: crate::panic::last(),
+        report_header: crate::panic::report_header(),
+    }
+}
+
+/// A path as the user would type it into Explorer.
+///
+/// `Path::display` on its own can emit a lossy or environment-dependent form,
+/// and this string is meant to be pasted into a bug report by a human. Windows
+/// paths here carry no secrets, so the full path is the useful thing.
+fn display_path(p: &std::path::Path) -> String {
+    p.display().to_string()
+}
+
+/// Open the log folder in Explorer.
+///
+/// Every "attach your log to a bug report" instruction starts with a path the
+/// user then has to find on their own — `%APPDATA%` is hidden, and a wrong
+/// guess costs the report. The path is stable, but knowing it is not the same as
+/// being able to reach it, so the button does the reaching.
+///
+/// `select`, not just open: the log is one of a dozen files in the folder and
+/// the one they want is the one highlighted.
+#[tauri::command]
+pub fn reveal_log() -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = crate::config_store::log_path();
+    let Some(app) = crate::app_handle() else {
+        return Err("app not ready".into());
+    };
+    let dir = path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    // The file may not exist yet on a machine that has never hit an error;
+    // opening the folder is still the right answer, so fall back rather than
+    // failing the button over a log that is simply empty.
+    if path.is_file() {
+        app.opener()
+            .reveal_item_in_dir(&path)
+            .map_err(|e| format!("explorer: {e}"))
+    } else {
+        app.opener()
+            .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+            .map_err(|e| format!("explorer: {e}"))
+    }
+}
+
+/// The last `limit` lines of the log, newest last.
+///
+/// Bounded on purpose: the file rotates at 5 MB and reading all of it into a
+/// webview to show 200 lines is the kind of thing that looks instant on a
+/// dev machine and hangs a laptop. The tail is read backwards in chunks so a
+/// 5 MB file costs about as much as the text actually returned.
+#[tauri::command]
+pub fn log_tail(limit: Option<usize>) -> Result<Vec<String>, String> {
+    let path = crate::config_store::log_path();
+    if !path.is_file() {
+        // No log yet is a normal state, not an error. An empty view with a
+        // "nothing logged yet" line beats a red toast on a fresh install.
+        return Ok(Vec::new());
+    }
+    let want = limit.unwrap_or(200).clamp(1, 5_000);
+    crate::logtail::tail(&path, want).map_err(|e| format!("log_tail: {e}"))
+}
+
+/// Last-modified time and size of every gallery entry's file, keyed by entry id.
+///
+/// This exists because the vault index is cached by source path, which is wrong
+/// the moment a file is replaced in place: the path is unchanged, so the cached
+/// resolution and duration survive a re-encode and the grid sorts and filters
+/// on numbers that no longer describe the file. "Rescan" could not fix it
+/// either, because it only ever checked that the file was still there.
+///
+/// The stamp is what makes staleness detectable without decoding anything. It
+/// is not a content hash — hashing every file in the vault would cost more than
+/// the probes this avoids — so it is a heuristic in one direction: a file edited
+/// without changing its size or mtime keeps a stale measurement. That is
+/// vanishingly rare next to the re-encode case, which changes both.
+///
+/// Only file-backed kinds are included; a web URL and a shader preset id have
+/// no file to stat, and reporting a zero stamp for them would make the frontend
+/// think they were cached when nothing was measured.
+#[tauri::command]
+pub fn vault_stamps() -> std::collections::HashMap<String, FileStamp> {
+    use crate::config::WallpaperKind;
+    let cfg = crate::config_store::get();
+    let mut out = std::collections::HashMap::new();
+    for g in &cfg.gallery {
+        if !matches!(g.kind, WallpaperKind::Video | WallpaperKind::Image) {
+            continue;
+        }
+        if let Some(stamp) = file_stamp(std::path::Path::new(&g.source)) {
+            out.insert(g.id.clone(), stamp);
+        }
+    }
+    out
+}
+
+/// What the filesystem can tell us about a file without reading it.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileStamp {
+    /// Modification time in milliseconds since the Unix epoch.
+    pub mtime_ms: u64,
+    /// Size in bytes.
+    pub size: u64,
+}
+
+/// Read a file's stamp. `None` when the file is missing or unreadable, which
+/// the frontend treats the same as "no cached measurement to trust".
+fn file_stamp(path: &std::path::Path) -> Option<FileStamp> {
+    let md = std::fs::metadata(path).ok()?;
+    let mtime_ms = md
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis() as u64;
+    Some(FileStamp { mtime_ms, size: md.len() })
+}
+
 /// Accepts a level so webview errors surface as ERROR in the file (grep-able)
 /// instead of everything being INFO. Repetition storms (e.g. a decode error
 /// retry loop) are rate-limited: identical messages within the window log
@@ -884,9 +1099,78 @@ fn is_bare_http_url(s: &str) -> bool {
     }
 }
 
+/// The membership half of `collection_add_entries`, without the config store.
+///
+/// The command itself needs an initialised store, which a unit test cannot
+/// provide. What actually has rules — dedup, add-only, order — lives here so it
+/// can be tested directly.
+fn add_ids(entry_ids: &mut Vec<String>, incoming: &[String]) {
+    // `Vec::contains` rather than a HashSet: a collection holds tens of ids, and
+    // this keeps the existing order intact, which a HashSet would not.
+    for eid in incoming {
+        if !entry_ids.contains(eid) {
+            entry_ids.push(eid.clone());
+        }
+    }
+}
+
 #[cfg(test)]
-mod url_guard_tests {
-    use super::is_bare_http_url;
+mod collection_tests {
+    use super::add_ids;
+
+    fn ids(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn adding_to_an_empty_collection_takes_everything() {
+        let mut e = Vec::new();
+        add_ids(&mut e, &ids(&["a", "b"]));
+        assert_eq!(e, ids(&["a", "b"]));
+    }
+
+    #[test]
+    fn an_id_already_present_is_not_added_twice() {
+        // The behaviour that separates this from the toggle: "add these" must
+        // not remove what was already filed.
+        let mut e = ids(&["a"]);
+        add_ids(&mut e, &ids(&["a"]));
+        assert_eq!(e, ids(&["a"]));
+    }
+
+    #[test]
+    fn a_batch_containing_a_present_id_keeps_the_rest() {
+        let mut e = ids(&["a"]);
+        add_ids(&mut e, &ids(&["a", "b", "c"]));
+        assert_eq!(e, ids(&["a", "b", "c"]));
+    }
+
+    #[test]
+    fn duplicates_inside_one_batch_collapse() {
+        let mut e = Vec::new();
+        add_ids(&mut e, &ids(&["a", "a", "b"]));
+        assert_eq!(e, ids(&["a", "b"]));
+    }
+
+    #[test]
+    fn existing_order_is_preserved_and_new_ids_append() {
+        // Order is the collection's own; a user's arrangement has to survive
+        // someone adding to it.
+        let mut e = ids(&["z", "y"]);
+        add_ids(&mut e, &ids(&["x", "a"]));
+        assert_eq!(e, ids(&["z", "y", "x", "a"]));
+    }
+
+    #[test]
+    fn adding_nothing_changes_nothing() {
+        let mut e = ids(&["a"]);
+        add_ids(&mut e, &[]);
+        assert_eq!(e, ids(&["a"]));
+    }
+}
+
+#[cfg(test)]
+mod url_guard_tests {    use super::is_bare_http_url;
 
     #[test]
     fn accepts_a_plain_wallpaper_link() {
@@ -1502,6 +1786,39 @@ pub fn collection_delete(id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Add several vault entries to a collection in one pass.
+///
+/// Exists because "file this selection into a collection" is a bulk action, and
+/// doing it through the single-entry toggle costs one config read, write, watch
+/// notification and IPC round-trip *per wallpaper*. Twenty wallpapers is twenty
+/// writes and twenty frontend config events for one user gesture — and the
+/// frontend has to serialize them itself to avoid a race, which is a fragile
+/// thing to depend on for correctness.
+///
+/// Ids already in the collection are left where they are rather than toggled:
+/// an "add these" that silently removes half of what it was given is worse than
+/// doing nothing.
+///
+/// Returns the collection's membership afterwards, so the caller does not have
+/// to guess what landed.
+#[tauri::command]
+pub fn collection_add_entries(id: String, entry_ids: Vec<String>) -> Result<Vec<String>, String> {
+    let mut result: Vec<String> = Vec::new();
+    let mut found = false;
+    crate::config_store::update(|c| {
+        if let Some(col) = c.collections.iter_mut().find(|x| x.id == id) {
+            found = true;
+            // Dedup and add-only; see `add_ids` for the rules and the tests.
+            add_ids(&mut col.entry_ids, &entry_ids);
+            result = col.entry_ids.clone();
+        }
+    })?;
+    if !found {
+        return Err("collection not found".into());
+    }
+    Ok(result)
+}
+
 /// Add/remove a vault entry to/from a collection (single membership toggle).
 #[tauri::command]
 pub fn collection_toggle_entry(id: String, entry_id: String) -> Result<bool, String> {
@@ -1801,4 +2118,74 @@ pub fn system_language() -> String {
 #[tauri::command]
 pub fn hotkey_validate(accelerator: String) -> Result<(), String> {
     crate::hotkeys::validate(&accelerator)
+}
+
+#[cfg(test)]
+mod dev_info_tests {
+    use super::*;
+
+    /// The panel reads these as strings and shows them verbatim, so the useful
+    /// assertions are that each one is populated and points where the user
+    /// expects. A version that failed to compile in would show as an empty
+    /// field rather than a wrong one.
+    #[test]
+    fn dev_info_reports_populated_paths_and_version() {
+        let info = dev_info();
+        assert!(!info.version.is_empty());
+        assert!(!info.build_id.is_empty());
+        // The invariant is one-directional: a dirty build has to announce it,
+        // because a clean-looking id over a dirty tree is the exact ambiguity
+        // this field exists to remove. The converse does not hold — a build with
+        // no git checkout is legitimately "unknown" and clean.
+        assert!(
+            !info.build_dirty || info.build_id.ends_with("-dirty"),
+            "dirty build reported a clean-looking id: {}",
+            info.build_id
+        );
+        assert!(info.config_path.ends_with("config.json"), "{}", info.config_path);
+        assert!(info.log_path.ends_with("lumendeck.log"), "{}", info.log_path);
+        assert!(!info.data_dir.is_empty());
+        // The log and the config have to be siblings, or "open the data dir"
+        // would show half of what the panel describes.
+        let data_dir = std::path::Path::new(&info.data_dir);
+        assert_eq!(
+            std::path::Path::new(&info.config_path).parent(),
+            Some(data_dir),
+            "config is not in the data dir: {}",
+            info.config_path
+        );
+        assert_eq!(
+            std::path::Path::new(&info.log_path).parent(),
+            Some(data_dir),
+            "log is not in the data dir: {}",
+            info.log_path
+        );
+    }
+
+    /// The report header is the first line of every pasted bug report, so the
+    /// build identity it carries has to be the same one the panel shows. Two
+    /// spellings of the same build is how a report becomes unattributable.
+    #[test]
+    fn dev_info_report_header_carries_the_build_id() {
+        let info = dev_info();
+        assert!(
+            info.report_header.contains(info.build_id),
+            "header {:?} does not name build {}",
+            info.report_header,
+            info.build_id
+        );
+        assert!(info.report_header.contains(info.version), "{}", info.report_header);
+    }
+
+    /// Whatever the panel prints has to be a level the logger could actually be
+    /// set to — it is parsed straight into a filter by whoever reads the report.
+    #[test]
+    fn dev_info_log_level_parses() {
+        let info = dev_info();
+        let parsed: log::LevelFilter = info
+            .log_level
+            .parse()
+            .unwrap_or_else(|_| panic!("unparseable log level {:?}", info.log_level));
+        assert!(parsed <= log::LevelFilter::Trace);
+    }
 }

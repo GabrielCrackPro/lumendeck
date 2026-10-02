@@ -1,6 +1,7 @@
 //! LumenDeck backend library: wallpaper-driven RGB, live wallpapers, stickers.
 
 pub mod notify;
+pub mod panic;
 pub mod bgremove;
 pub mod config;
 pub mod config_store;
@@ -28,8 +29,13 @@ pub mod pause;
 pub mod placement_overlay;
 pub mod playlist;
 pub mod rgb;
+pub mod accent_watch;
+pub mod logfmt;
+pub mod logtail;
 pub mod stickers;
 pub mod sys_theme;
+pub mod lock_screen;
+pub mod lock_screen_reg;
 pub mod sticker_windows;
 pub mod taskbar_thumbnail;
 pub mod thumbs;
@@ -182,10 +188,7 @@ fn disable_video_overlays() {
 fn init_logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_log::{Target, TargetKind};
 
-    let dir = config_store::config_path()
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let dir = config_store::data_dir();
     let _ = std::fs::create_dir_all(&dir);
 
     tauri_plugin_log::Builder::new()
@@ -194,7 +197,9 @@ fn init_logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             Target::new(TargetKind::Stdout),
             Target::new(TargetKind::Folder {
                 path: dir,
-                file_name: Some("lumendeck.log".into()),
+                file_name: config_store::log_path()
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string()),
             }),
         ])
         .max_file_size(MAX_LOG_BYTES)
@@ -211,61 +216,102 @@ fn init_logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 .map_or(record.target(), |(_, s)| s);
             out.finish(format_args!(
                 "[{} {:<5} {}] {}",
-                chrono_datetime(now_secs()),
+                local_timestamp(),
                 record.level(),
                 short_target,
                 message
             ))
         })
-        // RUST_LOG still wins, so `RUST_LOG=debug` keeps working for a bug
-        // report without anyone editing code.
-        .level(
-            std::env::var("RUST_LOG")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(log::LevelFilter::Info),
-        )
+        .level(log_level())
         .build()
+}
+
+/// The dashboard window's OS title.
+///
+/// A dev build names its version, so this string is the one piece of build
+/// identity visible when the window is *not* being looked at: the taskbar
+/// tooltip, the Alt-Tab entry, and anything that screenshots the desktop.
+///
+/// The version rather than the commit, because the badge beside the wordmark
+/// says the version and two surfaces showing different identities is worse than
+/// either choice on its own. What this costs is real: every local build reports
+/// the same version, so the title no longer distinguishes two of them, and the
+/// commit has to be read off the badge tooltip or the Developer panel. What it
+/// buys is that the number on screen is the one a user would compare against a
+/// release, rather than a hash they cannot place.
+///
+/// Release builds are left alone. A shipped installer's title is part of its
+/// polish, and a version there is noise the badge check already covers.
+fn main_window_title() -> String {
+    window_title(cfg!(debug_assertions), env!("CARGO_PKG_VERSION"))
+}
+
+/// The formatting, separated from the compile-time facts so it can be tested
+/// against both branches without needing two builds.
+fn window_title(is_dev: bool, version: &str) -> String {
+    // An empty version would leave a dangling separator in the taskbar, which
+    // reads as a truncated string rather than as missing information.
+    if is_dev && !version.is_empty() {
+        format!("LumenDeck \u{2014} {version}")
+    } else {
+        "LumenDeck".to_string()
+    }
+}
+
+/// The level the logger was actually built with.
+///
+/// Split out of [init_logging] so the Developer section can report it instead of
+/// guessing. A bug report that says "log level: info" when the process was
+/// started with `RUST_LOG=debug` sends whoever reads it looking for debug lines
+/// that were never written — the exact question a diagnostics panel exists to
+/// answer.
+pub fn log_level() -> log::LevelFilter {
+    // RUST_LOG still wins, so `RUST_LOG=debug` keeps working for a bug
+    // report without anyone editing code.
+    std::env::var("RUST_LOG")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(log::LevelFilter::Info)
 }
 
 /// Max log size before rotating. Shared by the plugin's size check and by the
 /// support instructions a user is pointed at; keep the two in step.
 pub const MAX_LOG_BYTES: u128 = 5 * 1024 * 1024;
 
-fn now_secs() -> u64 {
+fn now_millis() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
+        .map(|d| d.as_millis())
         .unwrap_or_default()
 }
 
-/// Unix epoch seconds to `YYYY-MM-DD HH:MM:SS` (UTC), without pulling in chrono.
+/// The wall-clock stamp at the front of every log line.
 ///
-/// The plugin can stamp lines itself, but only in its own format. This keeps the
-/// timestamp identical to the one the hand-rolled logger wrote, because that
-/// format is what every existing log file uses and people grep for it.
-fn chrono_datetime(secs: u64) -> String {
-    let days = secs / 86400;
-    let time = secs % 86400;
-    let h = time / 3600;
-    let m = (time % 3600) / 60;
-    let s = time % 60;
-    // Civil date from days since epoch (1970-01-01 is day 0, a Thursday).
-    let (y, mo, d) = days_to_ymd(days + 719468);
-    format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02}")
-}
-
-fn days_to_ymd(g: u64) -> (u64, u64, u64) {
-    let y = (10000 * g + 14780) / 3652425;
-    let mut doy = g - (365 * y + y / 4 - y / 100 + y / 400);
-    if doy > 365 {
-        doy += 1;
-    }
-    let mi = (100 * doy + 52) / 3060;
-    let mo = (mi + 2) % 12 + 1;
-    let y = y + (mi + 2) / 12;
-    let d = doy - (mi * 306 + 5) / 10 + 1;
-    (y, mo, d)
+/// Time of day comes from the OS, not from arithmetic on Unix epoch seconds.
+/// The previous version computed the date itself and was therefore UTC in a
+/// local-time app: the machine said 10:59 while the log said 08:59, forever.
+/// `GetLocalTime` also gets DST right for free, which the hand-rolled version
+/// could not have done without a timezone database.
+///
+/// The milliseconds are the sub-second remainder of the system clock, kept
+/// separate because `GetLocalTime` only resolves to the second — without them
+/// every line written inside one second shares a stamp and ordering has to be
+/// inferred from the file rather than read off it.
+fn local_timestamp() -> String {
+    use windows::Win32::Foundation::SYSTEMTIME;
+    use windows::Win32::System::SystemInformation::GetLocalTime;
+    let st: SYSTEMTIME = unsafe { GetLocalTime() };
+    // SYSTEMTIME fields are u16; widen once here rather than at every use.
+    let ms = now_millis();
+    logfmt::timestamp(&logfmt::WallClock {
+        year: st.wYear as u64,
+        month: st.wMonth as u64,
+        day: st.wDay as u64,
+        hour: st.wHour as u64,
+        minute: st.wMinute as u64,
+        second: st.wSecond as u64,
+        millis: (ms % 1_000) as u64,
+    })
 }
 
 pub fn app_handle() -> Option<tauri::AppHandle> {
@@ -275,6 +321,8 @@ pub fn app_handle() -> Option<tauri::AppHandle> {
 pub fn run() {
     let boot = std::time::Instant::now();
     let logger = init_logging();
+    // After the logger, or a panic before it exists has nowhere to be written.
+    crate::panic::install();
     let _ = config_store::init();
     // Must run before any WebView2 environment is created (and after config
     // init so the software-decode preference can be read from disk).
@@ -402,6 +450,7 @@ pub fn run() {
             ipc::collection_rename,
             ipc::collection_delete,
             ipc::collection_toggle_entry,
+            ipc::collection_add_entries,
             ipc::playlist_create,
             ipc::playlist_save,
             ipc::playlist_delete,
@@ -419,7 +468,11 @@ pub fn run() {
             ipc::volume_mute_toggle,
             ipc::media_current,
             ipc::system_accent,
-            ipc::hotkey_validate
+            ipc::hotkey_validate,
+            ipc::reveal_log,
+            ipc::log_tail,
+            ipc::dev_info,
+            ipc::vault_stamps
         ])
         .setup(|app| {
             let setup_at = std::time::Instant::now();
@@ -429,6 +482,15 @@ pub fn run() {
             // user changes it (Settings > Personalization, or an external app).
             crate::sys_theme::spawn_accent_watcher(app.handle().clone());
             crate::volume::spawn_watcher(app.handle().clone());
+
+            // Repair the lock screen on startup. Builds before the toggle had a
+            // release path could leave `LockScreenImage` pointing at us with the
+            // feature off, which means the user's lock screen silently shows our
+            // wallpaper and nothing they set. Only acts when the value is ours,
+            // so a user's own image is never touched.
+            if !config_store::get().general.lock_screen_follows_wallpaper {
+                crate::lock_screen_reg::release();
+            }
 
             // Apply autostart preference.
             use tauri_plugin_autostart::ManagerExt;
@@ -529,7 +591,7 @@ pub fn run() {
                 "main",
                 tauri::WebviewUrl::App("main-app.html".into()),
             )
-            .title("LumenDeck")
+            .title(main_window_title())
             .inner_size(1100.0, 760.0)
             .min_inner_size(900.0, 640.0)
             .resizable(true)
@@ -690,5 +752,28 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn release_window_title_carries_no_version() {
+        // A shipped installer whose taskbar tooltip says "0.2.7" reads as
+        // unpolished to anyone who has not seen the source, and the About card
+        // already says it in full.
+        assert_eq!(window_title(false, "0.2.7"), "LumenDeck");
+    }
+
+    #[test]
+    fn dev_window_title_carries_the_version() {
+        let title = window_title(true, "0.2.7");
+        assert!(title.starts_with("LumenDeck"), "{title}");
+        assert!(title.contains("0.2.7"), "{title}");
+    }
+
+    #[test]
+    fn dev_window_title_omits_an_empty_version() {
+        // No dangling separator. The taskbar would otherwise show "LumenDeck —"
+        // for a build whose version somehow failed to compile in, which reads as
+        // a truncation rather than as an absent value.
+        assert_eq!(window_title(true, ""), "LumenDeck");
     }
 }

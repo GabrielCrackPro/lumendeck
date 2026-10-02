@@ -3,6 +3,7 @@ import { useStore } from "../store";
 import { api } from "../ipc";
 import { Card, InfoNote, Btn, Toggle, Slider, ColorInput } from "./ui";
 import { HOTKEY_ACTIONS, type HotkeyActionId } from "@shared/constants";
+import { IconKeyboard } from "./icons";
 import type { HotkeyConfig } from "@shared/types";
 import { acceleratorFromEvent, isSafeAccelerator, parseAccelerator } from "../eq";
 import { truncateError } from "../utilities";
@@ -244,6 +245,7 @@ export default function HotkeysCard() {
   return (
     <Card
       title={t("hotkeys.global-hotkeys")}
+      icon={<IconKeyboard />}
       right={
         enabled && (
           <Btn

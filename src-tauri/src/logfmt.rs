@@ -1,0 +1,109 @@
+// Turning a timestamp into the text at the front of a log line.
+//
+// Split out from lib.rs because the formatting is the one part of logging that
+// can be asserted on: everything else needs a running app and a real clock.
+//
+// The bug this replaced is worth recording, because it is invisible in review.
+// The old formatter converted Unix epoch seconds to a date by hand and stamped
+// that result into every line — which is UTC, always. The machine's wall clock
+// said 10:59 while the log said 08:59, every line, for the life of the
+// product. Nothing crashed, no test failed, and the file was still grep-able.
+// It only shows up when you line a log up against another timestamp, which is
+// exactly when you open one. So the time-of-day now comes from the OS
+// (`GetLocalTime`, DST included) and only the calendar arithmetic stays here.
+
+/// The wall-clock fields a formatted timestamp needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WallClock {
+    pub year: u64,
+    /// 1-12.
+    pub month: u64,
+    pub day: u64,
+    pub hour: u64,
+    pub minute: u64,
+    pub second: u64,
+    pub millis: u64,
+}
+
+/// `2026-10-02 10:59:53.204` — the shape every existing log line uses.
+///
+/// The milliseconds are not decoration. A line is missing one on purpose: it is
+/// a separator between a rolled-over `.old` file and its replacement, so the two
+/// generations can be told apart by the stamp alone. Keeping the width fixed is
+/// what keeps that line from looking like a truncated record.
+pub fn timestamp(c: &WallClock) -> String {
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
+        c.year, c.month, c.day, c.hour, c.minute, c.second, c.millis
+    )
+}
+
+/// The line written at the moment the log rotates, so a `.old` file's last
+/// moment and the new file's first moment are never mistaken for one run.
+pub fn rotation_marker() -> String {
+    "[--------- log rotated here ---------]".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn clock(y: u64, mo: u64, d: u64, h: u64, mi: u64, s: u64, ms: u64) -> WallClock {
+        WallClock { year: y, month: mo, day: d, hour: h, minute: mi, second: s, millis: ms }
+    }
+
+    #[test]
+    fn the_stamp_is_year_first_and_zero_padded() {
+        assert_eq!(
+            timestamp(&clock(2026, 10, 2, 9, 5, 3, 7)),
+            "2026-10-02 09:05:03.007"
+        );
+    }
+
+    #[test]
+    fn every_field_keeps_its_width_so_columns_stay_aligned() {
+        // A log is read in columns. If hour 9 padded to "09" but millisecond 7
+        // rendered as "7", every column after it shifts and a wall of output
+        // stops being scannable.
+        let a = timestamp(&clock(2026, 1, 2, 3, 4, 5, 6));
+        let b = timestamp(&clock(2026, 11, 12, 13, 14, 15, 16));
+        assert_eq!(a.len(), b.len(), "{a} vs {b}");
+        assert_eq!(a, "2026-01-02 03:04:05.006");
+        assert_eq!(b, "2026-11-12 13:14:15.016");
+    }
+
+    #[test]
+    fn a_midnight_stamp_does_not_borrow_from_the_day() {
+        // 00:00:00 is the case a hand-rolled date conversion gets wrong: an
+        // unsigned subtraction underflows and the date lands on the 31st of the
+        // previous month.
+        assert_eq!(
+            timestamp(&clock(2026, 10, 2, 0, 0, 0, 0)),
+            "2026-10-02 00:00:00.000"
+        );
+    }
+
+    #[test]
+    fn the_leap_day_formats_like_any_other_day() {
+        assert_eq!(
+            timestamp(&clock(2028, 2, 29, 12, 30, 15, 250)),
+            "2028-02-29 12:30:15.250"
+        );
+    }
+
+    #[test]
+    fn the_rotation_marker_cannot_be_mistaken_for_a_record() {
+        // It has no date and no level, so a grep for a timestamp or for a
+        // severity finds only real lines.
+        let marker = rotation_marker();
+        assert!(!marker.contains("2026"));
+        assert!(!marker.contains("INFO"));
+        assert!(!marker.contains("WARN"));
+        assert!(marker.starts_with('[') && marker.ends_with(']'));
+    }
+
+    #[test]
+    fn the_marker_is_stable_so_a_reader_can_pattern_on_it() {
+        assert_eq!(rotation_marker(), "[--------- log rotated here ---------]");
+    }
+}

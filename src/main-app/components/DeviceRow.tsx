@@ -3,7 +3,16 @@ import { IconDevice, IconEye, IconEyeOff, IconPencil } from "./icons";
 import { rgbToHex } from "../utilities";
 import type { DeviceColor, RgbDeviceInfo } from "@shared/types";
 import { t } from "../i18n";
-import { AliasHint } from "./ui";
+import { AliasHint, CopyHexButton } from "./ui";
+import { useStore } from "../store";
+import {
+  DARK_LED,
+  emitterColor,
+  ledRadius,
+  paintLedGlow,
+  previewDpr,
+  roundRectPath,
+} from "./ledPaint";
 
 /**
  * OpenRGB type names are CamelCase with a trailing index: "LEDStrip1",
@@ -42,36 +51,8 @@ export function deviceName(
  * for engines that push one color instead of a per-LED array (ambient, static);
  * without it those modes preview as a dead grey strip even though the hardware
  * is demonstrably lit.
- */
-/** Tightest spacing between dots, in CSS px, for a densely packed strip. */
+ *//** Tightest spacing between dots, in CSS px, for a densely packed strip. */
 const MIN_GAP = 2;
-
-/** A muted or unlit LED: dark, but not a hole in the bar. */
-const DARK_LED: [number, number, number] = [30, 32, 36];
-
-/** Rounded-rect path. WebView2 is evergreen Chromium, but fall back rather
- * than throw if a context ever lacks it. */
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-) {
-  const rad = Math.max(0, Math.min(r, w / 2, h / 2));
-  ctx.beginPath();
-  if (typeof ctx.roundRect === "function") {
-    ctx.roundRect(x, y, w, h, rad);
-    return;
-  }
-  ctx.moveTo(x + rad, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rad);
-  ctx.arcTo(x + w, y + h, x, y + h, rad);
-  ctx.arcTo(x, y + h, x, y, rad);
-  ctx.arcTo(x, y, x + w, y, rad);
-  ctx.closePath();
-}
 
 export function LedStrip({
   leds,
@@ -115,7 +96,7 @@ export function LedStrip({
       if (sig === lastSig && canvas.offsetWidth === lastW) return;
       lastDraw = now;
       lastSig = sig;
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const dpr = previewDpr();
       lastW = canvas.offsetWidth;
       const W = (canvas.width = lastW * dpr);
       const H = (canvas.height = canvas.offsetHeight * dpr);
@@ -161,7 +142,7 @@ export function LedStrip({
       const on = !muted && (lit || !!fallback);
 
       ctx.save();
-      roundRect(ctx, 0, 0, W, H, H * 0.3);
+      roundRectPath(ctx, 0, 0, W, H, H * 0.3);
       ctx.clip();
 
       // The diffuser itself: the row's own colours, so the gaps between
@@ -178,24 +159,24 @@ export function LedStrip({
       }
 
       for (let i = 0; i < DOTS; i++) {
-        const [r, g, b] = muted ? DARK_LED : sampleAt(DOTS === 1 ? 0 : i / (DOTS - 1));
+        const color = muted ? DARK_LED : sampleAt(DOTS === 1 ? 0 : i / (DOTS - 1));
         const cx = x0 + i * (pitch + gap) + pitch / 2;
-        if (glow > 0) {
-          const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, glow);
-          halo.addColorStop(0, `rgb(${r} ${g} ${b} / 0.5)`);
-          halo.addColorStop(0.5, `rgb(${r} ${g} ${b} / 0.15)`);
-          halo.addColorStop(1, `rgb(${r} ${g} ${b} / 0)`);
-          ctx.fillStyle = halo;
-          ctx.beginPath();
-          ctx.arc(cx, cy, glow, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        if (pkgW > 0 && pkgH > 0) {
-          // The package runs hotter than the colour it is showing — that
-          // overdrive is what makes an LED read as an emitter.
-          const hot = (c: number) => (c + (255 - c) * (muted ? 0 : 0.3)) | 0;
-          ctx.fillStyle = `rgb(${hot(r)} ${hot(g)} ${hot(b)})`;
-          roundRect(ctx, cx - pkgW / 2, cy - pkgH / 2, pkgW, pkgH, pkgH * 0.3);
+        if (glow > 0 && pkgW > 0 && pkgH > 0) {
+          // Halo and package both come from the shared policy, so this strip
+          // and the mode tiles and the keyboard draw the same LED. The glow
+          // used to be a constant 0.5 alpha regardless of colour, which made a
+          // black LED throw as much light as a white one.
+          const [r, g, b] = emitterColor(color, muted ? 0 : undefined);
+          paintLedGlow(ctx, cx, cy, Math.max(pkgW, pkgH), [r, g, b]);
+          roundRectPath(
+            ctx,
+            cx - pkgW / 2,
+            cy - pkgH / 2,
+            pkgW,
+            pkgH,
+            ledRadius(pkgH),
+          );
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
           ctx.fill();
         }
       }
@@ -254,6 +235,9 @@ export function DeviceRow({
   const showType = !!type && type !== name.toLowerCase();
   const rgb = live?.rgb ?? null;
   const hex = rgb ? rgbToHex(rgb) : null;
+  // Primitive selector, so a row only re-renders when this flag itself flips,
+  // not on every colour frame the engine pushes.
+  const showHex = useStore((s) => s.cfg?.general.showColorHex ?? true);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState("");
   // OpenRGB re-reports its device list at any time, so a row can be recycled
@@ -392,14 +376,20 @@ export function DeviceRow({
         </div>
 
         {hex && !muted && (
-          <span className="hidden shrink-0 items-center gap-1.5 sm:flex">
-            <span className="font-mono text-[10px] uppercase text-[var(--text-faint)]">
-              {hex}
-            </span>
+          <span className="group hidden shrink-0 items-center gap-1.5 sm:flex">
+            {/* The swatch stays when the hex is hidden: it is the colour, not a
+                label describing it. Hiding the row entirely would leave a
+                muted-looking gap where the live colour used to be. */}
+            {showHex && (
+              <span className="font-mono text-[10px] uppercase text-[var(--text-faint)]">
+                {hex}
+              </span>
+            )}
             <span
               className="h-4 w-4 rounded-md border border-white/15"
               style={{ background: hex, boxShadow: "0 0 10px -3px rgb(255 255 255 / 0.3)" }}
             />
+            <CopyHexButton value={rgb!} className="h-5 w-5" />
           </span>
         )}
 
@@ -413,7 +403,7 @@ export function DeviceRow({
               : "border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)] hover:border-[var(--line-strong)] hover:text-[var(--text)]"
           }`}
         >
-          {muted ? <IconEyeOff className="h-3.5 w-3.5" /> : <IconEye className="h-3.5 w-3.5" />}
+          {muted ? <IconEyeOff className="h-4 w-4" /> : <IconEye className="h-4 w-4" />}
           {muted ? t("common.muted") : t("common.live")}
         </button>
       </div>

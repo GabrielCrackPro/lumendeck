@@ -216,11 +216,11 @@ function Toasts() {
               onClick={() => dismissToast(t.id)}
               className="flex cursor-pointer items-start gap-3 px-3.5 py-3"
             >
-              <span className="relative mt-px flex h-6 w-6 shrink-0 items-center justify-center rounded-lg">
+              <span className="relative mt-px flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
                 <span
-                  className={`flex h-6 w-6 items-center justify-center rounded-lg ${tone.chip}`}
+                  className={`flex h-6 w-6 items-center justify-center rounded-full ${tone.chip}`}
                 >
-                  <ToneIcon className="h-3.5 w-3.5" />
+                  <ToneIcon className="h-4 w-4" />
                 </span>
                 {(t.count ?? 1) > 1 && (
                   <span
@@ -592,7 +592,7 @@ export default function Shell() {
       {cfg?.general.wallpaperEnabled && wallpaperPaused && (
         <div className="pointer-events-none fixed bottom-5 left-1/2 z-20 -translate-x-1/2">
           <div className="flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-2 font-mono text-[11px] tracking-wide text-amber-200 shadow-[0_12px_30px_-10px_rgba(245,158,11,0.4)] backdrop-blur">
-            <IconPause className="h-3.5 w-3.5" />
+            <IconPause className="h-4 w-4" />
             {t("shell.wallpaper-paused-by-system")}
           </div>
         </div>

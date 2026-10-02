@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { IconRefresh, IconMonitor, IconCheck, IconPipette, IconChevronDown, IconPencil } from "./icons";
-import { rgbToHex } from "../utilities";
+import { IconRefresh, IconMonitor, IconCheck, IconCopy, IconPipette, IconChevronDown, IconPencil, IconSearch } from "./icons";
+import { useCopy } from "./useCopy";
+import { versionLabel } from "./buildIdentity";
+import { filterRail, foldForSearch } from "./settings/railFilter";
+import { formatHex, isParsableHex, parseHex, tidyHexDraft } from "./colorHex";
+import { hsvToRgb, rgbToHsv } from "./rgbStrip";
+
 import { useStore } from "../store";
 import { SHADER_ART } from "@shared/constants";
 import type { ThemeMode } from "@shared/types";
@@ -54,21 +59,35 @@ export function AppMark({
  * strip that is always on screen — a dev build should never be mistakable for
  * the release one, whatever state the window is in.
  *
- * It carries the version too. The rail dropped its version line as noise, but
- * for someone running a local build the version is not noise: it is the one
- * thing that says which checkout they are looking at. The slow pulse is
- * deliberately dim — visible across the room, ignorable when working.
+ * The chip carries the version, not the commit. A commit is what a bug report
+ * needs, but this is a glanceable strip: the question it answers is "which
+ * build am I looking at, and is it a real one", and a hash is a worse answer to
+ * that than a version number. It was also the longer of the two, and the badge
+ * sits in a title bar that has to survive a narrow window.
+ *
+ * The commit does not go away, it moves to the tooltip, which is read
+ * deliberately rather than incidentally — and it stays there because the dirty
+ * suffix is the part that changes what the version means.
+ *
+ * The slow pulse is deliberately dim — visible across the room, ignorable when
+ * working.
  */
 export function DevBadge() {
   if (__APP_BUILD_MODE__ !== "dev") return null;
   return (
     <span
-      title={t("common.development-build-local-changes-not-a-release")}
+      title={
+        __APP_BUILD_ID__
+          ? t("common.dev-badge-tooltip", { id: __APP_BUILD_ID__ })
+          : t("common.development-build-local-changes-not-a-release")
+      }
       className="inline-flex shrink-0 select-none items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-[1px] font-mono text-[9px] font-medium uppercase leading-[14px] tracking-[0.14em] text-amber-300"
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-[lpulse_1.8s_ease-in-out_infinite]" />
       {t("common.dev")}
-      <span className="normal-case text-amber-400/70">v{__APP_VERSION__}</span>
+      <span className="normal-case text-amber-400/70">
+        {versionLabel(__APP_VERSION__)}
+      </span>
     </span>
   );
 }
@@ -125,7 +144,7 @@ export function Section({
         }`}
       >
         <IconChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${
+          className={`h-4 w-4 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${
             open ? "" : "-rotate-90"
           }`}
         />
@@ -348,6 +367,8 @@ export function Dropdown<T extends string | number>({
   className,
   compact = false,
   ariaLabel,
+  title,
+  icon,
 }: {
   value: T;
   options: { id: T; label: string }[];
@@ -357,9 +378,52 @@ export function Dropdown<T extends string | number>({
   compact?: boolean;
   /** The button shows the current value, so it needs a name of its own. */
   ariaLabel?: string;
+  /** Hover text. Carries the current value in icon mode, where the label
+   *  itself is no longer on screen. */
+  title?: string;
+  /**
+   * Render the trigger as a square icon button instead of a labelled field.
+   *
+   * A toolbar of "Sort by ▾" / "Tile size ▾" spends a hundred pixels of width
+   * restating what the icon already says, and pushes the search box off a
+   * narrow window. In icon mode the current value moves into the tooltip: the
+   * sort order is visible in the tiles anyway.
+   */
+  icon?: ReactNode;
 }) {
   const pop = useAnchoredPopover();
   const current = options.find((o) => o.id === value);
+  if (icon) {
+    return (
+      <div ref={pop.rootRef} className={`relative ${className ?? ""}`}>
+        <button
+          ref={pop.triggerRef}
+          type="button"
+          onClick={pop.toggle}
+          aria-haspopup="listbox"
+          aria-expanded={pop.shown}
+          aria-label={ariaLabel}
+          title={title}
+          className={`${ICON_BTN} ${pop.shown ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
+        >
+          {icon}
+        </button>
+        <DropdownPanel
+          shown={pop.shown}
+          options={options}
+          value={value}
+          panelRef={pop.panelRef}
+          animClass={pop.animClass}
+          registerItem={pop.registerItem}
+          onKeyDown={pop.onPanelKeyDown}
+          onPick={(id) => {
+            onChange(id);
+            pop.close();
+          }}
+        />
+      </div>
+    );
+  }
   return (
     <div ref={pop.rootRef} className={`relative ${className ?? ""}`}>
       <button
@@ -369,6 +433,7 @@ export function Dropdown<T extends string | number>({
         aria-haspopup="listbox"
         aria-expanded={pop.shown}
         aria-label={ariaLabel}
+        title={title}
         className={`flex w-full items-center justify-between gap-2 rounded-lg border text-left transition-colors ${
           compact ? "px-2.5 py-1 text-xs" : "px-3 py-2 text-sm"
         } ${
@@ -391,40 +456,79 @@ export function Dropdown<T extends string | number>({
         </svg>
       </button>
       {pop.shown && (
-        <div
-          ref={pop.panelRef}
-          role="listbox"
+        <DropdownPanel
+          shown={pop.shown}
+          options={options}
+          value={value}
+          panelRef={pop.panelRef}
+          animClass={pop.animClass}
+          registerItem={pop.registerItem}
           onKeyDown={pop.onPanelKeyDown}
-          className={`${pop.animClass} absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-64 overflow-y-auto rounded-lg border border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] p-1 shadow-[0_20px_50px_-16px_rgb(0_0_0/0.7)] outline-none backdrop-blur-xl`}
-        >
-          {options.map((o, i) => {
-            const active = o.id === value;
-            return (
-              <button
-                key={String(o.id)}
-                ref={pop.registerItem(i)}
-                type="button"
-                role="option"
-                aria-selected={active}
-                onClick={() => {
-                  onChange(o.id);
-                  pop.close();
-                }}
-                className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-sm outline-none transition-colors focus-visible:bg-[var(--panel-strong)] ${
-                  active
-                    ? "bg-[rgb(var(--glow)/0.12)] font-semibold text-[rgb(var(--glow))]"
-                    : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
-                }`}
-              >
-                <span className="min-w-0 truncate">{o.label}</span>
-                {active && (
-                  <IconCheck className="h-3.5 w-3.5 shrink-0" />
-                )}
-              </button>
-            );
-          })}
-        </div>
+          onPick={(id) => {
+            onChange(id);
+            pop.close();
+          }}
+        />
       )}
+    </div>
+  );
+}
+
+/**
+ * The option list a `Dropdown` opens.
+ *
+ * Shared by both trigger styles so the icon button gets the same anchoring,
+ * keyboard handling and active-option tick as the labelled field -- the trigger
+ * is the only thing that differs between them.
+ */
+function DropdownPanel<T extends string | number>({
+  shown,
+  options,
+  value,
+  panelRef,
+  animClass,
+  registerItem,
+  onKeyDown,
+  onPick,
+}: {
+  shown: boolean;
+  options: { id: T; label: string }[];
+  value: T;
+  panelRef: React.RefObject<HTMLDivElement | null>;
+  animClass: string;
+  registerItem: (i: number) => (el: HTMLButtonElement | null) => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
+  onPick: (id: T) => void;
+}) {
+  if (!shown) return null;
+  return (
+    <div
+      ref={panelRef}
+      role="listbox"
+      onKeyDown={onKeyDown}
+      className={`${animClass} absolute left-0 top-[calc(100%+4px)] z-30 max-h-64 min-w-[9rem] overflow-y-auto rounded-lg border border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] p-1 shadow-[0_20px_50px_-16px_rgb(0_0_0/0.7)] outline-none backdrop-blur-xl`}
+    >
+      {options.map((o, i) => {
+        const active = o.id === value;
+        return (
+          <button
+            key={String(o.id)}
+            ref={registerItem(i)}
+            type="button"
+            role="option"
+            aria-selected={active}
+            onClick={() => onPick(o.id)}
+            className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-sm outline-none transition-colors focus-visible:bg-[var(--panel-strong)] ${
+              active
+                ? "bg-[rgb(var(--glow)/0.12)] font-semibold text-[rgb(var(--glow))]"
+                : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
+            }`}
+          >
+            <span className="min-w-0 truncate">{o.label}</span>
+            {active && <IconCheck className="h-4 w-4 shrink-0" />}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -456,10 +560,13 @@ export function Btn({
       "border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20",
     ghost: "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]",
   }[variant];
+  // Radii step *below* the cards, deliberately: a 36px button at the card
+  // radius (12px) is a lozenge, and buttons that round as much as the panels
+  // they sit on lose the hierarchy that says which one is the control.
   const sizing =
     size === "sm"
-      ? "rounded-md px-2.5 py-1.5 text-xs"
-      : "rounded-lg px-4 py-2 text-sm";
+      ? "rounded-sm px-2.5 py-1.5 text-xs"
+      : "rounded-md px-4 py-2 text-sm";
   return (
     <button
       type={type}
@@ -496,7 +603,7 @@ export function chipStyle(on: boolean): string {
  * chip at rest, not a floating ghost. Exported for the Overview player.
  */
 export const ICON_BTN =
-  "flex h-8 w-8 shrink-0 items-center justify-center rounded-[5px] border transition-all duration-150 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.5)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100";
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-all duration-150 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.5)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100";
 export const ICON_BTN_IDLE =
   "border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)] hover:border-[var(--line-strong)] hover:text-[var(--text)]";
 export const ICON_BTN_ACTIVE = CHIP_ON;
@@ -512,12 +619,18 @@ export const MINI_BTN =
   "inline-flex select-none items-center gap-1 rounded-md border border-[var(--line)] px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] transition-all hover-glow active:scale-95";
 
 /**
- * Icon button that sits on top of imagery (gallery thumbnails, previews):
- * dark scrim + blur instead of the panel palette, white icon. Radius and
- * hit area stay identical to ICON_BTN so overlays feel native to the UI.
+ * Icon button that sits on top of imagery (gallery thumbnails, collection
+ * covers, previews): a dark scrim and blur instead of the panel palette, with a
+ * white icon, so it stays legible over any wallpaper.
+ *
+ * This token used to exist in three near-identical copies -- in the gallery
+ * card, in the collection card, and here -- which had drifted to two different
+ * hit areas (24px and 28px), three different radii, and two different focus
+ * treatments. One definition now, so a scrim button looks the same everywhere
+ * it is drawn over a picture. Radius and hit area otherwise match ICON_BTN.
  */
 export const OVERLAY_ICON_BTN =
-  "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-black/60 text-white/70 backdrop-blur-sm transition-colors hover:text-white";
+  "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 bg-black/60 text-white/80 backdrop-blur-sm transition-colors hover:border-white/30 hover:bg-black/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 active:scale-95";
 
 /** Pill-shaped selectable chip (collections, devices, playlists, tags). */
 export function SelectChip({
@@ -585,47 +698,47 @@ export function Segmented<T extends string>({
   );
 }
 
-// ---------- RGB <-> HSV helpers (internal to the picker) ----------
+// ---------- RGB <-> HSV ----------
+//
+// These used to be a second, private copy of the conversions that already live
+// in `rgbStrip.ts` — and the weaker of the two. The copy here did not wrap a
+// hue above 360 or clamp saturation and value, so a hue of 360 landed in the
+// final sector branch and returned a wrong colour, while the strip's version
+// handles it. Two implementations of the same maths is how they drift, so the
+// picker now uses the tested one.
 
-function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  const d = max - min;
-  let h = 0;
-  if (d > 0) {
-    if (max === r) h = ((g - b) / d) % 6;
-    else if (max === g) h = (b - r) / d + 2;
-    else h = (r - g) / d + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-  return [h, max === 0 ? 0 : d / max, max];
-}
+/**
+ * Preset swatch labels, as catalog keys.
+ *
+ * Held as an explicit map rather than inline `t("common.sky")` calls because the
+ * swatches are data: the tooltip reads `t(preset.labelKey)`, and the i18n check
+ * can only see keys it finds literally. A map named `*_LABELS` is the one shape
+ * its key scan does resolve, so this keeps the unused-key pass honest instead
+ * of eight keys that look dead.
+ *
+ * The names used to be English words sitting in the same array, which is why a
+ * Spanish build showed "magenta" and "sky" in English tooltips.
+ */
+const PRESET_LABELS = {
+  sky: "common.sky",
+  violet: "common.violet",
+  magenta: "common.magenta",
+  red: "common.red",
+  amber: "common.amber",
+  green: "common.green",
+  cyan: "common.cyan",
+  white: "common.white",
+} as const;
 
-function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
-  const c = v * s;
-  const hp = h / 60;
-  const x = c * (1 - Math.abs((hp % 2) - 1));
-  let r = 0, g = 0, b = 0;
-  if (hp < 1) [r, g, b] = [c, x, 0];
-  else if (hp < 2) [r, g, b] = [x, c, 0];
-  else if (hp < 3) [r, g, b] = [0, c, x];
-  else if (hp < 4) [r, g, b] = [0, x, c];
-  else if (hp < 5) [r, g, b] = [x, 0, c];
-  else [r, g, b] = [c, 0, x];
-  const m = v - c;
-  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
-}
-
-const PRESETS: [string, string][] = [
-  ["#5078FF", "sky"],
-  ["#8B5CF6", "violet"],
-  ["#EC4899", "magenta"],
-  ["#EF4444", "red"],
-  ["#F59E0B", "amber"],
-  ["#22C55E", "green"],
-  ["#06B6D4", "cyan"],
-  ["#FFFFFF", "white"],
+const PRESETS: { hex: string; labelKey: string }[] = [
+  { hex: "#5078FF", labelKey: PRESET_LABELS.sky },
+  { hex: "#8B5CF6", labelKey: PRESET_LABELS.violet },
+  { hex: "#EC4899", labelKey: PRESET_LABELS.magenta },
+  { hex: "#EF4444", labelKey: PRESET_LABELS.red },
+  { hex: "#F59E0B", labelKey: PRESET_LABELS.amber },
+  { hex: "#22C55E", labelKey: PRESET_LABELS.green },
+  { hex: "#06B6D4", labelKey: PRESET_LABELS.cyan },
+  { hex: "#FFFFFF", labelKey: PRESET_LABELS.white },
 ];
 
 /**
@@ -633,6 +746,48 @@ const PRESETS: [string, string][] = [
  * saturation/value field, hue slider, preset swatches and a hex input.
  * Same API as the old native-input ColorInput.
  */
+/**
+ * Copy a colour's hex from beside its swatch.
+ *
+ * Present whether or not the hex readout is shown. That is the whole point:
+ * the readout is a label you read, this is an action you take, and hiding the
+ * label is not a request to lose the ability to grab the value — someone
+ * matching a colour with the eyedropper wants the hex to paste somewhere else,
+ * and that is exactly the person who turned the text off.
+ *
+ * Hover- and focus-revealed, so a colour row carries no permanent extra
+ * furniture. An always-visible button on every swatch is the kind of clutter
+ * that makes people turn the feature off instead.
+ */
+export function CopyHexButton({
+  value,
+  className = "",
+}: {
+  value: [number, number, number];
+  className?: string;
+}) {
+  const { copy, justCopied } = useCopy();
+  const hex = formatHex(value);
+  return (
+    <button
+      type="button"
+      onClick={() => void copy(hex)}
+      aria-label={t("common.copy-color-hex")}
+      title={justCopied ? t("common.copied-to-clipboard") : t("common.copy-color-hex")}
+      // Focus reveals it too: a keyboard user tabbing past a hidden button
+      // cannot find it, and `opacity-0` alone would still let it take focus
+      // while being invisible.
+      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] opacity-0 transition-opacity hover:text-[rgb(var(--glow))] focus-visible:opacity-100 group-hover:opacity-100 ${className}`}
+    >
+      {justCopied ? (
+        <IconCheck className="h-3.5 w-3.5 text-emerald-400" />
+      ) : (
+        <IconCopy className="h-3.5 w-3.5" />
+      )}
+    </button>
+  );
+}
+
 export function ColorInput({
   value,
   onChange,
@@ -642,11 +797,17 @@ export function ColorInput({
   onChange: (v: [number, number, number]) => void;
   label: string;
 }) {
-  const hex = rgbToHex(value);
+  const hex = formatHex(value);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const svRef = useRef<HTMLDivElement>(null);
-  const [h, s, v] = rgbToHsv(value[0], value[1], value[2]);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  // Read from the store rather than threaded in as a prop, so every colour
+  // input in the app honours the preference without each call site having to
+  // remember. The selector returns a primitive, so this does not re-render on
+  // unrelated config writes.
+  const showHex = useStore((s) => s.cfg?.general.showColorHex ?? true);
+  const { h, s, v } = rgbToHsv(value);
   const [hue, setHue] = useState(h);
   const [hexDraft, setHexDraft] = useState<string | null>(null);
 
@@ -662,7 +823,13 @@ export function ColorInput({
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        // Hand focus back where it came from. Closing on Escape and leaving the
+        // trigger unfocused means the next Tab starts from the top of the page,
+        // which is disorienting in a popover you opened with the keyboard.
+        triggerRef.current?.focus();
+      }
     };
     window.addEventListener("pointerdown", onDown);
     window.addEventListener("keydown", onKey);
@@ -689,46 +856,70 @@ export function ColorInput({
       const [mx, my] = svPoint(ev);
       emit(hue, mx, 1 - my);
     };
-    const up = () => {
+    // `pointercancel` and `blur` are not optional extras here. A drag that ends
+    // outside the window, or loses capture because a modal or the window manager
+    // took it, never delivers `pointerup` — and the old cleanup only listened
+    // for `pointerup`, so the thumb kept following the mouse forever.
+    const stop = () => {
       window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      window.removeEventListener("blur", stop);
     };
     window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    window.addEventListener("blur", stop);
   };
 
-  const hueHex = rgbToHex(hsvToRgb(hue, 1, 1));
-  const displayHex = hexDraft ?? hex.toUpperCase();
+  /** Arrow keys nudge the SV point, so the square is not mouse-only. */
+  const onSvKeyDown = (e: React.KeyboardEvent) => {
+    const step = e.shiftKey ? 0.05 : 0.01;
+    let ns: number | null = null;
+    let nv: number | null = null;
+    if (e.key === "ArrowLeft") ns = Math.max(0, s - step);
+    else if (e.key === "ArrowRight") ns = Math.min(1, s + step);
+    else if (e.key === "ArrowUp") nv = Math.min(1, v + step);
+    else if (e.key === "ArrowDown") nv = Math.max(0, v - step);
+    if (ns === null && nv === null) return;
+    e.preventDefault();
+    emit(hue, ns ?? s, nv ?? v);
+  };
+
+  const hueHex = formatHex(hsvToRgb(hue, 1, 1));
 
   const commitHex = (text: string) => {
-    const m = /^#?([0-9a-fA-F]{6})$/.exec(text.trim());
-    if (m && m[1]) {
-      // `digits`, not `t`: `t` is the translator in this file.
-      const digits = m[1];
-      onChange([
-        parseInt(digits.slice(0, 2), 16),
-        parseInt(digits.slice(2, 4), 16),
-        parseInt(digits.slice(4, 6), 16),
-      ]);
+    const rgb = parseHex(text);
+    if (rgb) {
+      onChange(rgb);
     }
     setHexDraft(null);
   };
 
   return (
-    <div ref={rootRef} className="relative flex items-center justify-between gap-4 py-3 text-sm">
+    <div ref={rootRef} className="group relative flex items-center justify-between gap-4 py-3 text-sm">
       <span className="font-medium text-[var(--text)]">{label}</span>
       <div className="flex items-center gap-3">
-        <span className="font-mono text-xs tracking-wide text-[var(--text-dim)]">
-          {hex.toUpperCase()}
-        </span>
+        <CopyHexButton value={value} />
+        {showHex && (
+          <span className="font-mono text-xs tracking-wide text-[var(--text-dim)]">
+            {hex}
+          </span>
+        )}
         <button
+          ref={triggerRef}
           onClick={() => setOpen((o) => !o)}
+          // `aria-*` rather than `title` alone: this is the only control in the
+          // row and a screen reader announces a title attribute as a fallback
+          // name, well after the role and state.
+          aria-label={`${label} — ${t("common.edit-color")}`}
+          aria-expanded={open}
+          aria-haspopup="dialog"
           className="group relative h-9 w-16 overflow-hidden rounded-xl border border-[var(--line-strong)] shadow-[0_6px_18px_-8px_rgb(0_0_0/0.5)] transition-all hover:border-[var(--line-strong)] hover:brightness-110"
           style={{
             background: `linear-gradient(135deg, ${hex} 0%, ${hex}CC 60%, rgb(0 0 0 / 0.35) 160%)`,
             boxShadow: `inset 0 0 18px -4px ${hex}CC, inset 0 0 0 1px rgb(255 255 255 / 0.12)`,
           }}
-          title={t("common.edit-color")}
         />
       </div>
 
@@ -738,16 +929,25 @@ export function ColorInput({
           <div
             ref={svRef}
             onPointerDown={startSvDrag}
-            className="relative h-32 w-full cursor-crosshair touch-none rounded-lg border border-[var(--line)]"
+            onKeyDown={onSvKeyDown}
+            tabIndex={0}
+            role="application"
+            aria-label={t("common.saturation-and-brightness")}
+            aria-valuetext={hex}
+            className="relative h-40 w-full cursor-crosshair touch-none rounded-lg border border-[var(--line)] outline-none focus-visible:border-[rgb(var(--glow)/0.6)]"
             style={{
               background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hueHex})`,
             }}
           >
+            {/* The point travels between the thumb's radius and the track minus
+                that radius, not between 0% and 100%. At s=0 a 16px thumb centred
+                on the left edge hung half outside the square, which read as a
+                clipped circle rather than "no saturation". */}
             <span
-              className="pointer-events-none absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgb(0_0_0/0.6),0_0_10px_rgb(0_0_0/0.5)]"
+              className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgb(0_0_0/0.6),0_0_10px_rgb(0_0_0/0.5)]"
               style={{
-                left: `${s * 100}%`,
-                top: `${(1 - v) * 100}%`,
+                left: `calc(8px + (100% - 16px) * ${s})`,
+                top: `calc(8px + (100% - 16px) * ${1 - v})`,
                 background: hex,
               }}
             />
@@ -764,7 +964,7 @@ export function ColorInput({
             />
             <div
               className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgb(0_0_0/0.6)]"
-              style={{ left: `${(hue / 360) * 100}%`, background: hueHex }}
+              style={{ left: `calc(8px + (100% - 16px) * ${hue / 360})`, background: hueHex }}
             />
             <input
               type="range"
@@ -782,24 +982,24 @@ export function ColorInput({
 
           {/* presets */}
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {PRESETS.map(([ph, name]) => (
+            {PRESETS.map((p) => (
               <button
-                key={ph}
-                title={name}
+                key={p.hex}
+                title={t(p.labelKey)}
+                aria-label={t(p.labelKey)}
                 onClick={() => {
                   const [pr, pg, pb] = [
-                    parseInt(ph.slice(1, 3), 16),
-                    parseInt(ph.slice(3, 5), 16),
-                    parseInt(ph.slice(5, 7), 16),
+                    parseInt(p.hex.slice(1, 3), 16),
+                    parseInt(p.hex.slice(3, 5), 16),
+                    parseInt(p.hex.slice(5, 7), 16),
                   ];
-                  const [phh] = rgbToHsv(pr, pg, pb);
-                  setHue(phh);
+                  setHue(rgbToHsv([pr, pg, pb]).h);
                   onChange([pr, pg, pb]);
                 }}
                 className={`h-5 w-5 rounded-md border transition-transform hover:scale-110 ${
-                  hex.toUpperCase() === ph ? "border-white" : "border-white/20"
+                  hex === p.hex ? "border-white" : "border-white/20"
                 }`}
-                style={{ background: ph }}
+                style={{ background: p.hex }}
               />
             ))}
           </div>
@@ -818,30 +1018,39 @@ export function ColorInput({
                   ).EyeDropper;
                   if (!ED) throw new Error("unsupported");
                   const { sRGBHex } = await new ED().open();
-                  const t = sRGBHex.replace("#", "");
-                  const pr = parseInt(t.slice(0, 2), 16);
-                  const pg = parseInt(t.slice(2, 4), 16);
-                  const pb = parseInt(t.slice(4, 6), 16);
-                  const [ph] = rgbToHsv(pr, pg, pb);
-                  setHue(ph);
-                  onChange([pr, pg, pb]);
+                  const picked = parseHex(sRGBHex);
+                  if (picked) {
+                    setHue(rgbToHsv(picked).h);
+                    onChange(picked);
+                  }
                 } catch {
                   // user cancelled or API unsupported — no-op
                 }
               }}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[var(--line)] text-[var(--text-dim)] transition-colors hover:border-[var(--line-strong)] hover:text-[rgb(var(--glow))]"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--line)] text-[var(--text-dim)] transition-colors hover:border-[var(--line-strong)] hover:text-[rgb(var(--glow))]"
             >
-              <IconPipette className="h-3.5 w-3.5" />
+              <IconPipette className="h-4 w-4" />
             </button>
             <input
-              value={displayHex}
-              onChange={(e) => setHexDraft(e.target.value)}
+              value={hexDraft === null ? hex : `#${hexDraft}`}
+              onChange={(e) => setHexDraft(tidyHexDraft(e.target.value))}
               onBlur={(e) => commitHex(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") commitHex((e.target as HTMLInputElement).value);
               }}
               spellCheck={false}
-              className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--panel)] px-3 py-1.5 font-mono text-xs uppercase tracking-wider text-[var(--text)] outline-none transition-colors focus:border-[rgb(var(--glow)/0.5)]"
+              autoComplete="off"
+              // Mid-typing, the field used to look exactly like a field that was
+              // fine. A draft that cannot become a colour is marked while it is
+              // still being written, so "nothing happened" has a visible cause
+              // before blur reverts it.
+              aria-invalid={hexDraft !== null && !isParsableHex(hexDraft)}
+              aria-label={t("common.hex-value")}
+              className={`min-w-0 flex-1 rounded-lg border bg-[var(--panel)] px-3 py-1.5 font-mono text-xs uppercase tracking-wider text-[var(--text)] outline-none transition-colors ${
+                hexDraft !== null && !isParsableHex(hexDraft)
+                  ? "border-red-500/60"
+                  : "border-[var(--line)] focus:border-[rgb(var(--glow)/0.5)]"
+              }`}
               placeholder={t("common.rrggbb")}
             />
           </div>
@@ -978,16 +1187,22 @@ export function Row({
 export function InfoNote({
   children,
   tone = "info",
+  // Last in the class list so a caller can override anything above. Spacing in
+  // particular belongs to the caller, who knows what the note sits between.
+  className = "",
 }: {
   children: ReactNode;
   tone?: "info" | "warn";
+  className?: string;
 }) {
   const cls =
     tone === "warn"
       ? "border-amber-500/25 bg-amber-500/[0.07]"
       : "border-[rgb(var(--glow)/0.25)] bg-[rgb(var(--glow)/0.07)]";
   return (
-    <div className={`rounded-xl border ${cls} px-3 py-2.5 text-xs leading-relaxed text-[var(--text-dim)]`}>
+    <div
+      className={`rounded-xl border ${cls} px-3 py-2.5 text-xs leading-relaxed text-[var(--text-dim)] ${className}`}
+    >
       {children}
     </div>
   );
@@ -1018,6 +1233,14 @@ export function Stat({
 }
 
 /** Empty-state panel with dashed border, icon, title, and optional action. */
+/**
+ * The one empty state.
+ *
+ * The vault, the collections view and the stickers list each hand-rolled their
+ * own, and they had drifted to two radii, a 44px and a 48px icon plate, one
+ * with no plate at all, and icons at two sizes. All three now come through
+ * here, so "nothing here yet" looks the same wherever it appears.
+ */
 export function EmptyState({
   icon,
   title,
@@ -1030,14 +1253,17 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center gap-3.5 rounded-2xl border border-dashed border-[var(--line-strong)] px-8 py-14 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-faint)]">
+    <div className="page-enter flex flex-col items-center gap-3.5 rounded-xl border border-dashed border-[var(--line-strong)] px-8 py-14 text-center">
+      {/* Matches IconBox at `lg`: 48px plate, 24px glyph. */}
+      <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-faint)]">
         {icon}
       </div>
       <div>
         <ItemTitle>{title}</ItemTitle>
         {description && (
-          <p className="mt-1 text-xs text-[var(--text-faint)]">{description}</p>
+          <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-[var(--text-faint)]">
+            {description}
+          </p>
         )}
       </div>
       {action}
@@ -1062,7 +1288,9 @@ export function IconBox({
     md: "h-9 w-9",
     lg: "h-12 w-12",
   }[size];
-  const iconSize = { sm: "h-3.5 w-3.5", md: "h-[18px] w-[18px]", lg: "h-5 w-5" }[size];
+  // 16 / 20 / 24, matching the container scale above. This was 16 / 18 / 20, and
+  // the middle one was an arbitrary value with no step behind it.
+  const iconSize = { sm: "h-4 w-4", md: "h-5 w-5", lg: "h-6 w-6" }[size];
   const border = {
     neutral: "border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-dim)]",
     glow: "border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.1)] text-[rgb(var(--glow))]",
@@ -1157,8 +1385,29 @@ export function SettingsLayout({
   onSelect: (id: string) => void;
   children: ReactNode;
 }) {
+  const [query, setQuery] = useState("");
+  // Filtering narrows the index only. The page below is not filtered, because a
+  // settings page you can search is a settings page you can still read in
+  // order — and the scroll-spy in the parent walks every section regardless, so
+  // the highlight keeps tracking what is on screen even when its row is hidden.
+  //
+  // Deliberately not memoised. The haystacks are built from `t()`, and `t` is
+  // not a dependency that `useMemo` can see: switching the app to Spanish
+  // re-renders this component with a new language and an unchanged `sections`
+  // array, and a memo would hand back English haystacks to match against. That
+  // is a filter that silently stops finding anything in the other catalog.
+  // Eight short strings per render is not worth that.
+  const items = sections.map((s) => ({
+    id: s.id,
+    text: foldForSearch(`${t(s.label)} ${t(s.blurb)}`),
+  }));
+  const shown = filterRail(items, query, active);
+  const byId = new Map(sections.map((s) => [s.id, s]));
+
   const navItems = (on: string) =>
-    sections.map((s) => {
+    shown.map((item) => {
+      const s = byId.get(item.id);
+      if (!s) return null;
       const isActive = s.id === on;
       const Icon = s.icon;
       return (
@@ -1179,6 +1428,36 @@ export function SettingsLayout({
         </button>
       );
     });
+
+  /** Enter jumps to the first surviving row, so the box is a navigator. */
+  const jumpToFirst = () => {
+    const first = shown[0];
+    if (first) onSelect(first.id);
+  };
+
+  const filterBox = (
+    <div className="relative mb-2">
+      <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-faint)]" />
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") jumpToFirst();
+          // Escape clears rather than letting focus drift somewhere else: the
+          // box is a filter over a list you are reading, not a dialog.
+          if (e.key === "Escape" && query) {
+            e.stopPropagation();
+            setQuery("");
+          }
+        }}
+        placeholder={t("common.filter-sections")}
+        aria-label={t("common.filter-sections")}
+        spellCheck={false}
+        autoComplete="off"
+        className="w-full rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] py-1.5 pl-8 pr-2 text-xs text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)]"
+      />
+    </div>
+  );
 
   return (
     <div className="mx-auto w-full max-w-[860px]">
@@ -1204,7 +1483,18 @@ export function SettingsLayout({
           aria-label={t("common.settings-sections")}
           className="sticky top-0 hidden w-[190px] shrink-0 space-y-0.5 lg:block"
         >
-          {navItems(active)}
+          {/* The box is desktop-only. The narrow layout's index is a horizontal
+              chip strip that already scrolls sideways; adding a second row to
+              that sticky band costs height there for a rail with eight rows
+              visible at once anyway. */}
+          {filterBox}
+          {shown.length === 0 ? (
+            <p className="px-2.5 py-1.5 text-xs text-[var(--text-faint)]">
+              {t("common.no-sections-match")}
+            </p>
+          ) : (
+            navItems(active)
+          )}
         </nav>
         <div className="min-w-0 flex-1">
           <div className="stagger space-y-6">{children}</div>
@@ -1252,7 +1542,7 @@ export function CollapsibleCard({
           {summary}
         </span>
         <IconChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${
+          className={`h-4 w-4 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${
             open ? "" : "-rotate-90"
           }`}
         />

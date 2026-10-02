@@ -10,6 +10,12 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { basename } from "../../utilities";
 import { api } from "../../ipc";
 import { EqEngine } from "../../eq";
+import {
+  formatDuration,
+  positionFromFraction,
+  progressFraction,
+  skewedPosition,
+} from "../player/mediaTime";
 import { t } from "../../i18n";
 
 /** Compact wallpaper thumb: video plays muted, image static, shader art. */
@@ -220,7 +226,7 @@ function WallpaperStage({
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(0_0_0/0.3),transparent_35%)]" />
 
       <div className="absolute left-3 top-3 flex max-w-[calc(100%-13rem)] items-center gap-2 rounded-lg bg-black/45 px-2.5 py-1.5 backdrop-blur-sm">
-        <IconImage className="h-3.5 w-3.5 shrink-0 text-white/75" />
+        <IconImage className="h-4 w-4 shrink-0 text-white/75" />
         <span className="truncate font-mono text-[10px] text-white/90" title={wallpaperName}>
           {wallpaperName}
         </span>
@@ -439,8 +445,8 @@ function ProgressBar({ media }: { media: MediaInfo }) {
     const bar = barRef.current;
     if (!bar || duration <= 0) return 0;
     const rect = bar.getBoundingClientRect();
-    const f = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    return f * duration;
+    const f = (e.clientX - rect.left) / rect.width;
+    return positionFromFraction(f, duration);
   };
   useEffect(() => {
     if (duration <= 0) return;
@@ -448,18 +454,18 @@ function ProgressBar({ media }: { media: MediaInfo }) {
     const start = performance.now();
     // The sample may already be a beat old by the time it reaches us —
     // include that skew so the bar starts at the true position.
-    const basePos = media.positionSec + (media.playing ? Math.max(0, (Date.now() - (media.positionUpdatedMs || Date.now())) / 1000) : 0);
-    const fmt = (s: number) => {
-      const total = Math.max(0, Math.floor(s));
-      const m = Math.floor(total / 60);
-      return `${m}:${String(total % 60).padStart(2, "0")}`;
-    };
+    const basePos = skewedPosition(
+      media.positionSec,
+      duration,
+      media.playing,
+      Date.now() - (media.positionUpdatedMs || Date.now()),
+    );
     const paint = (pos: number) => {
       if (fillRef.current) {
-        fillRef.current.style.transform = `scaleX(${duration > 0 ? pos / duration : 0})`;
+        fillRef.current.style.transform = `scaleX(${progressFraction(pos, duration)})`;
       }
       if (timeRef.current) {
-        const next = fmt(pos);
+        const next = formatDuration(pos);
         if (timeRef.current.textContent !== next) timeRef.current.textContent = next;
       }
     };
@@ -549,15 +555,10 @@ function ProgressBar({ media }: { media: MediaInfo }) {
         />
       </span>
       <span className="w-9 shrink-0 font-mono text-[10px] tabular-nums text-[var(--text-faint)]">
-        {fmtDuration(duration)}
+        {formatDuration(duration)}
       </span>
     </div>
   );
-}
-
-function fmtDuration(s: number): string {
-  const total = Math.max(0, Math.floor(s));
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
 /**
@@ -729,7 +730,7 @@ function TransportButtons({
           className={`${ICON_BTN} ${shuffle ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
         >
           <span key={String(shuffle)} className={shuffle ? "player-toggle-pop flex" : "flex"}>
-            <IconShuffle className="h-3.5 w-3.5" />
+            <IconShuffle className="h-4 w-4" />
           </span>
         </button>
       )}
@@ -769,7 +770,7 @@ function TransportButtons({
           className={`relative ${ICON_BTN} ${(repeat ?? 0) > 0 ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
         >
           <span key={String(repeat)} className={(repeat ?? 0) > 0 ? "player-toggle-pop flex" : "flex"}>
-            <IconRepeat className="h-3.5 w-3.5" />
+            <IconRepeat className="h-4 w-4" />
           </span>
           {repeat === 1 && (
             <span className="absolute -right-0 -top-0.5 font-mono text-[8px] font-bold leading-none text-[rgb(var(--glow))]">
@@ -951,7 +952,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               </div>
             ) : (
               <div className="mt-3.5 flex min-w-0 items-center gap-2 font-mono text-[10.5px] text-[var(--text-faint)]">
-                <IconWave className="h-3.5 w-3.5 shrink-0" />
+                <IconWave className="h-4 w-4 shrink-0" />
                 {t("common.no-media-playing")}
               </div>
             )}
@@ -1065,14 +1066,14 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             {cfg.rgb.enabled ? (
               <>
                 <QuickSlider
-                  icon={<IconSun className="h-3.5 w-3.5 shrink-0 text-[var(--text-faint)]" />}
+                  icon={<IconSun className="h-4 w-4 shrink-0 text-[var(--text-faint)]" />}
                   value={Math.round(cfg.rgb.mixer.brightness * 100)}
                   onChange={(v) => save((c) => (c.rgb.mixer.brightness = v / 100))}
                   title={t("common.brightness")}
                 />
                 {isAnimatedMode && (
                   <QuickSlider
-                    icon={<IconZap className="h-3.5 w-3.5 shrink-0 text-[var(--text-faint)]" />}
+                    icon={<IconZap className="h-4 w-4 shrink-0 text-[var(--text-faint)]" />}
                     value={Math.round(cfg.rgb.animationSpeed * 50)}
                     onChange={(v) => save((c) => (c.rgb.animationSpeed = v / 50))}
                     title={t("common.animation-speed")}
@@ -1220,7 +1221,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                   }}
                   className="group flex items-center gap-1.5 rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-1.5 text-xs font-semibold text-[var(--text-dim)] hover-glow active:scale-[0.97]"
                 >
-                  <IconLayers className="h-3.5 w-3.5 text-[var(--text-faint)] transition-colors group-hover:text-[rgb(var(--glow))]" />
+                  <IconLayers className="h-4 w-4 text-[var(--text-faint)] transition-colors group-hover:text-[rgb(var(--glow))]" />
                   {s.name}
                 </button>
               ))}

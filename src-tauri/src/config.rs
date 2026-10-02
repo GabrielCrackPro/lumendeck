@@ -78,6 +78,10 @@ pub struct GeneralConfig {
     /// Apply wallpaper changes to the Windows lock screen too (off by
     /// default: some users prefer keeping a personal lock image).
     pub lock_screen_follows_wallpaper: bool,
+    /// Remember the user's pre-sync lock screen on first enable so it can be
+    /// restored when the toggle goes off again. Without this the toggle is
+    /// one-way: nothing ever puts the user's own image back.
+    pub lock_screen_armed: bool,
     /// First-run onboarding wizard has been completed. False on fresh
     /// installs; the dashboard shows a guided setup until it's done.
     pub onboarded: bool,
@@ -89,6 +93,22 @@ pub struct GeneralConfig {
     /// AMOLED mode: true-black surfaces in dark theme (pixels fully off on
     /// OLED panels). Ignored in light theme.
     pub amoled: bool,
+    /// Show the `#RRGGBB` readout beside colour swatches.
+    ///
+    /// The default here is `true`, and that is load-bearing rather than
+    /// incidental: this value is what serde substitutes for a stored config
+    /// written before the field existed, so it means "what an existing user
+    /// keeps seeing". Changing it would silently change the UI for everyone who
+    /// upgrades.
+    ///
+    /// New installs get the opposite, from `config_store::first_run_defaults` —
+    /// a machine with no history has no reason to be shown something the
+    /// product no longer considers the default. The split lives there because
+    /// that is the only place that can tell a first run from an upgrade.
+    ///
+    /// Either way the swatch still shows the colour and the picker's own hex
+    /// field is unaffected; only the readout label goes.
+    pub show_color_hex: bool,
     /// The titlebar minimize button hides the dashboard into the notification
     /// area instead of parking it on the taskbar. Wallpapers and lighting
     /// keep running either way; the tray icon brings the window back.
@@ -220,9 +240,13 @@ impl Default for GeneralConfig {
             accent_sync_enabled: false,
             accent_sync_armed: false,
             lock_screen_follows_wallpaper: false,
+            lock_screen_armed: false,
             onboarded: false,
             accent_auto_shade: 1.0,
             amoled: false,
+            // The fallback for configs predating the field, so existing users
+            // keep the readout they have always had. First runs override this.
+            show_color_hex: true,
             // Tray, not taskbar: a taskbar button for a window that only
             // shows a wallpaper would be the app's most visible feature.
             minimize_to_tray: true,

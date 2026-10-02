@@ -18,7 +18,22 @@ static EDITOR_MODE: AtomicBool = AtomicBool::new(false);
 static WAITER: Mutex<Option<tokio::sync::oneshot::Sender<ClickResult>>> = Mutex::new(None);
 
 /// Timestamp (ms since epoch) of the last user input (mouse or keyboard).
+///
+/// Zero means "no input seen yet", which is indistinguishable from "input in
+/// 1970" to anything doing arithmetic on it — the idle watcher read a literal
+/// 1790755853423ms out of this on startup. `arm()` seeds it with the current
+/// time before the hook is installed, so "never seen" becomes "seen just now".
 static LAST_INPUT_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Treat startup as "the user was here a moment ago" rather than as 56 years of
+/// silence.
+///
+/// Named for what it does to the idle clock, and deliberately *not* `arm` —
+/// that name is already taken by the click-placement arming below, and the two
+/// have nothing to do with each other.
+pub fn mark_input_now() {
+    touch_input();
+}
 
 /// Returns the last time any input activity was observed.
 pub fn last_input_ms() -> u64 {
@@ -101,6 +116,9 @@ pub fn spawn() {
     std::thread::Builder::new()
         .name("sticker-mouse-hook".into())
         .spawn(|| {
+            // Seed before installing, so the idle watcher has a real timestamp
+            // to subtract from even if the user has not touched anything yet.
+            mark_input_now();
             unsafe {
                 let hook = match install() {
                     Ok(h) => h,
@@ -271,6 +289,9 @@ pub fn spawn_keyboard_hook() {
     std::thread::Builder::new()
         .name("sticker-keyboard-hook".into())
         .spawn(|| {
+            // Same reason as the mouse hook: the idle timer needs a real
+            // starting timestamp even if this installs first.
+            mark_input_now();
             unsafe {
                 let hook = match install_keyboard_hook() {
                     Ok(h) => h,

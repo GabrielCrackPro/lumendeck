@@ -106,7 +106,7 @@ export function GalleryThumb({ entry }: GalleryThumbProps) {
       {!playing && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity group-hover:opacity-0">
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur">
-            <IconPlay className="h-3.5 w-3.5" fill="currentColor" stroke="none" />
+            <IconPlay className="h-4 w-4" fill="currentColor" stroke="none" />
           </span>
         </div>
       )}

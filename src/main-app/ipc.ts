@@ -1,5 +1,7 @@
 // Thin typed wrappers over the Tauri IPC surface.
 import { invoke } from "@tauri-apps/api/core";
+import type { StampMap } from "./components/gallery/indexStamps";
+import type { DevInfo } from "@shared/types";
 import type {
   Config,
   EntryOptions,
@@ -54,6 +56,22 @@ export const api = {
     invoke<GalleryEntry[]>("gallery_regenerate_thumb", { id }),
   /** Ids whose file is no longer on disk. Web/shader entries are never listed. */
   vaultMissing: () => invoke<string[]>("vault_missing"),
+  /**
+   * Size and mtime of every gallery entry's file, keyed by entry id. Used to
+   * tell a cached measurement from a stale one after a file is replaced in
+   * place. Entries whose file is missing are absent.
+   */
+  vaultStamps: () => invoke<StampMap>("vault_stamps"),
+  /** The last N lines of the log, newest last. Empty when nothing is logged yet. */
+  logTail: (limit?: number) => invoke<string[]>("log_tail", { limit: limit ?? null }),
+  /**
+   * Version, build mode, log level and the paths the app writes to, read from
+   * the running process. The Developer section shows these instead of
+   * assembling them in the UI, where the log level in particular was a guess.
+   */
+  devInfo: () => invoke<DevInfo>("dev_info"),
+  /** Open the app data folder with the log selected. */
+  revealLog: () => invoke<void>("reveal_log"),
   revealInFolder: (path: string) => invoke<void>("reveal_in_folder", { path }),
   /**
    * The clipboard's text, when it is exactly one http(s) URL.
@@ -70,6 +88,12 @@ export const api = {
   collectionDelete: (id: string) => invoke<void>("collection_delete", { id }),
   collectionToggleEntry: (id: string, entryId: string) =>
     invoke<boolean>("collection_toggle_entry", { id, entryId }),
+  /**
+   * File several entries at once. One config write instead of one per entry,
+   * and ids already present are left alone rather than toggled out.
+   */
+  collectionAddEntries: (id: string, entryIds: string[]) =>
+    invoke<string[]>("collection_add_entries", { id, entryIds }),
 
   playlistCreate: (name: string) =>
     invoke<WallpaperPlaylist>("playlist_create", { name }),

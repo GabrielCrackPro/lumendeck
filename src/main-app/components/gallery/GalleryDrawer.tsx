@@ -208,7 +208,7 @@ export function GalleryDrawer({
                   onClick={onStartRename}
                   className="shrink-0 rounded p-1 text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
                 >
-                  <IconPencil className="h-3.5 w-3.5" />
+                  <IconPencil className="h-4 w-4" />
                 </button>
               </>
             )}
@@ -263,7 +263,7 @@ export function GalleryDrawer({
                 onClick={onRemove}
                 className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--text-faint)] transition-colors hover:bg-red-500/10 hover:text-red-400"
               >
-                <IconTrash className="h-3.5 w-3.5" />
+                <IconTrash className="h-4 w-4" />
                 {t("gallery.remove-entry")}
               </button>
             </div>
@@ -336,14 +336,14 @@ export function GalleryDrawer({
                 onClick={onReveal}
                 className="flex items-center gap-1.5 rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs text-[var(--text-dim)] transition-colors hover:border-[var(--line-strong)] hover:text-[var(--text)]"
               >
-                <IconFolder className="h-3.5 w-3.5" />
+                <IconFolder className="h-4 w-4" />
                 {t("gallery.reveal-in-explorer")}
               </button>
               <button
                 onClick={onRegenerateThumb}
                 className="flex items-center gap-1.5 rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs text-[var(--text-dim)] transition-colors hover:border-[var(--line-strong)] hover:text-[var(--text)]"
               >
-                <IconRefresh className="h-3.5 w-3.5" />
+                <IconRefresh className="h-4 w-4" />
                 {t("gallery.regenerate-thumbnail")}
               </button>
             </div>

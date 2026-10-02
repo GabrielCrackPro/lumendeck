@@ -4,6 +4,7 @@
 pub mod audio;
 pub mod openrgb_client;
 pub mod palette;
+pub mod silence;
 
 use crate::config::{RgbConfig, RgbMode};
 use openrgb::data::Color;
@@ -183,16 +184,35 @@ fn status_len(client: &RgbClientHandle, device_id: u32) -> usize {
 
 /// Set the idle-sleep state. When `true`, the engine immediately starts
 /// pushing black to all devices; when `false`, normal output resumes.
+///
+/// Reports at debug, and only when the state actually moves.
+///
+/// Three modules reach this: the idle poller, the input hook and the hotkey
+/// handler. At info level each of them logged the same transition, and because
+/// the idle poller runs on a 2s tick while the hook fires immediately, one
+/// physical wake produced three lines — "rgb engine wake", "rgb engine sleep:
+/// false" and "idle: input activity detected". In a 43-hour log that was 299
+/// of 1,754 lines saying one thing three times over, all of them ahead of the
+/// error a person opened the log to find.
+///
+/// The callers still narrate at info, and in context: the idle poller knows
+/// how long the machine was idle, the hook knows it was a keystroke. This is a
+/// low-level setter whose job is to be called unconditionally, so it keeps the
+/// line for `RUST_LOG=debug` and leaves the story to its callers.
 pub fn set_sleeping(v: bool) {
-    SLEEPING.store(v, Ordering::Relaxed);
-    log::info!("rgb engine sleep: {v}");
+    if SLEEPING.swap(v, Ordering::Relaxed) != v {
+        log::debug!("rgb engine sleep: {v}");
+    }
 }
 
 /// Wake the RGB engine if it is currently sleeping. Called from input hooks
 /// for instant wake on user activity (no log spam when already awake).
+///
+/// Same reasoning as [set_sleeping]: the swap already gates this on a real
+/// transition, and the caller that noticed the activity has already logged it.
 pub fn wake_if_sleeping() {
     if SLEEPING.swap(false, Ordering::Relaxed) {
-        log::info!("rgb engine wake (input activity)");
+        log::debug!("rgb engine wake (input activity)");
     }
 }
 
@@ -1083,7 +1103,7 @@ mod tests {
         lf.record(7, &ambient);
         // The blink writes over the hardware without recording itself...
         let flash = vec![[255, 255, 255], [255, 255, 255]];
-        assert!(!lf.get(7).unwrap().iter().any(|c| *c == [255, 255, 255]));
+        assert!(!lf.get(7).unwrap().iter().any(|c| flash.contains(c)));
         // ...so the restore is the ambient, not the flash.
         assert_eq!(restore_frame(lf.get(7).as_deref(), 2), ambient);
     }

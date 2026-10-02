@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -34,8 +35,21 @@ import {
   IconLayers,
   IconPlay,
   IconInfo,
+  IconClipboard,
+  IconFolder,
+  IconRefresh,
+  IconSparkle,
+  IconClose,
+  IconTrash,
+  IconAlert,
+  IconTerminal,
+  IconCopy,
 } from "../icons";
 import { t, LOCALE_NAMES } from "../../i18n";
+import type { DevInfo } from "@shared/types";
+import { useCopy } from "../useCopy";
+import { buildReport } from "../devReport";
+import { versionDisagreement, versionLabel } from "../buildIdentity";
 
 /**
  * Every setting lives on one screen, in reading order. The index beside it is
@@ -88,6 +102,12 @@ const SECTIONS: SettingsSectionDef[] = [
     icon: IconPlay,
   },
   {
+    id: "developer",
+    label: "settings.developer",
+    blurb: "settings.build-facts-configuration-and-logs",
+    icon: IconTerminal,
+  },
+  {
     id: "about",
     label: "settings.about-and-updates",
     blurb: "settings.version-release-notes-setup-guide",
@@ -95,7 +115,15 @@ const SECTIONS: SettingsSectionDef[] = [
   },
 ];
 
-/** DOM id for a section anchor. Kept off the raw id so it cannot collide. */
+/**
+ * DOM id for a section anchor. Kept off the raw id so it cannot collide.
+ *
+ * The anchor is also the section's own stacking context: several sections hold
+ * more than one card, and `space-y-6` is a no-op for the single-card ones, so
+ * the rhythm comes from here instead of from the page-level gap. Without it the
+ * cards inside `about` butt against each other while every card above them has
+ * breathing room.
+ */
 const anchorId = (id: string) => `settings-section-${id}`;
 
 /** The nearest ancestor that actually scrolls, or the page itself. */
@@ -254,7 +282,7 @@ export default function GeneralTab() {
   if (!cfg) return null;
 
   const anchor = (id: string, node: ReactNode) => (
-    <div id={anchorId(id)} className="scroll-mt-6">
+    <div id={anchorId(id)} className="scroll-mt-6 space-y-6">
       {node}
     </div>
   );
@@ -278,6 +306,12 @@ export default function GeneralTab() {
               description={t("common.true-black-surfaces-in-dark-theme-oled-pixels-sw")}
               checked={cfg.general.amoled ?? false}
               onChange={(v) => save((c) => (c.general.amoled = v))}
+            />
+            <Toggle
+              label={t("common.show-color-hex-codes")}
+              description={t("common.show-the-hex-code-beside-each-colour-swatch")}
+              checked={cfg.general.showColorHex ?? true}
+              onChange={(v) => save((c) => (c.general.showColorHex = v))}
             />
             <Toggle
               label={t("common.sync-windows-accent-color-to-wallpaper")}
@@ -367,11 +401,16 @@ export default function GeneralTab() {
                   await api.sceneSave(name);
                   const fresh = await api.getConfig();
                   useStore.setState({ cfg: fresh });
-                  useStore.getState().toast("ok", `Scene "${name}" saved`);
+                  useStore
+                    .getState()
+                    .toast("ok", t("common.scene-{name}-saved", { name }));
                 } catch (e) {
                   useStore
                     .getState()
-                    .toast("error", `Save failed: ${truncateError(e)}`);
+                    .toast(
+                      "error",
+                      t("common.save-failed-{error}", { error: truncateError(e) }),
+                    );
                 }
               }}
             />
@@ -395,7 +434,7 @@ export default function GeneralTab() {
                           await api.sceneApply(s.id);
                           useStore
                             .getState()
-                            .toast("ok", `Scene "${s.name}" applied`);
+                            .toast("ok", t("common.scene-{name}-applied", { name: s.name }));
                         } catch (e) {
                           useStore
                             .getState()
@@ -451,27 +490,21 @@ export default function GeneralTab() {
               checked={cfg.general.softwareVideoDecode}
               onChange={(v) => save((c) => (c.general.softwareVideoDecode = v))}
             />
-            <div className="mt-4 border-t border-[var(--line)] pt-4">
-              <div className="text-sm font-medium text-[var(--text)]">
-                {t("common.reload-configuration")}
-              </div>
-              <p className="mt-0.5 text-xs leading-relaxed text-[var(--text-faint)]">
-                {t("common.manual-edits-to")}{" "}
-                <code className="font-mono">config.json</code>{" "}
-                {t("common.are-picked-up-automatically-within-a-few-seconds")}
-              </p>
-              <div className="mt-3">
-                <Btn
-                  onClick={async () => {
-                    const fresh = await api.reloadConfig();
-                    useStore.setState({ cfg: fresh });
-                  }}
-                >
-                  {t("common.reload-now")}
-                </Btn>
-              </div>
-            </div>
           </Card>,
+        )}
+
+        {/* Everything here is a thing you reach for when the app is already
+            misbehaving, not a preference you choose up front: what build you
+            are on, where the files are, what the log says. It used to be
+            scattered — the config reload sat inside Video playback, which is
+            why editing config.json was discoverable only if you knew it was
+            two cards below a video toggle. */}
+        {anchor(
+          "developer",
+          <>
+            <DeveloperCard />
+            <LogViewerCard />
+          </>,
         )}
 
         {anchor(
@@ -485,9 +518,19 @@ export default function GeneralTab() {
               right={
                 <span className="flex items-center gap-1.5 font-mono text-[10px] text-[var(--text-faint)]">
                   v{__APP_VERSION__}
-                  {__APP_BUILD_MODE__ === "dev" && (
-                    <span className="rounded-sm bg-amber-500/20 px-1 font-mono text-[8.5px] tracking-[0.15em] text-amber-400">
-                      DEV
+                  {/* The commit belongs here, not only in the Developer card.
+                      This is the line someone copies into a bug report, and a
+                      bare "v0.2.7" cannot say which build produced the bug —
+                      two local builds of the same version look identical
+                      unless one of them says it was dirty. */}
+                  {__APP_BUILD_ID__ && (
+                    <span
+                      className="rounded-sm bg-amber-500/20 px-1 text-amber-400"
+                      title={t("common.built-from-commit-{id}", {
+                        id: __APP_BUILD_ID__,
+                      })}
+                    >
+                      {__APP_BUILD_ID__}
                     </span>
                   )}
                 </span>
@@ -525,7 +568,9 @@ export default function GeneralTab() {
                             .getState()
                             .toast(
                               "error",
-                              `Update install failed: ${truncateError(e)}`,
+                              t("common.update-install-failed-{error}", {
+                                error: truncateError(e),
+                              }),
                             );
                         } finally {
                           setInstalling(false);
@@ -538,7 +583,7 @@ export default function GeneralTab() {
                         if (import.meta.env.DEV) {
                           useStore
                             .getState()
-                            .toast("ok", "Dev build — update checks are disabled.");
+                            .toast("ok", t("common.dev-build-no-updates"));
                           return;
                         }
                         const update = await checkForAppUpdate();
@@ -551,7 +596,7 @@ export default function GeneralTab() {
                             .getState()
                             .toast(
                               "ok",
-                              `You're up to date (v${__APP_VERSION__}).`,
+                              t("common.up-to-date-v{version}", { version: __APP_VERSION__ }),
                             );
                         }
                       } catch (e) {
@@ -587,16 +632,14 @@ export default function GeneralTab() {
             {/* The setup guide used to be the very first card on the settings
                 page, above everything, for a button most people press zero
                 times. It belongs with the version info. */}
-            <Card title={t("common.setup-guide")} icon={<IconZap />}>
+            <Card title={t("common.setup-guide")} icon={<IconSparkle />}>
               {confirmSetup ? (
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0 text-sm text-[var(--text-dim)]">
                     {t("common.the-guide-takes-over-the-window-your-current-set")}
                   </div>
                   <div className="flex shrink-0 gap-2.5">
-                    <Btn onClick={() => setConfirmSetup(false)}>
-                      {t("common.cancel")}
-                    </Btn>
+                    <Btn onClick={() => setConfirmSetup(false)}>{t("common.cancel")}</Btn>
                     <Btn
                       variant="primary"
                       onClick={async () => {
@@ -604,6 +647,7 @@ export default function GeneralTab() {
                         await save((c) => (c.general.onboarded = false));
                       }}
                     >
+                      <IconSparkle className="h-4 w-4" />
                       {t("common.start-the-guide")}
                     </Btn>
                   </div>
@@ -615,6 +659,7 @@ export default function GeneralTab() {
                   </div>
                   <div className="shrink-0">
                     <Btn onClick={() => setConfirmSetup(true)}>
+                      <IconRefresh className="h-4 w-4" />
                       {t("common.run-setup-again")}
                     </Btn>
                   </div>
@@ -653,7 +698,7 @@ function DangerZone({
   onCancel: () => void;
 }) {
   return (
-    <Card title={t("common.danger-zone")}>
+    <Card title={t("common.danger-zone")} icon={<IconAlert />}>
       {confirming ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
           <div className="text-sm font-semibold text-red-200">
@@ -693,6 +738,7 @@ function DangerZone({
               {t("common.yes-wipe-everything")}
             </Btn>
             <Btn variant="ghost" onClick={onCancel}>
+              <IconClose className="h-4 w-4" />
               {t("common.cancel")}
             </Btn>
           </div>
@@ -700,14 +746,251 @@ function DangerZone({
       ) : (
         <div className="flex flex-wrap items-center gap-2.5">
           <Btn variant="danger" onClick={onConfirm}>
+            <IconTrash className="h-4 w-4" />
             {t("common.wipe-app-data")}
           </Btn>
-          <Btn onClick={() => api.quit?.()}>{t("common.quit-lumendeck")}</Btn>
+          <Btn onClick={() => api.quit?.()}>
+            <IconClose className="h-4 w-4" />
+            {t("common.quit-lumendeck")}
+          </Btn>
         </div>
       )}
       <p className="mt-4 text-xs leading-relaxed text-[var(--text-faint)]">
         {t("common.wiping-removes-every-setting-your-wallpaper-vaul")}
       </p>
+    </Card>
+  );
+}
+
+/**
+ * The log, and the button that puts it in front of the user.
+ *
+ * Every "attach your log to a bug report" instruction assumes the user can find
+ * `%APPDATA%`, and that a 5 MB text file is something they can open. Neither
+ * holds. So this shows the tail inline — the part where a failure actually
+ * happened is always at the end — and offers Explorer for the full file.
+ *
+ * Error lines are picked out because that is what a person reads this for: the
+ * timestamp is already on the line and the level is already colour-coded, so
+ * the one thing missing was "skip to the part that matters".
+ */
+function LogViewerCard() {
+  const [lines, setLines] = useState<string[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [onlyErrors, setOnlyErrors] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setLines(await api.logTail(500));
+    } catch (e) {
+      useStore.getState().toast("error", t("common.log-failed-{error}", { error: truncateError(e) }));
+      setLines([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Load once on mount: a card that needs a click before it has anything to say
+  // is a card most people never open.
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Bounded again on this side, so the filter cannot produce an unbounded render
+  // from an already-bounded list.
+  const shown = useMemo(() => {
+    if (!lines) return [];
+    if (!onlyErrors) return lines;
+    return lines.filter((l) => /\s(ERROR|WARN)\s/.test(l)).slice(-200);
+  }, [lines, onlyErrors]);
+
+  return (
+    <Card
+      title={t("common.log-file")}
+      icon={<IconClipboard />}
+      right={
+        <div className="flex items-center gap-1.5">
+          <Btn size="sm" variant="ghost" onClick={() => void load()} disabled={loading}>
+            <IconRefresh className="h-4 w-4" />
+            {loading ? t("common.loading") : t("common.refresh")}
+          </Btn>
+          <Btn size="sm" variant="ghost" onClick={() => void api.revealLog()}>
+            <IconFolder className="h-4 w-4" />
+            {t("common.open-folder")}
+          </Btn>
+        </div>
+      }
+    >
+      <p className="mb-3 text-xs leading-relaxed text-[var(--text-dim)]">
+        {t("common.attach-this-file-when-you-report-a-problem")}
+      </p>
+
+      <div className="mb-2 flex items-center gap-2">
+        <Toggle
+          label={t("common.problems-only")}
+          checked={onlyErrors}
+          onChange={setOnlyErrors}
+        />
+        <span className="ml-auto font-mono text-[10px] text-[var(--text-faint)]">
+          {shown.length > 0
+            ? t("common.showing-{n}-lines", { n: shown.length })
+            : t("common.nothing-to-show")}
+        </span>
+      </div>
+
+      <pre
+        className="max-h-64 overflow-auto rounded-xl border border-[var(--line)] bg-black/25 p-3 font-mono text-[10.5px] leading-relaxed whitespace-pre-wrap"
+        tabIndex={0}
+      >
+        {shown.length === 0
+          ? t("common.nothing-has-been-logged-yet")
+          : shown.join("\n")}
+      </pre>
+    </Card>
+  );
+}
+
+/**
+ * Build facts, configuration reload, and one button to hand them to an issue.
+ *
+ * Everything here is read from the running process through `dev_info`, not from
+ * the frontend's build-time constants. That matters for exactly one of the
+ * fields — the log level, which the backend resolves from `RUST_LOG` at
+ * startup and the frontend cannot see — but a diagnostics panel that reports a
+ * value it guessed is worse than no panel, because it is believed.
+ *
+ * "Copy details" exists because the alternative is a user transcribing six
+ * values from a screenshot into GitHub, which is where bug reports die.
+ */
+function DeveloperCard() {
+  const [info, setInfo] = useState<DevInfo | null>(null);
+  const [failed, setFailed] = useState(false);
+  const { copy: copyText } = useCopy();
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .devInfo()
+      .then((i) => alive && setInfo(i))
+      // A missing command means an old backend against a new frontend, which
+      // is exactly the situation this section exists to diagnose. Showing the
+      // failure is more useful than a panel that silently stays empty.
+      .catch(() => alive && setFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const baseFacts: [string, string][] = info
+    ? [
+        [t("common.dev-version"), versionLabel(info.version)],
+        [
+          t("common.dev-build-from"),
+          info.buildDirty
+            ? t("common.dev-build-dirty")
+            : t("common.dev-build-clean"),
+        ],
+        [t("common.dev-commit"), info.buildId],
+        [
+          t("common.dev-build"),
+          info.debug ? t("common.dev-build-dev") : t("common.dev-build-release"),
+        ],
+        [t("common.dev-log-level"), info.logLevel.toLowerCase()],
+        [t("common.dev-platform"), navigator.platform || t("common.dev-unknown")],
+        [t("common.dev-config-file"), info.configPath],
+        [t("common.dev-log-file"), info.logPath],
+      ]
+    : [];
+
+  // A row only when there is something to say. "None" every session trains the
+  // reader to skip the line, and the one session where it matters is the one
+  // where it is not empty.
+  const facts: [string, string][] = info?.lastPanic
+    ? [...baseFacts, [t("common.dev-last-panic"), info.lastPanic]]
+    : baseFacts;
+
+  const copy = async () => {
+    if (!info) return;
+    // `baseFacts`, not `facts`: the report appends the panic line raw, and
+    // stating it twice in one paste reads as two crashes.
+    await copyText(
+      buildReport(info.reportHeader, baseFacts, info.lastPanic),
+      t("common.dev-details-copied"),
+    );
+  };
+
+  return (
+    <Card
+      title={t("common.developer")}
+      icon={<IconTerminal />}
+      right={
+        info && (
+          <Btn size="sm" variant="ghost" onClick={() => void copy()}>
+            <IconCopy className="h-4 w-4" />
+            {t("common.dev-copy-details")}
+          </Btn>
+        )
+      }
+    >
+      {failed ? (
+        <InfoNote tone="warn">{t("common.dev-facts-unavailable")}</InfoNote>
+      ) : (
+        <>
+          {info && versionDisagreement(info.version, __APP_VERSION__) && (
+            // The badge shows the bundle's version and this row shows the
+            // binary's. `check-versions.mjs` keeps them equal, so reaching here
+            // means that guard failed — and a version skew is otherwise invisible,
+            // because every command still works and every value looks plausible.
+            <InfoNote tone="warn" className="mb-3">
+              {t(
+                "common.bundle-{bundle}-running-binary-{running}-other-windows-may-be-running-older-code",
+                {
+                  running: versionLabel(info.version),
+                  bundle: versionLabel(__APP_VERSION__),
+                },
+              )}
+            </InfoNote>
+          )}
+          <div className="panel-inset grid gap-x-6 gap-y-3 p-3.5 sm:grid-cols-2">
+            {/* Placeholder rows rather than a spinner: the grid is two columns of four,
+              so reserving that shape stops the card jumping when the facts land. */}
+            {facts.length === 0 &&
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-8 animate-pulse rounded-sm bg-[var(--panel-sunken)]" />
+              ))}
+            {facts.map(([label, value]) => (
+              <div key={label} className="flex min-w-0 flex-col gap-0.5">
+                <span className="kicker">{label}</span>
+                <span className="truncate font-mono text-xs text-[var(--text)]" title={value}>
+                  {value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="mt-4 border-t border-[var(--line)] pt-4">
+        <div className="text-sm font-medium text-[var(--text)]">
+          {t("common.reload-configuration")}
+        </div>
+        <p className="mt-0.5 text-xs leading-relaxed text-[var(--text-faint)]">
+          {t("common.manual-edits-to")} <code className="font-mono">config.json</code>{" "}
+          {t("common.are-picked-up-automatically-within-a-few-seconds")}
+        </p>
+        <div className="mt-3">
+          <Btn
+            onClick={async () => {
+              const fresh = await api.reloadConfig();
+              useStore.setState({ cfg: fresh });
+            }}
+          >
+            <IconRefresh className="h-4 w-4" />
+            {t("common.reload-now")}
+          </Btn>
+        </div>
+      </div>
     </Card>
   );
 }

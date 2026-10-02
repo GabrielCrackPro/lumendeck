@@ -5,6 +5,7 @@ import { Dropdown } from "./ui";
 import { deviceName } from "./DeviceRow";
 import { t } from "../i18n";
 import type { DeviceColor } from "@shared/types";
+import { DARK_LED, paintLedGlow, previewDpr, roundRectPath } from "./ledPaint";
 import {
   buildKeyboardPlates,
   disposition,
@@ -92,7 +93,7 @@ export function KeyboardPreview() {
 
     // Real device pixel ratio, capped: a 3x display would quadruple the fill
     // cost of a canvas that is redrawn 12.5 times a second.
-    const dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
+    const dpr = previewDpr();
     const cssW = canvas.clientWidth;
     const cssH = canvas.clientHeight;
     if (cssW <= 0 || cssH <= 0) return;
@@ -101,7 +102,7 @@ export function KeyboardPreview() {
     const H = (canvas.height = Math.round(cssH * dpr));
     ctx.clearRect(0, 0, W, H);
 
-    const base = kbColors?.rgb ?? ([10, 11, 16] as [number, number, number]);
+    const base = kbColors?.rgb ?? DARK_LED;
     const leds = kbColors?.ledColors ?? null;
     const pad = 8 * dpr;
     const gap = 2.5 * dpr;
@@ -112,7 +113,7 @@ export function KeyboardPreview() {
     plateGrad.addColorStop(0.5, "#0b0c11");
     plateGrad.addColorStop(1, "#08090d");
     ctx.beginPath();
-    ctx.roundRect(2 * dpr, 2 * dpr, W - 4 * dpr, H - 4 * dpr, 12 * dpr);
+    roundRectPath(ctx, 2 * dpr, 2 * dpr, W - 4 * dpr, H - 4 * dpr, 12 * dpr);
     ctx.fillStyle = plateGrad;
     ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,0.07)";
@@ -124,17 +125,20 @@ export function KeyboardPreview() {
       x: number, y: number, w: number, h: number,
       color: [number, number, number],
     ) => {
-      const [r, g, b] = color;
-      const cx = x + w / 2, cy = y + h / 2;
-      const rad = Math.max(w, h) * 1.15;
-      const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
-      const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-      halo.addColorStop(0, `rgba(${r},${g},${b},${0.34 * lum + 0.06})`);
-      halo.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = halo;
-      ctx.fillRect(x - rad, y - rad, w + rad * 2, h + rad * 2);
+      // The shared policy, so a keyboard cap and a strip LED throw the same
+      // halo for the same colour. This formula was already luma-scaled; the
+      // device strip's was not, and the two are what made the previews read as
+      // different products.
+      paintLedGlow(ctx, x + w / 2, y + h / 2, Math.max(w, h), color);
     };
 
+    /**
+     * The cap body colour.
+     *
+     * Caps keep a shading curve rather than the shared emitter overdrive: a
+     * keycap is a physical shell with a lit edge, not a bare package, and the
+     * gloss below only reads against a body that falls off vertically.
+     */
     const shade = (cr: number, cg: number, cb: number) =>
       `rgb(${Math.round(0.78 * cr)},${Math.round(0.78 * cg)},${Math.round(0.78 * cb)})`;
 
@@ -152,7 +156,7 @@ export function KeyboardPreview() {
 
       // Drop shadow under the cap.
       ctx.beginPath();
-      ctx.roundRect(x + 1, y + 1.2 * dpr, w, h, radius);
+      roundRectPath(ctx, x + 1, y + 1.2 * dpr, w, h, radius);
       ctx.fillStyle = "rgba(0,0,0,0.45)";
       ctx.fill();
 
@@ -168,7 +172,7 @@ export function KeyboardPreview() {
       );
       bodyGrad.addColorStop(1, shade(cr * 0.72, cg * 0.72, cb * 0.72));
       ctx.beginPath();
-      ctx.roundRect(x, y, w, h, radius);
+      roundRectPath(ctx, x, y, w, h, radius);
       ctx.fillStyle = bodyGrad;
       ctx.fill();
 
@@ -177,12 +181,12 @@ export function KeyboardPreview() {
       gloss.addColorStop(0, "rgba(255,255,255,0.22)");
       gloss.addColorStop(1, "rgba(255,255,255,0)");
       ctx.beginPath();
-      ctx.roundRect(x + 1, y + 1, w - 2, h * 0.45, 3 * dpr);
+      roundRectPath(ctx, x + 1, y + 1, w - 2, h * 0.45, 3 * dpr);
       ctx.fillStyle = gloss;
       ctx.fill();
 
       ctx.beginPath();
-      ctx.roundRect(x, y, w, h, radius);
+      roundRectPath(ctx, x, y, w, h, radius);
       ctx.strokeStyle = hover ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.25)";
       ctx.lineWidth = hover ? 1.5 * dpr : 1;
       ctx.stroke();
@@ -223,7 +227,7 @@ export function KeyboardPreview() {
         if (p.boundary) {
           // Zone divider on the leading edge of the key.
           ctx.beginPath();
-          ctx.roundRect(p.x, p.y, 1.6 * dpr, p.h, 1 * dpr);
+          roundRectPath(ctx, p.x, p.y, 1.6 * dpr, p.h, 1 * dpr);
           ctx.fillStyle = "rgba(255,255,255,0.65)";
           ctx.fill();
         }
@@ -251,7 +255,7 @@ export function KeyboardPreview() {
         const dy = oy + r * (dot + dotGap);
         drawGlow(dx, dy, dot, dot, color);
         ctx.beginPath();
-        ctx.roundRect(dx, dy, dot, dot, dot * 0.3);
+        roundRectPath(ctx, dx, dy, dot, dot, dot * 0.3);
         ctx.fillStyle = shade(color[0], color[1], color[2]);
         ctx.fill();
       }

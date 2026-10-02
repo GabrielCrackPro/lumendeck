@@ -57,7 +57,7 @@ fn start_worker() {
     }
 }
 
-fn bg_path() -> PathBuf {
+pub fn bg_path() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("LumenDeck")
@@ -179,12 +179,10 @@ pub fn restore_original_wallpaper() -> bool {
         if ok {
             // The backup has served its purpose; remove it so a future first
             // install picks up whatever the user chooses next.
-            unsafe {
-                let mut hkey2 = HKEY::default();
-                if RegOpenKeyExW(HKEY_CURRENT_USER, &key_name, Some(0), KEY_SET_VALUE, &mut hkey2).is_ok() {
-                    let _ = RegDeleteValueW(hkey2, &value_name);
-                    let _ = RegCloseKey(hkey2);
-                }
+            let mut hkey2 = HKEY::default();
+            if RegOpenKeyExW(HKEY_CURRENT_USER, &key_name, Some(0), KEY_SET_VALUE, &mut hkey2).is_ok() {
+                let _ = RegDeleteValueW(hkey2, &value_name);
+                let _ = RegCloseKey(hkey2);
             }
             log::info!("wallpaper-bg: original wallpaper restored ({})", path.display());
         }
@@ -368,6 +366,33 @@ pub fn apply_bg(cfg: &WallpaperConfig) {
 /// toggle; default off — some users keep a personal lock image.)
 fn lock_screen_follows() -> bool {
     crate::config_store::get().general.lock_screen_follows_wallpaper
+}
+
+/// Put the user's original lock screen back. Called when the toggle goes off,
+/// because a setting the user turned off has to actually stop applying.
+pub fn restore_original_lock_screen() -> bool {
+    crate::lock_screen_reg::release()
+}
+
+/// Push the current background to the lock screen right now.
+///
+/// `apply_bg` dedupes on the source key, so enabling the toggle for a wallpaper
+/// that is already showing would return early and the lock screen would keep
+/// whatever it had — which reads to the user as a broken toggle. Called
+/// directly on the enable transition so it happens exactly once, at the moment
+/// the user asked for it.
+pub fn force_lock_screen_sync() {
+    if !lock_screen_follows() {
+        return;
+    }
+    let out = bg_path();
+    if !out.is_file() {
+        // Nothing to point at yet. The next successful install picks it up, so
+        // this is a normal state on first run rather than a failure.
+        log::debug!("lock-screen: no background file yet, deferring");
+        return;
+    }
+    set_lock_screen_wallpaper(&out);
 }
 
 fn apply_image(source: &str, out: &PathBuf) -> bool {
@@ -578,53 +603,9 @@ pub(crate) fn set_desktop_wallpaper(path: &PathBuf) -> bool {
 }
 
 fn set_lock_screen_wallpaper(path: &PathBuf) {
-    use std::os::windows::ffi::OsStrExt;
-    use windows::Win32::System::Registry::{
-        RegCreateKeyExW, RegOpenKeyExW, RegSetValueExW, RegCloseKey, HKEY_CURRENT_USER,
-        KEY_QUERY_VALUE, KEY_SET_VALUE, REG_OPEN_CREATE_OPTIONS, REG_VALUE_TYPE,
-    };
-
-    unsafe {
-        let reg_path = windows::core::HSTRING::from(
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Personalization",
-        );
-        let mut hkey = windows::Win32::System::Registry::HKEY::default();
-        let sam = KEY_SET_VALUE | KEY_QUERY_VALUE;
-        let open_result = RegOpenKeyExW(HKEY_CURRENT_USER, &reg_path, Some(0), sam, &mut hkey);
-        if open_result.is_err() {
-            let created = RegCreateKeyExW(
-                HKEY_CURRENT_USER,
-                &reg_path,
-                None,
-                None,
-                REG_OPEN_CREATE_OPTIONS(0),
-                sam,
-                None,
-                &mut hkey,
-                None,
-            );
-            if created.is_err() {
-                log::warn!("wallpaper-bg: lock screen reg open failed: {created:?}");
-                return;
-            }
-        }
-
-        let value_name = windows::core::HSTRING::from("LockScreenImage");
-        let value_bytes: Vec<u8> = path
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .flat_map(u16::to_le_bytes)
-            .collect();
-        let result = RegSetValueExW(hkey, &value_name, Some(0), REG_VALUE_TYPE(1), Some(&value_bytes));
-        let _ = RegCloseKey(hkey);
-
-        if result.is_ok() {
-            log::info!("wallpaper-bg: lock screen wallpaper set via registry");
-        } else {
-            log::warn!("wallpaper-bg: lock screen reg set failed: {result:?}");
-        }
-    }
+    // The decision (does this write at all, and what is stashed first) lives in
+    // lock_screen.rs; this only carries it out.
+    crate::lock_screen_reg::adopt(path);
 }
 
 #[cfg(test)]

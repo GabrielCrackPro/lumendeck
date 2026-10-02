@@ -1,9 +1,10 @@
-import { useState, type ReactNode } from "react";
-import { IconChevronDown, IconSearch } from "../icons";
+import { useEffect, useState, type ReactNode } from "react";
+import { IconGrid, IconLayers, IconSearch, IconSelectAll, IconSliders, IconSort, IconSparkle, IconStar } from "../icons";
+import type { SelectAllState } from "./selection";
 import { t } from "../../i18n";
 import { GALLERY_KINDS, GALLERY_KIND_LABEL } from "./kindLabels";
 import { kindCounts, type GalleryPick, type GalleryQuery, type GallerySort, type SelectContext } from "./galleryQuery";
-import { chipStyle, Dropdown } from "../ui";
+import { chipStyle, Dropdown, ICON_BTN, ICON_BTN_ACTIVE, ICON_BTN_IDLE } from "../ui";
 import type { GalleryEntry, WallpaperCollection } from "@shared/types";
 
 export interface GalleryToolbarProps {
@@ -16,10 +17,13 @@ export interface GalleryToolbarProps {
   onRenameCollection: (c: WallpaperCollection) => void;
   onDeleteCollection: (c: WallpaperCollection) => void;
   onNewCollection: () => void;
-  totalInVault: number;
   /** Tile size. */
   density: GalleryDensity;
   onDensity: (d: GalleryDensity) => void;
+  /** Whether the select-all control reads empty, mixed or full. */
+  selectAllState: SelectAllState;
+  /** Ticks or unticks everything the current filter shows. */
+  onSelectAll: (want: boolean) => void;
   /**
    * Whether the vault-wide metadata index is usable. The resolution and length
    * sorts and the width floor are all questions about every entry, so they are
@@ -69,10 +73,20 @@ const SORTS: { id: GallerySort; label: string }[] = [
 ];
 
 /** Shortcut filters that are neither a kind nor a collection. */
-const PICKS: { id: GalleryPick; label: string }[] = [
-  { id: "all", label: "gallery.everything" },
-  { id: "favourites", label: "gallery.favourites" },
-  { id: "uncollected", label: "gallery.uncollected" },
+/**
+ * The quick filters.
+ *
+ * There is deliberately no "Everything" chip here and no "All collections" chip
+ * in the collections row: both used to exist, both meant "no narrowing", and
+ * the same panel offered the same state twice. Pressing nothing now *is*
+ * "everything", so each chip is a toggle -- pressing the active one clears it.
+ *
+ * "Uncollected" is a statement about collection membership, so it sits with the
+ * collections where it can be read against them, rather than beside the star.
+ */
+const PICKS: { id: GalleryPick; label: string; icon: ReactNode }[] = [
+  { id: "favourites", label: "gallery.favourites", icon: <IconStar className="h-3 w-3" /> },
+  { id: "uncollected", label: "gallery.uncollected", icon: <IconLayers className="h-3 w-3" /> },
 ];
 
 /** Width floors offered by the resolution filter. "Any" is the absence of one. */
@@ -115,6 +129,28 @@ export const DENSITY_CLASS: Record<GalleryDensity, string> = {
  * with the pictures. The toggle carries a count of what is currently applied,
  * so a collapsed bar is never ambiguous about why the grid looks short.
  */
+/**
+ * One filter dimension: a fixed-width label and its chips.
+ *
+ * The label is what makes the panel readable. Four rows of pills separated by
+ * hairlines gave no clue which rule belonged to which dimension, so kind and
+ * collection chips looked interchangeable. Fixed width keeps the chip columns
+ * aligned between rows, which is what lets you scan down a column to compare
+ * dimensions.
+ */
+function FilterGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      {/* 56px fits the longest label ("Quality") at this tracking with a little to
+          spare. It started at 80px, which read fine but stole 24px from every
+          chip row and made the panel wrap into a taller block than the single
+          row it replaced. */}
+      <span className="kicker w-14 shrink-0 pt-1.5 text-right">{label}</span>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{children}</div>
+    </div>
+  );
+}
+
 export function GalleryToolbar({
   query,
   onQuery,
@@ -124,9 +160,10 @@ export function GalleryToolbar({
   onRenameCollection,
   onDeleteCollection,
   onNewCollection,
-  totalInVault,
   density,
   onDensity,
+  selectAllState,
+  onSelectAll,
   indexReady,
   indexBuilding,
   indexProgress,
@@ -142,14 +179,61 @@ export function GalleryToolbar({
 }: GalleryToolbarProps) {
   const counts = kindCounts(entries, collections, query, countCtx);
   const [open, setOpen] = useState(false);
+  /** Which collection chip has its action menu open, if any. */
+  const [chipMenu, setChipMenu] = useState<string | null>(null);
+
+  // A menu left open behind a re-render, or one opened on a chip that a delete
+  // has just removed, would hang open over a row that is no longer there.
+  useEffect(() => {
+    if (chipMenu && !collections.some((c) => c.id === chipMenu)) setChipMenu(null);
+  }, [chipMenu, collections]);
+
+  // Clicking anywhere else dismisses it, the way every menu behaves.
+  useEffect(() => {
+    if (!chipMenu) return;
+    const away = () => setChipMenu(null);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setChipMenu(null);
+    document.addEventListener("click", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("click", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [chipMenu]);
   // How many filter dimensions are narrowing the grid. Search and sort are not
   // counted: they are visible in the top row, so a badge for them would be
   // saying something the user can already see.
+  // How many filter dimensions are narrowing the grid. Search and sort are not
+  // counted: they are visible in the top row, so a badge for them would be
+  // saying something the user can already see. The resolution floor *is*
+  // counted -- it lives down here with the rest of the filters, so omitting it
+  // left the Filters button reading 0 while a resolution filter was active, and
+  // no "clear filters" affordance appearing for a filter that was visibly on.
   const activeCount =
     (query.kind !== "all" ? 1 : 0) +
     (query.collection !== "all" ? 1 : 0) +
     (query.picks !== "all" ? 1 : 0) +
-    (query.display !== "all" ? 1 : 0);
+    (query.display !== "all" ? 1 : 0) +
+    (query.minWidth != null ? 1 : 0);
+
+  /**
+   * Put every filter dimension back to "no narrowing".
+   *
+   * Search is included, which the inline version of this used to forget: with a
+   * search term still in the box, "Clear filters" left the vault looking filtered
+   * with nothing to indicate why. WallpaperTab's empty state clears the same
+   * set for the same reason, and the two must not drift.
+   */
+  const clearFilters = () => {
+    onQuery({
+      search: "",
+      kind: "all",
+      minWidth: null,
+      picks: "all",
+      display: "all",
+    });
+    onCollection("all");
+  };
 
   return (
     <div className="mb-4 space-y-2.5">
@@ -172,42 +256,66 @@ export function GalleryToolbar({
 
         {view === "wallpapers" && (
         <>
+        {/* View controls, as icons. Every one of these used to be a labelled
+            field -- "Sort by", "Tile size", "Filters" -- which spent about two
+            hundred pixels of the top row restating what the icon already says,
+            and on a narrow window pushed the search box off the edge. The
+            current value is not lost: it moved into the tooltip, and for sort
+            and density it is legible from the tiles themselves. */}
         <Dropdown
-          compact
+          icon={<IconSort className="h-4 w-4" />}
           ariaLabel={t("gallery.sort-by")}
+          title={`${t("gallery.sort-by")}: ${t(SORTS.find((s) => s.id === query.sort)?.label ?? "gallery.sort-recent")}`}
           value={query.sort}
           onChange={(v) => onQuery({ sort: v as GallerySort })}
-          className="w-[7.5rem] shrink-0"
           options={SORTS.map((s) => ({ id: s.id, label: t(s.label) }))}
         />
 
         <Dropdown
-          compact
+          icon={<IconGrid className="h-4 w-4" />}
           ariaLabel={t("gallery.density")}
+          title={`${t("gallery.density")}: ${t(DENSITIES.find((d) => d.id === density)?.label ?? "gallery.density-cozy")}`}
           value={density}
           onChange={(v) => onDensity(v as GalleryDensity)}
-          className="w-[7rem] shrink-0"
           options={DENSITIES.map((d) => ({ id: d.id, label: t(d.label) }))}
         />
+
+        {/* Select-all, always present and never duplicated. It belongs in the
+            toolbar rather than the action bar because in the bar it was a second
+            checkbox-shaped control stacked directly above a grid of
+            checkbox-bearing tiles, which read as one control drawn twice. The
+            two-square icon keeps it from reading as a tile checkbox even here. */}
+        <button
+          role="checkbox"
+          aria-checked={selectAllState === "all" ? true : selectAllState === "some" ? "mixed" : false}
+          aria-label={t("gallery.select-all")}
+          title={
+            selectAllState === "all"
+              ? t("gallery.clear-the-selection")
+              : t("gallery.select-all-hint")
+          }
+          onClick={() => onSelectAll(selectAllState !== "all")}
+          className={`${ICON_BTN} ${selectAllState === "none" ? ICON_BTN_IDLE : ICON_BTN_ACTIVE}`}
+        >
+          <IconSelectAll state={selectAllState} className="h-4 w-4" />
+        </button>
 
         <button
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors ${
-            open || activeCount > 0
-              ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]"
-              : "border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text-dim)] hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text)]"
-          }`}
+          aria-label={t("gallery.filters")}
+          title={t("gallery.filters")}
+          className={`${ICON_BTN} relative ${open || activeCount > 0 ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
         >
-          {t("gallery.filters")}
+          <IconSliders className="h-4 w-4" />
           {activeCount > 0 && (
-            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[rgb(var(--glow))] px-1 font-mono text-[9px] font-bold text-[#06121f]">
+            <span
+              className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[rgb(var(--glow))] px-0.5 font-mono text-[8px] font-bold text-[#06121f]"
+              aria-hidden
+            >
               {activeCount}
             </span>
           )}
-          <IconChevronDown
-            className={`h-3 w-3 transition-transform duration-200 ${open ? "" : "-rotate-90"}`}
-          />
         </button>
         </>
         )}
@@ -226,7 +334,25 @@ export function GalleryToolbar({
       </div>
 
       {open && view === "wallpapers" && (
-        <div className="page-enter flex flex-wrap items-center gap-1.5">
+        /* One labelled row per dimension. This used to be a single wrapping row
+           of pills separated by 1px rules, with nothing saying which rule stood
+           for which dimension -- so "kind" and "collection" chips looked
+           interchangeable, and a filter you had just applied was impossible to
+           locate by scanning. */
+        <div className="page-enter space-y-2">
+          <FilterGroup label={t("gallery.filter-quick")}>
+            {PICKS.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onQuery({ picks: query.picks === p.id ? "all" : p.id })}
+                aria-pressed={query.picks === p.id}
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${chipStyle(query.picks === p.id)}`}
+              >
+                {p.icon}
+                {t(p.label)}
+              </button>
+            ))}
+          </FilterGroup>
           {PICKS.map((p) => (
             <button
               key={p.id}
@@ -239,8 +365,7 @@ export function GalleryToolbar({
           ))}
 
           {displays.length > 1 && (
-            <>
-              <span className="mx-1 h-4 w-px bg-[var(--line)]" />
+            <FilterGroup label={t("gallery.filter-display")}>
               <button
                 onClick={() => onQuery({ display: "all" })}
                 aria-pressed={query.display === "all"}
@@ -258,16 +383,15 @@ export function GalleryToolbar({
                   {`${d.name} · ${i + 1}`}
                 </button>
               ))}
-            </>
+            </FilterGroup>
           )}
 
-          <span className="mx-1 h-4 w-px bg-[var(--line)]" />
-
-          <button
-            onClick={() => onQuery({ kind: "all" })}
-            aria-pressed={query.kind === "all"}
-            className={`rounded-full px-3 py-1 text-xs ${chipStyle(query.kind === "all")}`}
-          >
+          <FilterGroup label={t("gallery.filter-kind")}>
+            <button
+              onClick={() => onQuery({ kind: "all" })}
+              aria-pressed={query.kind === "all"}
+              className={`rounded-full px-3 py-1 text-xs ${chipStyle(query.kind === "all")}`}
+            >
             {`${t("common.all")} · ${counts.all ?? 0}`}
           </button>
           {GALLERY_KINDS.map((k) => {
@@ -287,23 +411,26 @@ export function GalleryToolbar({
               </button>
             );
           })}
-
-          <span className="mx-1 h-4 w-px bg-[var(--line)]" />
-
-          <button
-            onClick={() => onCollection("all")}
-            aria-pressed={query.collection === "all"}
-            className={`rounded-full px-3 py-1 text-xs ${chipStyle(query.collection === "all")}`}
-          >
-            {`${t("common.all-collections")} · ${totalInVault}`}
-          </button>
+          </FilterGroup><FilterGroup label={t("gallery.filter-in")}>
+            {/* "Uncollected" belongs here rather than up with the star: it is a
+                statement about collection membership, and having it in the
+                quick row while "All collections" sat in this row made the panel
+                offer collection membership in two places at once. */}
+            <button
+              onClick={() => onQuery({ picks: query.picks === "uncollected" ? "all" : "uncollected" })}
+              aria-pressed={query.picks === "uncollected"}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${chipStyle(query.picks === "uncollected")}`}
+            >
+              <IconLayers className="h-3 w-3" />
+              {t("gallery.uncollected")}
+            </button>
           {/* Once a tile is in flight the chips ask for the drop rather than
               assume it: the dashed ring and the slow glow are the whole
               instruction, so there is no "drag here" hint to keep in sync. */}
           {collections.map((c) => (
             <div
               key={c.id}
-              className={`group/col relative rounded-full transition-shadow ${
+              className={`group/col relative flex items-center rounded-full transition-shadow ${
                 draggingId
                   ? "drop-armed ring-1 ring-dashed ring-[rgb(var(--glow)/0.5)]"
                   : ""
@@ -319,20 +446,56 @@ export function GalleryToolbar({
               }}
             >
               <button
-                onClick={() => onCollection(c.id)}
-                onDoubleClick={() => onRenameCollection(c)}
+                onClick={() => onCollection(query.collection === c.id ? "all" : c.id)}
                 aria-pressed={query.collection === c.id}
-                className={`rounded-full px-3 py-1 text-xs ${chipStyle(query.collection === c.id)}`}
+                className={`rounded-l-full py-1 pl-3 pr-2 text-xs ${chipStyle(query.collection === c.id)}`}
               >
-                {`${c.name} · ${c.entryIds.length}`}
+                {c.name}
+                <span className="ml-1.5 font-mono text-[10px] tabular-nums opacity-70">
+                  {c.entryIds.length}
+                </span>
               </button>
-              <button
-                aria-label={t("gallery.delete-collection", { name: c.name })}
-                onClick={() => onDeleteCollection(c)}
-                className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full bg-red-500/90 text-[9px] font-bold text-white group-hover/col:flex"
-              >
-                ×
-              </button>
+              {/* Rename and delete live together on one visible control.
+                  Split across a hover-only 16px × plus a double-click, which is
+                  what made "how do I delete a collection" unanswerable from the
+                  screen that shows them. */}
+              <div className="relative">
+                <button
+                  aria-label={t("gallery.collection-actions", { name: c.name })}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setChipMenu(c.id);
+                  }}
+                  className={`flex h-6 w-6 items-center justify-center rounded-r-full text-[10px] font-bold leading-none ${chipStyle(query.collection === c.id)}`}
+                >
+                  ⋯
+                </button>
+                {chipMenu === c.id && (
+                  <div
+                    className="page-enter absolute right-0 top-7 z-20 w-36 overflow-hidden rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] py-1 shadow-[var(--shadow)]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => {
+                        setChipMenu(null);
+                        onRenameCollection(c);
+                      }}
+                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-[var(--text)] transition-colors hover:bg-[var(--panel)]"
+                    >
+                      {t("common.rename")}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setChipMenu(null);
+                        onDeleteCollection(c);
+                      }}
+                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-red-300 transition-colors hover:bg-red-500/15"
+                    >
+                      {t("common.delete")}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           ))}
           <button
@@ -344,46 +507,43 @@ export function GalleryToolbar({
             +
           </button>
           {collectionEditor}
+          </FilterGroup>
 
-          {/* Index-backed controls. Kept out of the top row because they are
-              the ones you use once, not once per visit. */}
-          <span className="mx-1 h-4 w-px bg-[var(--line)]" />
-          {indexReady ? (
-            <Dropdown
-              compact
-              ariaLabel={t("gallery.minimum-resolution")}
-              value={String(query.minWidth ?? 0)}
-              onChange={(v) => onQuery({ minWidth: v === "0" ? null : Number(v) })}
-              className="w-[8.5rem] shrink-0"
-              options={WIDTH_FLOORS.map((w) => ({ id: w.id, label: t(w.label) }))}
-            />
-          ) : (
-            <button
-              onClick={onBuildIndex}
-              disabled={indexBuilding}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-dashed border-[var(--line-strong)] px-2.5 py-1 text-xs text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text)] disabled:opacity-60"
-            >
-              {indexBuilding && indexProgress
-                ? t("gallery.indexing-{done}-of-{total}", indexProgress)
-                : t("gallery.index-the-vault")}
-            </button>
-          )}
+          {/* Index-backed controls. Its own labelled row because it is the only
+              dimension that needs a build before it can be used at all, and
+              burying that behind a chip row made it look like a fifth kind. */}
+          <FilterGroup label={t("gallery.filter-quality")}>
+            {indexReady ? (
+              <Dropdown
+                icon={<IconGrid className="h-4 w-4" />}
+                ariaLabel={t("gallery.minimum-resolution")}
+                title={`${t("gallery.minimum-resolution")}: ${t(WIDTH_FLOORS.find((w) => w.id === String(query.minWidth ?? 0))?.label ?? "gallery.any-resolution")}`}
+                value={String(query.minWidth ?? 0)}
+                onChange={(v) => onQuery({ minWidth: v === "0" ? null : Number(v) })}
+                options={WIDTH_FLOORS.map((w) => ({ id: w.id, label: t(w.label) }))}
+              />
+            ) : (
+              <button
+                onClick={onBuildIndex}
+                disabled={indexBuilding}
+                className="flex shrink-0 items-center gap-1.5 rounded-full border border-dashed border-[var(--line-strong)] px-3 py-1 text-xs text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text)] disabled:opacity-60"
+              >
+                <IconSparkle className="h-4 w-4" />
+                {indexBuilding && indexProgress
+                  ? t("gallery.indexing-{done}-of-{total}", indexProgress)
+                  : t("gallery.index-the-vault")}
+              </button>
+            )}
 
-          {activeCount > 0 || query.minWidth != null ? (
-            <button                onClick={() => {
-                onQuery({
-                  kind: "all",
-                  minWidth: null,
-                  picks: "all",
-                  display: "all",
-                });
-                onCollection("all");
-              }}
-              className="ml-1 rounded-full px-2.5 py-1 text-xs text-[var(--text-faint)] underline underline-offset-2 transition-colors hover:text-[var(--text)]"
-            >
-              {t("gallery.clear-filters")}
-            </button>
-          ) : null}
+            {activeCount > 0 ? (
+              <button
+                onClick={clearFilters}
+                className="rounded-full px-2.5 py-1 text-xs text-[var(--text-faint)] underline underline-offset-2 transition-colors hover:text-[var(--text)]"
+              >
+                {t("gallery.clear-filters")}
+              </button>
+            ) : null}
+          </FilterGroup>
         </div>
       )}
     </div>

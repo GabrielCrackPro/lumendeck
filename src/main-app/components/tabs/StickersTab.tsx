@@ -3,7 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
 import { Card, Btn, Toggle, Slider, Select, NumberField, EmptyState, Section, InfoNote } from "../ui";
-import { IconPlus, IconTrash, IconSparkle } from "../icons";
+import { IconCheck, IconClose, IconPlus, IconTrash, IconSparkle } from "../icons";
 import { api } from "../../ipc";
 import { truncateError, basename } from "../../utilities";
 import type { StickerDef, StickerFit } from "@shared/types";
@@ -156,6 +156,7 @@ export default function StickersTab() {
                 {t("common.click-anywhere-on-the-desktop-to-place-scroll-to")}
               </span>
               <Btn size="sm" variant="danger" onClick={() => api.cancelStickerPlacement()}>
+                <IconClose className="h-4 w-4" />
                 {t("common.cancel")}
               </Btn>
             </div>
@@ -165,6 +166,7 @@ export default function StickersTab() {
                 {t("common.drag-to-move-edges-corners-to-resize-right-click")}
               </span>
               <Btn size="sm" variant="primary" onClick={() => api.endStickerEditor()}>
+                <IconCheck className="h-4 w-4" />
                 {t("common.done")}
               </Btn>
             </div>
@@ -258,7 +260,7 @@ export default function StickersTab() {
 
         {cfg.stickers.length === 0 && (
           <EmptyState
-            icon={<IconSparkle className="h-5 w-5" />}
+            icon={<IconSparkle className="h-6 w-6" />}
             title={t("common.no-stickers-yet")}
             description={t("common.add-an-image-gif-or-short-video-and-click-once-o")}
             action={

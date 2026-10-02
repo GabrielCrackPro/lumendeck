@@ -11,6 +11,8 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
+use super::silence::{OnSilence, SilenceWatch};
+
 /// Current audio volume, 0.0 .. 1.0.
 static VOLUME_BITS: AtomicU32 = AtomicU32::new(0);
 
@@ -267,6 +269,9 @@ fn try_capture() -> Result<(), Box<dyn std::error::Error>> {
     let mut sample_queue: VecDeque<u8> = VecDeque::with_capacity(16384);
     let mut onset = OnsetDetector::new();
     let started = std::time::Instant::now();
+    // Silence is the normal state of a loopback capture, not a fault. See
+    // `silence` for why this is a grace period rather than a boolean.
+    let mut quiet = SilenceWatch::new();
 
     loop {
         // Check if source changed while we're running.
@@ -280,13 +285,29 @@ fn try_capture() -> Result<(), Box<dyn std::error::Error>> {
 
         let frame_count = sample_queue.len() / bytes_per_frame;
         if frame_count == 0 {
-            if h_event.wait_for_event(1000).is_err() {
-                log::warn!("audio: wait_for_event timeout");
+            // Nothing is playing. Keep the stream open and wait for the next
+            // period — this used to stop the stream and return, which made the
+            // supervisor rebuild the whole capture graph every three seconds
+            // for as long as the machine was idle.
+            let first_quiet = !quiet.is_silent();
+            let action = quiet.on_silence();
+            if first_quiet {
+                log::debug!("audio: capture went quiet, waiting for playback");
+            }
+            if action == OnSilence::GiveUp {
+                log::warn!(
+                    "audio: no samples for {}s — treating the capture device as gone",
+                    quiet.consecutive()
+                );
                 audio_client.stop_stream()?;
                 break;
             }
+            // The wait is the sleep: with no audio playing the event is never
+            // signalled, so a timeout here carries no information.
+            let _ = h_event.wait_for_event(1000);
             continue;
         }
+        quiet.on_audio();
 
         let mut sum_sq: f64 = 0.0;
         let mut count: usize = 0;
@@ -355,9 +376,12 @@ fn try_capture() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if h_event.wait_for_event(1000).is_err() {
-            log::warn!("audio: wait_for_event timeout, stopping");
-            audio_client.stop_stream()?;
-            break;
+            // Audio was flowing, so silence here is a real change of state
+            // rather than the idle steady state. Still not fatal on its own —
+            // the device may simply have gone quiet between tracks — but it is
+            // worth saying once, because a device that never comes back is
+            // exactly what the supervisor above is here to recover from.
+            log::debug!("audio: event wait timed out mid-stream");
         }
     }
 

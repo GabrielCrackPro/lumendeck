@@ -178,7 +178,7 @@ export const useStore = create<Store>((set, get) => ({
     set(patch as Store);
     // Surface load problems as toasts too (refreshes included).
     if (patch.loadError) {
-      get().toast("error", `Backend unreachable — ${patch.loadError}`);
+      get().toast("error", i18next.t("common.backend-unreachable-{error}", { error: patch.loadError }));
     }
   },
 
@@ -253,7 +253,7 @@ export const useStore = create<Store>((set, get) => ({
       const saved = await api.setConfig(next);
       set({ cfg: saved });
     } catch (e) {
-      get().toast("error", `Save failed: ${truncateError(e, 140)}`);
+      get().toast("error", i18next.t("common.save-failed-{error}", { error: truncateError(e, 140) }));
       // Re-sync with the truth so the optimistic state doesn't linger.
       get()
         .load()

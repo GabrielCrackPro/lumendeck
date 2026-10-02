@@ -1,13 +1,15 @@
 import { memo, useEffect, useState, type DragEvent, type ReactNode } from "react";
-import { IconCheck, IconInfo, IconPencil, IconStar, IconTrash } from "../icons";
+import { IconCheck, IconInfo, IconPencil, IconPlay, IconStar, IconTrash } from "../icons";
+import { OVERLAY_ICON_BTN } from "../ui";
 import { t } from "../../i18n";
 import { GALLERY_KIND_LABEL } from "./kindLabels";
 import { useNearViewport } from "./useNearViewport";
 import type { Unhealthy } from "./vaultHealth";
+import type { ClickModifiers } from "./selection";
 import type { GalleryEntry, WallpaperCollection } from "@shared/types";
 
-const OVERLAY_BTN =
-  "flex h-6 w-6 items-center justify-center rounded-md border border-white/15 bg-black/55 text-white/80 backdrop-blur transition-colors hover:bg-black/80 hover:text-white";
+/** Scrim button over the thumbnail. Shared: see OVERLAY_ICON_BTN in ui.tsx. */
+const OVERLAY_BTN = OVERLAY_ICON_BTN;
 
 export interface GalleryCardProps {
   entry: GalleryEntry;
@@ -23,7 +25,9 @@ export interface GalleryCardProps {
    *  keyboard cursor, which is not the same thing as being selected. */
   tabbable: boolean;
   onFocusCell: () => void;
-  /** Click the tile: apply everywhere. The original vault's primary action. */
+  /** Click the tile. Selects it -- applying is a separate, explicit act. */
+  onSelect: (mods: ClickModifiers) => void;
+  /** Apply this wallpaper to every display. */
   onApplyAll: () => void;
   /** Open the slide-over drawer for this entry. */
   onInspect: () => void;
@@ -31,10 +35,8 @@ export interface GalleryCardProps {
   onRemove: () => void;
   /** Set when the entry's file is gone, or when another entry is the same file. */
   health: Unhealthy | null;
-  /** Ticked for the multi-select action bar. */
+  /** Whether this tile is part of the current selection. */
   checked: boolean;
-  /** `range` is true for a shift-click, meaning "tick everything since the last one". */
-  onToggleChecked: (range: boolean) => void;
   favorite: boolean;
   onToggleFavorite: () => void;
   /** Makes the tile a drag source for "file this into a collection". */
@@ -60,7 +62,7 @@ function GalleryCardImpl({
   onRemove,
   health,
   checked,
-  onToggleChecked,
+  onSelect,
   favorite,
   onToggleFavorite,
   rotating,
@@ -93,7 +95,7 @@ function GalleryCardImpl({
       tabIndex={tabbable ? 0 : -1}
       aria-selected={selected}
       onFocus={onFocusCell}
-      onClick={onApplyAll}
+      onClick={(e) => onSelect({ shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey })}
       draggable={draggable}
       onDragStart={onDragStart}
       className={`group flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] outline-none transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow))] ${near ? "tile-revealed" : "tile-reveal"} ${
@@ -161,6 +163,22 @@ function GalleryCardImpl({
             selected ? "opacity-100" : "opacity-0 focus-within:opacity-100 group-hover:opacity-100"
           }`}
         >
+          {/* Apply, as its own labelled control rather than the tile click.
+              This is the whole point of the redesign: changing every display in
+              the house is a big, visible act, so it gets a button that says so
+              instead of being something you do by pointing at a picture. */}
+          <button
+            aria-label={t("gallery.apply-{name}-everywhere", { name: entry.name })}
+            title={t("gallery.apply-everywhere-hint")}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect({});
+              onApplyAll();
+            }}
+            className={`${OVERLAY_BTN} hover:!bg-[rgb(var(--glow))] hover:text-[#06121f]`}
+          >
+            <IconPlay className="h-4 w-4" />
+          </button>
           <button
             aria-label={t("gallery.entry-details", { name: entry.name })}
             onClick={(e) => {
@@ -169,7 +187,7 @@ function GalleryCardImpl({
             }}
             className={OVERLAY_BTN}
           >
-            <IconInfo className="h-3.5 w-3.5" />
+            <IconInfo className="h-4 w-4" />
           </button>
           <button
             aria-label={t("gallery.rename-{name}", { name: entry.name })}
@@ -179,7 +197,7 @@ function GalleryCardImpl({
             }}
             className={OVERLAY_BTN}
           >
-            <IconPencil className="h-3.5 w-3.5" />
+            <IconPencil className="h-4 w-4" />
           </button>
           <button
             aria-label={t("gallery.remove-{name}", { name: entry.name })}
@@ -189,29 +207,31 @@ function GalleryCardImpl({
             }}
             className={`${OVERLAY_BTN} hover:!bg-red-500`}
           >
-            <IconTrash className="h-3.5 w-3.5" />
+            <IconTrash className="h-4 w-4" />
           </button>
         </div>
       </div>
 
-      {/* Multi-select tick. Always visible rather than hover-only, because a
-          control you have to find by hovering is not a control, and shift-click
-          is undiscoverable enough without the target also being hidden. */}
+      {/* Selection tick. Hidden until the tile is hovered or focused, so the
+          thumbnail keeps its corner at rest, but never *only* on hover while
+          unchecked-and-unfocused would hide a control some people need: a
+          checked tile always shows its tick, because a selection you cannot
+          see is the one bug worth being conservative about. */}
       <button
         role="checkbox"
         aria-checked={checked}
         aria-label={t("gallery.select-{name}", { name: entry.name })}
         onClick={(e) => {
           e.stopPropagation();
-          onToggleChecked(e.shiftKey);
+          onSelect({ shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
         }}
-        className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-md border backdrop-blur transition-colors ${
+        className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-md border backdrop-blur transition-opacity duration-150 ${
           checked
-            ? "border-transparent bg-[rgb(var(--glow))] text-[#06121f]"
-            : "border-white/30 bg-black/45 text-transparent hover:border-white/60"
+            ? "border-transparent bg-[rgb(var(--glow))] text-[#06121f] opacity-100"
+            : "border-white/40 bg-black/45 text-transparent opacity-0 hover:border-white/70 group-hover:opacity-100 focus-visible:opacity-100"
         }`}
       >
-        <IconCheck className="h-3.5 w-3.5" />
+        <IconCheck className="h-4 w-4" />
       </button>
 
       {health && (
@@ -253,7 +273,7 @@ function GalleryCardImpl({
           <IconStar
             key={starTick}
             filled={favorite}
-            className={`h-3.5 w-3.5 ${popping ? "star-pop" : ""}`}
+            className={`h-4 w-4 ${popping ? "star-pop" : ""}`}
           />
         </button>
         {collections.length > 0 && (

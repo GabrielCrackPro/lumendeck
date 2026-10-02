@@ -58,6 +58,32 @@ pub fn feed_wallpaper_color(rgb: [u8; 3]) {
 
     if set_accent_color(rgb) {
         *LAST_ACCENT.lock().expect("accent mutex poisoned") = Some((now, rgb));
+        // Record what we wrote so the registry poll can tell our own write from
+        // a user's change. Shared across threads because the write happens on
+        // the sampling path and the poll on the watcher thread.
+        if let Ok(mut guard) = LAST_WRITTEN.get_or_init(Mutex::default).lock() {
+            *guard = Some(rgb);
+        }
+    }
+}
+
+/// The last accent this process wrote to the registry, or `None` if it has
+/// never written one (accent sync off, or every write so far was rejected).
+static LAST_WRITTEN: std::sync::OnceLock<Mutex<Option<[u8; 3]>>> = std::sync::OnceLock::new();
+
+fn last_write() -> Option<[u8; 3]> {
+    LAST_WRITTEN
+        .get()
+        .and_then(|m| m.lock().ok().and_then(|g| *g))
+}
+
+/// Forget our last recorded write, so a later genuine change that happens to
+/// match it is still reported. Called when accent sync is switched off.
+pub fn forget_last_write() {
+    if let Some(m) = LAST_WRITTEN.get() {
+        if let Ok(mut g) = m.lock() {
+            *g = None;
+        }
     }
 }
 
@@ -131,12 +157,15 @@ unsafe fn read_dword(hkey: &HKEY, name: &str) -> Option<u32> {
 /// WM_SETTINGCHANGE, and a few seconds of latency is fine for a theme change.
 pub fn spawn_accent_watcher(app: tauri::AppHandle) {
     std::thread::spawn(move || {
-        let mut last = get_system_accent();
+        use crate::accent_watch::{AccentVerdict, AccentWatch};
+        // Seeded from what is already in the registry, so the first poll does
+        // not report the user's existing accent as a change.
+        let mut watch = AccentWatch::new();
+        watch.seed(get_system_accent());
         loop {
             std::thread::sleep(std::time::Duration::from_secs(3));
             let cur = get_system_accent();
-            if cur != last {
-                last = cur;
+            if let AccentVerdict::Emit = watch.observe(cur, last_write()) {
                 if let Some(rgb) = cur {
                     log::info!(
                         "sys-theme: system accent changed -> rgb({},{},{})",

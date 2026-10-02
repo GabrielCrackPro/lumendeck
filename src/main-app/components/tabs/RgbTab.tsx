@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Toggle, Slider, Btn, ColorInput, Dropdown, Section, Segmented, InfoNote, ItemTitle } from "../ui";
+import { Card, Toggle, Slider, Btn, ColorInput, Dropdown, Section, Segmented, InfoNote, ItemTitle, IconBox } from "../ui";
 import { DeviceRow, deviceName } from "../DeviceRow";
 import { KeyboardPreview } from "../KeyboardPreview";
 import { ModePreview } from "../ModePreview";
-import { IconRefresh, IconZap, IconWave, IconPlus, IconTrash } from "../icons";
+import { IconCheck, IconRefresh, IconZap, IconWave, IconPlus, IconTrash } from "../icons";
 import { RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import { rgbToHex } from "../../utilities";
 import type { AudioLevel, DeviceColor, RgbMode } from "@shared/types";
@@ -248,8 +248,14 @@ export default function RgbTab() {
           ) : (
             <div className="mt-5 space-y-3.5 text-sm text-[var(--text-dim)]">
               <div className="flex items-start gap-3 panel-inset p-3.5">
-                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-amber-500/25 bg-amber-500/10 text-amber-300">
-                  <IconZap className="h-4 w-4" />
+                {/* IconBox already carries this amber plate; it was hand-rolled
+                    here at 32px with rounded-xl, which under the new scale is
+                    almost a circle, and at a size the shared component does not
+                    use. */}
+                <span className="mt-0.5">
+                  <IconBox variant="amber">
+                    <IconZap />
+                  </IconBox>
                 </span>
                 <div className="min-w-0">
                   <p className="leading-relaxed">
@@ -412,7 +418,7 @@ export default function RgbTab() {
               <span className="h-0.5 w-0.5 rounded-full bg-[var(--line-strong)]" />
               {isAnimated ? (
                 <span className="inline-flex items-center gap-1.5 text-[rgb(var(--glow))]">
-                  <IconWave className="h-3.5 w-3.5" />
+                  <IconWave className="h-4 w-4" />
                   {rgbCfg.animationSpeed.toFixed(1)}×
                 </span>
               ) : (
@@ -550,6 +556,7 @@ export default function RgbTab() {
                     className="w-36 rounded-lg border border-[rgb(var(--glow)/0.4)] bg-[var(--panel-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text)] outline-none"
                   />
                   <Btn variant="primary" onClick={() => {}}>
+                    <IconCheck className="h-4 w-4" />
                     {t("common.save")}
                   </Btn>
                 </form>
@@ -619,7 +626,7 @@ export default function RgbTab() {
                         }}
                         className="hidden text-[var(--text-faint)] transition-colors hover:text-red-400 group-hover:block"
                       >
-                        <IconTrash className="h-3.5 w-3.5" />
+                        <IconTrash className="h-4 w-4" />
                       </button>
                     </div>
                   );
