@@ -7,9 +7,12 @@ and it lands under that release's heading.
 ## 0.2.32 — 2026-10-03
 
 ### Added
+- **ui:** say what a control is doing while it does it (`68184fd`)
 - **lighting:** draw each device as the thing it is, not as a strip of LEDs (`b9b860d`)
 
 ### Fixed
+- **media:** stop the transport buttons freezing the window (`364fd8b`)
+- **rgb:** notice a device leaving instead of three polls later (`dbad8ec`)
 - **lighting:** repaint previews when any LED changes, not a sample of them (`e574dd5`)
 
 ## 0.2.31 — 2026-10-03
