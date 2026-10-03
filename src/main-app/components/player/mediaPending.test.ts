@@ -95,12 +95,21 @@ describe("waitForChange", () => {
   });
 
   it("does not wait at all for a control the sender never reports", async () => {
-    // Resolves on the microtask queue, so this proves it short-circuits rather
-    // than polling -- otherwise the fake timers would never be needed here.
-    const started = Date.now();
-    const settled = await waitForChange("repeat", { ...base, repeat: null }, () => base);
-    expect(settled).toBe(false);
-    expect(Date.now() - started).toBe(0);
+    // Asserted as "no timer was ever scheduled", not as a wall-clock delta.
+    // This used to measure the elapsed milliseconds and expect zero, which
+    // passes on a fast machine and fails on a loaded one purely because the
+    // microtask turn crossed a millisecond boundary -- a flake with nothing to
+    // do with the code. Scheduling a timer is the actual difference between
+    // short-circuiting and polling.
+    const timer = vi.spyOn(globalThis, "setTimeout");
+    try {
+      await expect(
+        waitForChange("repeat", { ...base, repeat: null }, () => base),
+      ).resolves.toBe(false);
+      expect(timer).not.toHaveBeenCalled();
+    } finally {
+      timer.mockRestore();
+    }
   });
 
   it("keeps polling past a state change in a field it does not watch", async () => {
