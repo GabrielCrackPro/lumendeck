@@ -13,6 +13,7 @@ pub mod events;
 pub mod hotkeys;
 pub mod idle;
 pub mod ipc;
+pub mod account;
 // The translation catalog is shared with the dashboard: `locales/*.json` at
 // the repo root is read here by rust-i18n and in the window by i18next, so
 // there is one set of strings rather than two that can drift.
@@ -442,6 +443,7 @@ pub fn run() {
             ipc::toggle_pause,
             ipc::minimize_window,
             ipc::system_language,
+            ipc::account_name,
             ipc::set_live_frame,
             ipc::monitors,
             ipc::quit,
@@ -459,6 +461,7 @@ pub fn run() {
             ipc::scene_apply,
             ipc::scene_delete,
             ipc::scene_rename,
+            ipc::scene_set_logo,
             ipc::media_transport,
             ipc::media_seek,
             ipc::media_shuffle,

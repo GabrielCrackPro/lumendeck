@@ -277,6 +277,16 @@ export const IconClose = (props: P) => (
   </svg>
 );
 
+/** A person: the profile avatar's empty state. A head-and-shoulders outline
+ *  rather than the stacked-layers mark, which said "collection" where this
+ *  needs to say "you". */
+export const IconUser = (props: P) => (
+  <svg {...base(props)}>
+    <circle cx="12" cy="8" r="3.5" />
+    <path d="M5 20a7 7 0 0 1 14 0" />
+  </svg>
+);
+
 /** Sort: a descending arrow over a baseline, rather than sliders, which the
  *  filter button already uses. */
 export const IconSort = (props: P) => (

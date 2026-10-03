@@ -5,7 +5,7 @@ import { t } from "../../i18n";
 import { GALLERY_KINDS, GALLERY_KIND_LABEL } from "./kindLabels";
 import { kindCounts, type GalleryPick, type GalleryQuery, type GallerySort, type SelectContext } from "./galleryQuery";
 import { activeFilters, filterBadgeCount } from "./activeFilters";
-import { CHIP_H, chipStyle, Dropdown, ICON_BTN, ICON_BTN_ACTIVE, ICON_BTN_IDLE } from "../ui";
+import { CHIP_H, chipStyle, Dropdown, ICON_BTN, ICON_BTN_ACTIVE, ICON_BTN_IDLE, SelectChip } from "../ui";
 import type { GalleryEntry, WallpaperCollection } from "@shared/types";
 
 export interface GalleryToolbarProps {
@@ -263,6 +263,25 @@ export function GalleryToolbar({
 
         {view === "wallpapers" && (
         <>
+        {/* 4K in one press. The same floor the Filters panel already offers,
+            promoted to a chip because it is the question people actually ask of
+            a wallpaper vault, and answering it should not mean opening a panel
+            and picking from four options. It is a shortcut onto `minWidth`
+            rather than a filter of its own, so the Filters badge, the applied
+            chip list and the grid cannot disagree about whether it is on. */}
+        <SelectChip
+          active={query.minWidth === 3840}
+          title={t("gallery.at-least-4k")}
+          onClick={() =>
+            onQuery({ minWidth: query.minWidth === 3840 ? null : 3840 })
+          }
+        >
+          <span className="flex items-center gap-1.5">
+            <span className="font-mono text-[10px] tracking-tight">4K</span>
+            <span className="opacity-70">{t("gallery.at-least-4k-short")}</span>
+          </span>
+        </SelectChip>
+
         {/* View controls, as icons. Every one of these used to be a labelled
             field -- "Sort by", "Tile size", "Filters" -- which spent about two
             hundred pixels of the top row restating what the icon already says,

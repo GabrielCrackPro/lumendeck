@@ -3,6 +3,8 @@ import { useEffect, useState, useRef, type CSSProperties, type ReactNode } from 
 import { useStore } from "../../store";
 import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, ItemTitle, SwitchBtn, Segmented, ICON_BTN, ICON_BTN_IDLE, ICON_BTN_ACTIVE, ICON_BTN_PRIMARY, MINI_BTN, OVERLAY_ICON_BTN } from "../ui";
 import { DeviceRow } from "../DeviceRow";
+import { fpsFromTimestamps, formatFps, pushTimestamp, FPS_WINDOW } from "../fpsMeter";
+import { versionLabel } from "../buildIdentity";
 import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause, IconNext, IconPrevious, IconWave, IconSun, IconZap, IconChevronRight, IconMediaApp, IconShuffle, IconRepeat, IconSpinner } from "../icons";
 import { SHADERS, SHADER_ART, RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import type { Config, MediaInfo, RgbMode } from "@shared/types";
@@ -874,29 +876,127 @@ function ModePicker({
   ] as const;
   const active = RGB_MODES.find((m) => m.id === mode);
   return (
-    <div className="space-y-3">
-      {groups.map((g) => (
-        <div key={g.id}>
-          <div className="kicker mb-1.5">{t(g.label)}</div>
-          <Segmented
-            label={t("common.{mode}-lighting-modes", { mode: t(g.label) })}
-            // Only the group holding the active mode shows a pressed button;
-            // the other has nothing selected, which is the honest state.
-            value={active?.group === g.id ? active.id : ""}
-            onChange={(v) => onSelect(v as RgbMode)}
-            options={RGB_MODES.filter((m) => m.group === g.id).map((m) => ({
-              id: m.id as string,
-              label: t(m.label),
-            }))}
-          />
-        </div>
-      ))}
+    <div className="space-y-3.5">
+      {groups.map((g) => {
+        const modes = RGB_MODES.filter((m) => m.group === g.id);
+        const ownsActive = active?.group === g.id;
+        return (
+          <div key={g.id}>
+            {/* The row states which family this is, how many options it holds,
+                and -- only for the family that owns the current mode -- which
+                one is live. Naming the active mode next to the buttons is what
+                saves a user from inferring it from which pill is pressed. */}
+            <div className="mb-1.5 flex items-baseline justify-between gap-3">
+              <span className="kicker">{t(g.label)}</span>
+              {ownsActive && active ? (
+                <span className="truncate font-mono text-[10px] text-[rgb(var(--glow))]">
+                  {t("overview.active-{mode}", { mode: t(active.label) })}
+                </span>
+              ) : (
+                <span className="font-mono text-[10px] text-[var(--text-faint)]">
+                  {t("common.{n}-modes", { n: modes.length })}
+                </span>
+              )}
+            </div>
+            <Segmented
+              label={t("common.{mode}-lighting-modes", { mode: t(g.label) })}
+              // Only the group holding the active mode shows a pressed button;
+              // the other has nothing selected, which is the honest state.
+              value={ownsActive ? active.id : ""}
+              onChange={(v) => onSelect(v as RgbMode)}
+              options={modes.map((m) => ({
+                id: m.id as string,
+                label: t(m.label),
+              }))}
+            />
+          </div>
+        );
+      })}
       {active && (
         <p className="text-xs leading-relaxed text-[var(--text-faint)]">{t(active.hint)}</p>
       )}
     </div>
   );
 }
+
+/**
+ * The four salutations, each mapped to the same sentence with the account name
+ * folded in.
+ *
+ * Written as a map rather than interpolated at the call site so that both forms
+ * of every salutation sit together and are visible to `i18n-check` — a
+ * template-literal key would leave the named half looking dead. The pairing is
+ * the point: nothing here can end up greeting someone by name with the
+ * afternoon's sentence.
+ */
+/**
+ * The dashboard's own frame rate, for the header strip.
+ *
+ * Sampled from requestAnimationFrame rather than the backend because a webview
+ * painting at 30fps is a front-end problem no Rust module can observe. The
+ * arithmetic lives in `fpsMeter.ts` so it can be tested without a DOM; this is
+ * only the loop that feeds it.
+ *
+ * Two decisions worth stating:
+ *
+ *  - The reading is published on a 1Hz timer, not per frame. State that changes
+ *    60 times a second re-renders the whole header 60 times a second to move
+ *    one number that is only ever read to the nearest frame rate.
+ *  - The loop stops while the tab is hidden, because rAF does not fire there
+ *    anyway and a dashboard left in the tray overnight should not be holding a
+ *    window of timestamps open for it.
+ */
+function useFps(): number {
+  const [fps, setFps] = useState(0);
+  useEffect(() => {
+    // `frames`, not `window`: shadowing the global inside a DOM effect is a
+    // trap that costs whoever edits this next an afternoon.
+    let frames: number[] = [];
+    let raf = 0;
+    let lastPublish = 0;
+    let running = true;
+
+    const frame = (now: number) => {
+      if (!running) return;
+      frames = pushTimestamp(frames, now, FPS_WINDOW);
+      if (now - lastPublish >= 1000) {
+        lastPublish = now;
+        setFps(formatFps(fpsFromTimestamps(frames)));
+      }
+      raf = requestAnimationFrame(frame);
+    };
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        running = false;
+        cancelAnimationFrame(raf);
+        // Cleared rather than kept: timestamps spanning a hidden period would
+        // average the gap into a reading describing nothing that was on screen.
+        frames = [];
+        lastPublish = 0;
+      } else if (!running) {
+        running = true;
+        raf = requestAnimationFrame(frame);
+      }
+    };
+
+    raf = requestAnimationFrame(frame);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      running = false;
+      cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+  return fps;
+}
+
+const GREETING_KEYS = {
+  "overview.up-late": "overview.up-late-{name}",
+  "overview.good-morning": "overview.good-morning-{name}",
+  "overview.good-afternoon": "overview.good-afternoon-{name}",
+  "overview.good-evening": "overview.good-evening-{name}",
+} as const;
 
 export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) => void }) {
   // deviceColors is the one field that changes at frame rate; scoping keeps
@@ -911,9 +1011,27 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
       media: s.media,
     })),
   );
+  // The signed-in Windows account, for the greeting below. Asked once: it
+  // cannot change while the app runs. An empty string is a real answer, not a
+  // placeholder — Windows sometimes will not say — and it has to fall back to
+  // the unnamed salutation rather than print a comma with nothing after it.
+  const [accountName, setAccountName] = useState("");
+  useEffect(() => {
+    let disposed = false;
+    void api
+      .accountName()
+      .then((name) => {
+        if (!disposed) setAccountName(name);
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, []);
   // The list rows below each drive one IPC call, keyed by entity so two rows
   // can be in flight without blocking one another.
   const { pending, run } = usePending();
+  const fps = useFps();
 
   if (!cfg) return null;
 
@@ -942,51 +1060,104 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
   };
 
   const hour = new Date().getHours();
-  const greeting = t(
+  // Which of the four salutations this hour earns. Kept as one value so the
+  // named and unnamed forms cannot drift onto different branches — picking the
+  // key twice is how a greeting ends up saying "Good evening" to Gabriel.
+  const greetingKey =
     hour < 5
       ? "overview.up-late"
       : hour < 12
         ? "overview.good-morning"
         : hour < 18
           ? "overview.good-afternoon"
-          : "overview.good-evening",
-  );
+          : "overview.good-evening";
+  const greeting = accountName
+    ? t(GREETING_KEYS[greetingKey], { name: accountName })
+    : t(greetingKey);
   const issues: string[] = [];
   if (!rgb.connected) issues.push(t("overview.openrgb-offline"));
   if (paused) issues.push(t("overview.wallpaper-paused"));
   if (!issues.length && !cfg.rgb.enabled)
     issues.push(t("overview.lighting-off"));
+  // The live/attention chip that used to sit here is now a dot on the profile
+  // avatar in the header, which is where the state belongs: it describes the
+  // machine rather than this screen. The issue strings stay, because the strip
+  // below still reads them.
 
   return (
     <div className="stagger space-y-5">
-      {/* ===== greeting strip: salutation + live system pulse ===== */}
-      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-        <div>
-          <div className="lednum text-2xl leading-tight text-[var(--text)]">{greeting}</div>
-          <div className="mt-0.5 font-mono text-[11px] text-[var(--text-faint)]">
-            {issues.length > 0 ? (
-              <span className="text-amber-400">{issues.join(" · ")}</span>
-            ) : (
-              <span>
-                {t("common.everything-running-{n}-devices-{leds}-leds-{st}", {
-                  n: activeDevices.length,
-                  leds: ledActive.toLocaleString(),
-                  st: stickers.length,
-                })}
-              </span>
-            )}
+      {/* ===== header: salutation, live state, and the counted strip ===== */}
+      <header className="min-w-0">
+        {/* Kicker row: which tab this is, and the version of the engine
+            running it. The version is here rather than only in the title bar
+            because this is the screen that reports on the engine. */}
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+          <span className="kicker">{t("overview.at-a-glance")}</span>
+          <span aria-hidden className="text-[var(--text-faint)]">·</span>
+          {/* A chip rather than loose text: this is the engine's version, and
+              the card header below is the engine. Matching them lets the eye
+              connect "what version" with "what is running". */}
+          <span className="rounded-md border border-[rgb(var(--glow)/0.35)] bg-[rgb(var(--glow)/0.08)] px-1.5 py-px font-mono text-[10px] uppercase tracking-[0.14em] text-[rgb(var(--glow))]">
+            {t("overview.engine", { v: versionLabel(__APP_VERSION__) })}
+          </span>
+        </div>
+
+        {/* Salutation and the right-hand controls share a baseline, which is
+            what makes the row read as one header rather than a heading with
+            something parked beside it. */}
+        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <h1 className="lednum text-[34px] leading-none text-[var(--text)]">
+              {greeting}
+            </h1>
+            {/* The config avatar lives in the app header now, not here: it is a
+                property of the machine rather than of this screen, and it used
+                to vanish the moment you opened another tab. */}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <RefreshBtn />
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <RefreshBtn />
+
+        {/* The counted strip. Dot separators rather than a grid of boxes: these
+            are facts about one system, not independent controls, and six
+            bordered chips read as six things you can press. */}
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[11px] text-[var(--text-faint)]">
+          {issues.length > 0 ? (
+            <span className="text-amber-400">{issues.join(" · ")}</span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              {t("overview.all-in-sync")}
+            </span>
+          )}
+          <span aria-hidden>·</span>
+          <span>
+            {t("common.{n}-devices", { n: activeDevices.length })}
+          </span>
+          <span aria-hidden>·</span>
+          <span>
+            {t("common.{n}-led-zones-active", { n: ledActive.toLocaleString() })}
+          </span>
+          <span aria-hidden>·</span>
+          <span>{t("common.{n}-stickers", { n: stickers.length })}</span>
+          <span aria-hidden>·</span>
+          {/* 0 is "still warming up", not "the app is not running": the frame
+              loop has nothing to average for its first second, and printing
+              0 FPS there would be a stall report about nothing. */}
+          {fps > 0 ? (
+            <span className="tabular-nums">{t("common.{n}-fps", { n: fps })}</span>
+          ) : (
+            <span>{t("common.fps-warming-up")}</span>
+          )}
         </div>
-      </div>
+      </header>
       {/* ===== row 1: now playing + engine ===== */}
       <div className="grid min-w-0 gap-5 xl:grid-cols-12">
         {/* Now playing — spans 5. Wallpaper stage on top, media + transport
             below, wallpaper context strip last. */}
         <Card
-          title={t("common.now-playing")}
+          title={t("overview.now-playing-and-live-wallpaper")}
           icon={<IconWave />}
           className="xl:col-span-5"
           right={
@@ -1048,7 +1219,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             LEDs, the device identity and the mute control in one place, so no
             other part of the card has to repeat the same counts. */}
         <Card
-          title={t("common.lighting-engine")}
+          title={t("overview.lighting-engine")}
           icon={<IconBulb />}
           className="xl:col-span-7"
           right={
@@ -1206,7 +1377,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
           <DisplaysCard compact />
         </div>
         <div className="xl:col-span-5">
-          <Card title={t("common.stickers")} icon={<IconSticker />} right={
+          <Card title={t("overview.stickers-and-desktop-widgets")} icon={<IconSticker />} right={
             stickers.length > 0 ? (
               <span className="font-mono text-[10px] text-[var(--text-faint)]">
                 {t("common.{visible}-{total}-visible", {
@@ -1283,7 +1454,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
       {/* ===== row 3: scenes + shortcuts ===== */}
       {scenes.length > 0 && (
         <div className="grid min-w-0 gap-5 xl:grid-cols-12">
-          <Card title={t("common.scenes")} icon={<IconLayers />} className="xl:col-span-7" right={
+          <Card title={t("common.profiles")} icon={<IconLayers />} className="xl:col-span-7" right={
             <button
               onClick={() => onNavigate("general")}
               className={MINI_BTN}
@@ -1304,7 +1475,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                       if (ok) {
                         useStore
                           .getState()
-                          .toast("ok", t("common.scene-applied", { name: s.name }));
+                          .toast("ok", t("common.profile-applied", { name: s.name }));
                       }
                     });
                   }}
@@ -1350,7 +1521,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
       )}
 
       {/* jump links */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {(
           [
             {
@@ -1383,6 +1554,19 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                   })
                 : t("common.none-placed-yet"),
               Icon: IconSticker,
+            },
+            {
+              // Settings is the fourth tile because every destination the
+              // header strip can raise an issue about is fixed from there --
+              // OpenRGB offline, wallpaper paused, lighting switched off. A
+              // tile that navigates nowhere real would be worse than three.
+              id: "general",
+              // `nav.settings`, not a new `common.` key: the rail, the command
+              // palette and this tile must all call the tab the same thing, and
+              // the nav key is the one they already share.
+              label: t("nav.settings"),
+              detail: t("common.profiles-and-shortcuts"),
+              Icon: IconLayers,
             },
           ] as const
         ).map(({ id, label, detail, Icon }) => (

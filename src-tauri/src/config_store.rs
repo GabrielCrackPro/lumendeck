@@ -156,6 +156,13 @@ pub fn watch() -> watch::Receiver<Config> {
 
 /// Replace the whole config, persist it, and notify listeners.
 pub fn set(new_cfg: Config) -> Result<(), String> {
+    // The profile sync lives here rather than in `update`, because `set` is the
+    // floor every write passes through -- `update` is one caller, but the
+    // dashboard's full-config save (`set_config`) calls `set` directly. Syncing
+    // in `update` alone left every settings toggle looking like no change had
+    // been made to the running profile, which is the whole feature.
+    let mut new_cfg = new_cfg;
+    sync_active_profile(&mut new_cfg);
     {
         let cell = CONFIG.get().ok_or("config not initialized")?;
         *cell.write().map_err(|_| "config poisoned")? = new_cfg.clone();
@@ -192,7 +199,36 @@ pub fn update(f: impl FnOnce(&mut Config)) -> Result<Config, String> {
     let mut cfg = get();
     f(&mut cfg);
     set(cfg.clone())?;
-    Ok(cfg)
+    // Read back rather than returning the local copy: `set` syncs the running
+    // profile, so the value handed to callers has to include that, or a caller
+    // that broadcasts this config would broadcast a stale one.
+    Ok(get())
+}
+
+/// Keep the profile that is applied in step with the machine.
+///
+/// A profile is a snapshot, so without this the two drift apart the moment
+/// anything changes: the desktop is one look and the profile still claims
+/// another, and the header keeps showing a name for a state that no longer
+/// exists. Called from `set`, which every write passes through — `update` is
+/// only one of its callers, and putting it there missed the dashboard's
+/// full-config save entirely.
+///
+/// Deliberately does not touch the name or the logo. Those are the user's
+/// labels for a profile, not part of what it captures, and re-syncing them
+/// would make this a rename nobody asked for.
+fn sync_active_profile(cfg: &mut Config) {
+    let Some(id) = cfg.general.active_profile_id.clone() else {
+        return;
+    };
+    let Some(idx) = cfg.scenes.iter().position(|s| s.id == id) else {
+        // The profile was deleted, so nothing is being applied any more.
+        cfg.general.active_profile_id = None;
+        return;
+    };
+    cfg.scenes[idx].wallpaper = cfg.wallpaper.clone();
+    cfg.scenes[idx].rgb = cfg.rgb.clone();
+    cfg.scenes[idx].stickers = cfg.stickers.clone();
 }
 
 fn load() -> Config {
@@ -254,6 +290,88 @@ fn persist(cfg: &Config) -> Result<(), String> {
     fs::rename(&tmp, &path).map_err(crate::error::err_str)?;
     mark_persisted();
     Ok(())
+}
+
+#[cfg(test)]
+mod profile_sync_tests {
+    use super::sync_active_profile;
+    use crate::config::{Config, RgbMode, SceneProfile, StickerDef};
+
+    fn scene(id: &str) -> SceneProfile {
+        SceneProfile {
+            id: id.into(),
+            name: "Night".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_change_is_captured_into_the_profile_that_is_running() {
+        let mut cfg = Config::default();
+        cfg.scenes.push(scene("s1"));
+        cfg.general.active_profile_id = Some("s1".into());
+        cfg.rgb.mode = RgbMode::Wave;
+
+        sync_active_profile(&mut cfg);
+
+        assert_eq!(
+            cfg.scenes[0].rgb.mode,
+            RgbMode::Wave,
+            "the profile must not keep describing a look that is no longer on screen"
+        );
+    }
+
+    #[test]
+    fn nothing_is_touched_when_no_profile_is_applied() {
+        let mut cfg = Config::default();
+        cfg.scenes.push(scene("s1"));
+        cfg.general.active_profile_id = None;
+        cfg.rgb.mode = RgbMode::Wave;
+
+        sync_active_profile(&mut cfg);
+
+        assert_eq!(cfg.scenes[0].rgb.mode, RgbMode::Ambient);
+    }
+
+    #[test]
+    fn deleting_the_running_profile_clears_the_pointer() {
+        // Otherwise every later write looks for a profile that is gone, and
+        // the header would go on naming a deleted one.
+        let mut cfg = Config::default();
+        cfg.scenes.retain(|s| s.id != "s1");
+        cfg.general.active_profile_id = Some("s1".into());
+
+        sync_active_profile(&mut cfg);
+
+        assert!(cfg.general.active_profile_id.is_none());
+    }
+
+    #[test]
+    fn a_sticker_moved_by_hand_ends_up_in_the_profile() {
+        // Stickers are the field most likely to be forgotten, because they move
+        // on their own rather than through a setting.
+        let mut cfg = Config::default();
+        let mut running = scene("s1");
+        running.stickers.push(StickerDef {
+            id: "st1".into(),
+            x: 10,
+            y: 20,
+            ..Default::default()
+        });
+        cfg.scenes.push(running);
+        cfg.general.active_profile_id = Some("s1".into());
+        cfg.stickers.push(StickerDef {
+            id: "st1".into(),
+            x: 999,
+            y: 20,
+            ..Default::default()
+        });
+
+        sync_active_profile(&mut cfg);
+
+        assert_eq!(cfg.scenes[0].stickers.len(), 1);
+        assert_eq!(cfg.scenes[0].stickers[0].x, 999);
+    }
 }
 
 #[cfg(test)]

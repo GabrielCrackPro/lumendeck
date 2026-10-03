@@ -49,6 +49,9 @@ import {
 import { t, LOCALE_NAMES } from "../../i18n";
 import type { DevInfo } from "@shared/types";
 import { useCopy } from "../useCopy";
+import { ConfigPickerModal } from "../ConfigPickerModal";
+import { ConfigAvatar } from "../ConfigAvatar";
+import { useConfigPicker } from "../useConfigPicker";
 import { buildReport } from "../devReport";
 import { versionDisagreement, versionLabel } from "../buildIdentity";
 
@@ -92,7 +95,7 @@ const SECTIONS: SettingsSectionDef[] = [
   },
   {
     id: "scenes",
-    label: "settings.scene-profiles",
+    label: "settings.profiles",
     blurb: "settings.capture-and-recall-a-whole-look",
     icon: IconLayers,
   },
@@ -227,9 +230,15 @@ export default function GeneralTab() {
         setUpdateAvailable: s.setUpdateAvailable,
       })),
     );
-  // Scene rows each drive a save/apply/delete of their own entry, keyed by id
-  // so two rows can work without blocking one another.
+  // Each row drives a delete of its own entry, keyed by id so two rows can
+  // work without blocking one another. Applying and capturing are not here any
+  // more -- they belong to the picker dialog this card opens.
   const { pending, run } = usePending();
+  const scenes = cfg?.scenes ?? [];
+  // The picker dialog owns capturing and switching, so this card only has to
+  // open it. The hook reads the config itself, so this surface and the header
+  // cannot end up deriving "which profile is running" differently.
+  const picker = useConfigPicker();
   // Appearance first: it is the setting people change most, and it is the
   // one whose effect you notice immediately.
   const [section, setSection] = useState(SECTIONS[0]!.id);
@@ -396,102 +405,121 @@ export default function GeneralTab() {
 
         {anchor(
           "scenes",
-          <Card title={t("common.scene-profiles")} icon={<IconLayers />}>
-            <p className="mb-3 text-xs leading-relaxed text-[var(--text-dim)]">                {t("common.capture-the-whole-look-wallpaper-per-monitor-ove")}
-            </p>
-            <SaveScene
-              onSave={async (name) => {
-                await run(
-                  "scene-save",
-                  async () => {
-                    await api.sceneSave(name);
-                    const fresh = await api.getConfig();
-                    useStore.setState({ cfg: fresh });
-                    useStore
-                      .getState()
-                      .toast("ok", t("common.scene-{name}-saved", { name }));
-                  },
-                  (e) =>
-                    useStore
-                      .getState()
-                      .toast(
-                        "error",
-                        t("common.save-failed-{error}", { error: truncateError(e) }),
-                      ),
-                );
-              }}
-            />
-            {(cfg.scenes ?? []).length > 0 ? (
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {(cfg.scenes ?? []).map((s) => (
-                  <div
-                    key={s.id}
-                    className="group flex items-center gap-2.5 panel-inset px-3 py-2.5"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <ItemTitle className="truncate">{s.name}</ItemTitle>
-                      <div className="font-mono text-[10px] text-[var(--text-faint)]">
-                        {s.wallpaper.kind} · {s.rgb.mode}
+          <Card title={t("common.profiles")} icon={<IconLayers />}>
+            {/* Capturing and switching both happen in the picker dialog, which
+                the Overview header also opens — one implementation, so the two
+                surfaces cannot disagree about what is running. Opening straight
+                into its save view is what this button means: Settings is where
+                you manage configs, and the first thing you do there is add
+                one. The list below stays because deleting is not a thing a
+                picker should do, and this is the only place it is offered. */}
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Btn variant="primary" onClick={picker.openSave}>
+                {t("settings.capture-current-look")}
+              </Btn>
+              {scenes.length > 0 && (
+                <Btn variant="ghost" onClick={picker.openBrowse}>
+                  {t("common.profiles")}
+                </Btn>
+              )}
+            </div>
+            {scenes.length > 0 ? (
+              /* Rows, not a grid of tiles: a profile is identified by its name
+                 and its avatar, both of which read at a glance in a single
+                 column. A two-up grid spent horizontal space to make the names
+                 shorter, which is the wrong thing to shorten. The avatar leads
+                 because it is the same mark the header shows, so this list and
+                 the app chrome are visibly about the same thing. */
+              <ul className="flex flex-col gap-1.5">
+                {scenes.map((s) => {
+                  const isRunning = picker.activeId === s.id;
+                  return (
+                    <li
+                      key={s.id}
+                      className={`group flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${
+                        isRunning
+                          ? "border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.07)]"
+                          : "border-[var(--line)] hover:border-[var(--line-strong)]"
+                      }`}
+                    >
+                      <ConfigAvatar scene={s} size={30} onClick={picker.openBrowse} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <ItemTitle className="truncate">{s.name}</ItemTitle>
+                          {isRunning && (
+                            <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.1em] text-[rgb(var(--glow))]">
+                              {t("common.applied")}
+                            </span>
+                          )}
+                        </div>
+                        <div className="truncate font-mono text-[10px] text-[var(--text-faint)]">
+                          {/* Stickers are part of what a profile restores now, so
+                              the row says so -- but only when there are any,
+                              since a count of zero is noise on a row about a
+                              look. */}
+                          {s.wallpaper.kind} · {s.rgb.mode}
+                          {s.stickers.length > 0 &&
+                            ` · ${t("common.{n}-stickers", { n: s.stickers.length })}`}
+                        </div>
                       </div>
-                    </div>
-                    <Btn
-                      variant="primary"
-                      pending={pending.has(`scene-apply-${s.id}`)}
-                      onClick={() => {
-                        void run(
-                          `scene-apply-${s.id}`,
-                          () => api.sceneApply(s.id),
-                          (e) =>
+                      <Btn
+                        variant="ghost"
+                        pending={pending.has(`scene-delete-${s.id}`)}
+                        disabled={!picker.canDelete}
+                        title={
+                          picker.canDelete
+                            ? t("common.delete")
+                            : t("common.keep-one-profile")
+                        }
+                        onClick={() => {
+                          // Guarded again here rather than relying on the
+                          // disabled attribute alone: the button is a
+                          // convenience, the rule is not.
+                          if (!picker.canDelete) return;
+                          void run(`scene-delete-${s.id}`, async () => {
+                            await api.sceneDelete(s.id).catch(() => {});
+                            const fresh = await api.getConfig();
+                            useStore.setState({ cfg: fresh });
                             useStore
                               .getState()
-                              .toast(
-                                "error",
-                                t("common.apply-failed-{error}", {
-                                  error: truncateError(e),
-                                }),
-                              ),
-                        ).then((ok) => {
-                          if (ok) {
-                            useStore
-                              .getState()
-                              .toast("ok", t("common.scene-{name}-applied", { name: s.name }));
-                          }
-                        });
-                      }}
-                    >
-                      {t("common.apply")}
-                    </Btn>
-                    <Btn
-                      variant="ghost"
-                      pending={pending.has(`scene-delete-${s.id}`)}
-                      onClick={() => {
-                        void run(`scene-delete-${s.id}`, async () => {
-                          await api.sceneDelete(s.id).catch(() => {});
-                          const fresh = await api.getConfig();
-                          useStore.setState({ cfg: fresh });
-                          useStore
-                            .getState()
-                            .undoDelete(
-                              t("common.deleted-scene", { name: s.name }),
-                              (next) => {
-                                // Pushed back verbatim: the scene carries its own
-                                // wallpaper + rgb snapshot, and keeping the id means
-                                // anything pointing at it still resolves.
-                                next.scenes.push(s);
-                              },
-                            );
-                        });
-                      }}
-                    >
-                      {t("common.delete")}
-                    </Btn>
-                  </div>
-                ))}
-              </div>
+                              .undoDelete(
+                                t("common.deleted-profile", { name: s.name }),
+                                (next) => {
+                                  // Pushed back verbatim: the profile carries its
+                                  // own wallpaper + rgb snapshot, and keeping the
+                                  // id means anything pointing at it still resolves.
+                                  next.scenes.push(s);
+                                },
+                              );
+                          });
+                        }}
+                      >
+                        {t("common.delete")}
+                      </Btn>
+                    </li>
+                  );
+                })}
+              </ul>
             ) : (
-              <p className="mt-3 text-xs text-[var(--text-faint)]">
-                {t("common.no-scenes-yet-set-up-a-look-you-like-then-captur")}
+              <p className="text-xs text-[var(--text-faint)]">
+                {t("common.no-profiles-yet-set-up-a-look-you-like-then-cap")}
               </p>
+            )}
+            {picker.open && (
+              <ConfigPickerModal
+                scenes={scenes}
+                activeId={picker.activeId}
+                applyingId={picker.applyingId}
+                startIn={picker.startInSave ? "save" : "browse"}
+                onClose={picker.close}
+                onApply={picker.apply}
+                onSave={picker.save}
+                onRename={picker.rename}
+                onDelete={picker.remove}
+                onChooseLogo={picker.chooseLogo}
+                onClearLogo={(id) => picker.setLogo(id, null)}
+          canDelete={picker.canDelete}
+              />
             )}
           </Card>,
         )}
@@ -1018,30 +1046,4 @@ function DeveloperCard() {
 }
 
 /** Scene name input + save button. */
-function SaveScene({ onSave }: { onSave: (name: string) => Promise<void> }) {
-  const [name, setName] = useState("");
-  const [saving, setSaving] = useState(false);
-  const submit = async () => {
-    const n =
-      name.trim() ||
-      t("common.scene-{date}", { date: new Date().toLocaleDateString() });
-    setSaving(true);
-    await onSave(n);
-    setName("");
-    setSaving(false);
-  };
-  return (
-    <div className="flex items-center gap-2">
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && !saving && submit()}
-        placeholder={t("common.name-this-look-e-g-night-gaming")}
-        className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)] focus:outline-none"
-      />
-      <Btn variant="primary" disabled={saving} onClick={submit}>
-        {t(saving ? "common.saving" : "settings.capture-current-look")}
-      </Btn>
-    </div>
-  );
-}
+

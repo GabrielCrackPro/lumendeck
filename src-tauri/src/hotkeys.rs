@@ -325,8 +325,7 @@ fn dispatch(app: &tauri::AppHandle, action: &'static str) {
             crate::tray::cycle_lighting_mode(app);
             Ok(())
         }
-        "nextProfile" => guard(crate::tray::cycle_profile(app), "no RGB profiles saved yet"),
-        "nextScene" => guard(crate::tray::cycle_scene(app), "no scenes saved yet"),
+        "nextProfile" => guard(crate::tray::cycle_scene(app), "no profiles saved yet"),
         "nextWallpaper" => guard(
             crate::playlist::advance().is_some(),
             "the wallpaper vault is empty",

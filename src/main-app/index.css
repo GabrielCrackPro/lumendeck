@@ -420,8 +420,23 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 /* staggered reveal for card grids */
+/*
+ * `backwards`, not `both`, and the difference is load-bearing.
+ *
+ * `lfade` animates a transform, which makes its element a stacking context for
+ * as long as the animation applies. `both` keeps the *forwards* fill after the
+ * animation ends, so every top-level block in a staggered tab kept a stacking
+ * context forever at `z-index: auto`. An absolutely-positioned dropdown panel
+ * then competed only inside its own block's context: a `z-30` menu opened under
+ * a later sibling card and rendered behind it, with nothing on the page able to
+ * lift it. The forwards fill was never needed -- the `to` frame is `opacity: 1;
+ * transform: none`, which is already the element's resting state -- so dropping
+ * it removes the stacking context with no visual change at all. `backwards` is
+ * kept because it applies the `from` frame during the stagger delay, which is
+ * what stops a card flashing before its turn.
+ */
 .stagger > * {
-  animation: lfade 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: lfade 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
 }
 .stagger > *:nth-child(1) { animation-delay: 0.02s; }
 .stagger > *:nth-child(2) { animation-delay: 0.06s; }

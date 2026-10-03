@@ -173,8 +173,20 @@ export function Card({
   className?: string;
 }) {
   return (
-    <section className={`glass overflow-hidden ${className ?? ""}`}>
-      <header className="flex min-h-[42px] items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4">
+    /*
+     * `overflow-hidden` used to be here, to keep the header's sunken background
+     * inside the card's rounded corners. It also clipped every popover in the
+     * card: a `Dropdown` or `Select` panel is absolutely positioned, so it was
+     * cut off at the card's edge and the options below the fold simply did not
+     * exist — the sticker editor's "Fit" menu showed "Contain" and hid "Cover"
+     * and "Fill". No z-index fixes a clip; the panel was never painted.
+     *
+     * The corners are now the header's own job via `rounded-t-*`, matching
+     * `--radius-xl` on `.glass`, so nothing is clipped and the header still
+     * reads as the top of a rounded card.
+     */
+    <section className={`glass ${className ?? ""}`}>
+      <header className="flex min-h-[42px] items-center justify-between gap-3 rounded-t-[var(--radius-xl)] border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4">
         {/* `min-w-0` + truncate: a long card title is a flex item like any
             other, and without a minimum of zero its nowrap text widens the
             header until the panel clips its own right edge. */}
@@ -594,7 +606,8 @@ export function Dropdown<T extends string | number>({
         aria-haspopup="listbox"
         aria-expanded={pop.shown}
         aria-label={ariaLabel}
-        title={title}className={
+        title={title}
+        className={
             chip
               ? `flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${
                   (chipActive ?? pop.shown) ? CHIP_ON : CHIP_OFF
@@ -719,6 +732,7 @@ export function Btn({
   className,
   type = "button",
   pending,
+  title,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -742,6 +756,13 @@ export function Btn({
    * current caller of `pending` is a label-only button.
    */
   pending?: boolean;
+  /**
+   * Hover text. The only way to explain a *disabled* button: it cannot take
+   * focus, so no on-click handler will ever fire to set one. Needed by the
+   * delete control, which is disabled with a single profile left and has to say
+   * why rather than simply going quiet.
+   */
+  title?: string;
 }) {
   const styles = {
     default:
@@ -763,6 +784,7 @@ export function Btn({
       type={type}
       onClick={onClick}
       disabled={disabled || pending}
+      title={title}
       aria-busy={pending || undefined}
       className={`inline-flex select-none items-center justify-center gap-2 font-semibold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${sizing} ${styles} ${className ?? ""}`}
     >

@@ -1900,19 +1900,27 @@ pub fn scene_save(name: String) -> Result<crate::config::SceneProfile, String> {
         name,
         wallpaper: cfg.wallpaper.clone(),
         rgb: cfg.rgb.clone(),
-        created_ms: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0),
+        stickers: cfg.stickers.clone(),
+        logo: None,
+        created_ms: crate::config::now_ms(),
     };
-    crate::config_store::update(|c| c.scenes.push(scene.clone()))?;
+    crate::config_store::update(|c| {
+        c.scenes.push(scene.clone());
+        // The capture *is* the current state, so this profile is the one now
+        // running. Without it the header would keep naming whatever was applied
+        // before, and edits would go to that profile instead of this one.
+        c.general.active_profile_id = Some(scene.id.clone());
+    })?;
     Ok(scene)
 }
 
-/// Recall a scene: swap in the wallpaper + RGB configs and re-apply side
-/// effects. Sticker placements are intentionally NOT touched (they're
-/// positional, not mood); playlist state is paused during recall so the
-/// scheduler doesn't immediately override the restored wallpaper.
+/// Recall a scene: swap in the wallpaper, RGB config and sticker placements,
+/// then re-apply side effects. Sticker restore used to be skipped on the
+/// grounds that placements are "positional, not mood"; it is restored now
+/// because a config that leaves half the desk behind is not a config.
+///
+/// Playlist state is paused during recall so the scheduler doesn't immediately
+/// override the restored wallpaper.
 #[tauri::command]
 pub fn scene_apply(app: AppHandle, id: String) -> Result<(), String> {
     let scene = crate::config_store::get()
@@ -1923,6 +1931,13 @@ pub fn scene_apply(app: AppHandle, id: String) -> Result<(), String> {
     crate::config_store::update(|c| {
         c.wallpaper = scene.wallpaper.clone();
         c.rgb = scene.rgb.clone();
+        // `apply_side_effects` below reconciles the sticker windows from this
+        // list, so assigning is the whole job — no window is touched here.
+        c.stickers = scene.stickers.clone();
+        // Set inside the same update as the restore, so the sync that runs on
+        // every write re-captures this profile against the state it just
+        // restored rather than against the one it replaced.
+        c.general.active_profile_id = Some(scene.id.clone());
     })?;
     let fresh = crate::config_store::get();
     apply_side_effects(&app, &fresh);
@@ -1930,8 +1945,22 @@ pub fn scene_apply(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Delete a profile, refusing the last one.
+///
+/// The rule lives here as well as in the two front ends: a disabled button is
+/// a courtesy, and this is the door the data actually goes through. With no
+/// profile left the header avatar has nothing to show and the one-click way
+/// back to a liked setup is gone.
+///
+/// Counted from the store rather than from the closure because `update` takes a
+/// void closure. The check and the write are not one atomic step, which is
+/// harmless here: one user, one process, and the worst case is two deletes
+/// arriving together with two profiles on file.
 #[tauri::command]
 pub fn scene_delete(id: String) -> Result<(), String> {
+    if crate::config_store::get().scenes.len() <= 1 {
+        return Err("cannot delete the last profile".into());
+    }
     crate::config_store::update(|c| c.scenes.retain(|s| s.id != id))?;
     Ok(())
 }
@@ -1944,6 +1973,116 @@ pub fn scene_rename(id: String, name: String) -> Result<(), String> {
         }
     })?;
     Ok(())
+}
+
+/// Point a config's avatar at an image, or clear it with `None`.
+///
+/// The file is copied into the app's media directory rather than referenced
+/// where it was picked from. A config outlives the folder it was made in, and
+/// an avatar that silently disappears because someone tidied their Pictures
+/// folder is worse than no avatar at all — the initial is the fallback, so it
+/// has to be reachable on purpose.
+///
+/// The name is derived from the scene id rather than the source file, so
+/// choosing a second image overwrites the first instead of filling the media
+/// directory with near-duplicates, and the path stays stable across restarts.
+#[tauri::command]
+pub fn scene_set_logo(id: String, source: Option<String>) -> Result<String, String> {
+    let Some(source) = source else {
+        crate::config_store::update(|c| {
+            if let Some(s) = c.scenes.iter_mut().find(|s| s.id == id) {
+                s.logo = None;
+            }
+        })?;
+        return Ok(String::new());
+    };
+
+    let src = std::path::PathBuf::from(&source);
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .filter(|e| matches!(e.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"))
+        .ok_or("Unsupported image type")?
+        .to_string();
+    let bytes = std::fs::read(&src).map_err(crate::error::err_str)?;
+    // Small by construction: this is an avatar rendered at 32px in a header.
+    // Refusing rather than resizing keeps the command honest about what it
+    // stores, and the picker can say why.
+    const MAX_LOGO_BYTES: u64 = 4 * 1024 * 1024;
+    if bytes.len() as u64 > MAX_LOGO_BYTES {
+        return Err("Image is larger than 4 MB".into());
+    }
+
+    let media_dir = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("LumenDeck")
+        .join("media");
+    std::fs::create_dir_all(&media_dir).map_err(crate::error::err_str)?;
+    let target = media_dir.join(format!("logo-{}.{ext}", sanitize_for_filename(&id)));
+    std::fs::write(&target, &bytes).map_err(crate::error::err_str)?;
+    let path_str = target.to_string_lossy().to_string();
+
+    crate::config_store::update(|c| {
+        if let Some(s) = c.scenes.iter_mut().find(|s| s.id == id) {
+            s.logo = Some(path_str.clone());
+        }
+    })?;
+    log::info!("scene logo set: {id}");
+    Ok(path_str)
+}
+
+/// Reduce an id to something safe as a filename.
+///
+/// Scene ids are generated, but they also arrive from a migrated config file,
+/// and a path built from an arbitrary string is a way to write outside the
+/// media directory. Disallowed characters are dropped rather than replaced:
+/// both are safe, and dropping leaves `../../night` as `night` instead of
+/// `------night`.
+fn sanitize_for_filename(id: &str) -> String {
+    let cleaned: String = id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if cleaned.is_empty() {
+        "scene".to_string()
+    } else {
+        cleaned.chars().take(64).collect()
+    }
+}
+
+#[cfg(test)]
+mod scene_tests {
+    use super::sanitize_for_filename;
+
+    #[test]
+    fn a_generated_id_passes_through_unchanged() {
+        assert_eq!(sanitize_for_filename("scene-1a2b3c"), "scene-1a2b3c");
+    }
+
+    #[test]
+    fn path_separators_cannot_escape_the_media_directory() {
+        // The id reaches here from a config file, so a crafted one must not be
+        // able to name a destination outside the media directory.
+        assert_eq!(sanitize_for_filename("../../evil"), "evil");
+        assert_eq!(sanitize_for_filename(r"..\..\evil"), "evil");
+        assert!(!sanitize_for_filename("a/b").contains('/'));
+        assert!(!sanitize_for_filename("a\\b").contains('\\'));
+    }
+
+    #[test]
+    fn an_id_that_sanitizes_to_nothing_still_names_a_file() {
+        // An empty name would resolve to the directory itself, and the write
+        // would fail with an error that says nothing about why.
+        assert_eq!(sanitize_for_filename(""), "scene");
+        assert_eq!(sanitize_for_filename("///"), "scene");
+    }
+
+    #[test]
+    fn a_long_id_is_truncated_rather_than_rejected() {
+        let long = "a".repeat(200);
+        assert_eq!(sanitize_for_filename(&long).len(), 64);
+    }
 }
 
 // ---------- helpers ----------
@@ -2121,6 +2260,14 @@ pub fn system_accent() -> Option<[u8; 3]> {
 #[tauri::command]
 pub fn system_language() -> String {
     crate::i18n::system_language().to_string()
+}
+
+/// The signed-in Windows account name, verbatim. Empty when Windows will not
+/// say, which the greeting treats as "have no name to use" rather than as a
+/// string to print.
+#[tauri::command]
+pub fn account_name() -> String {
+    crate::account::name().to_string()
 }
 
 /// Parse-check a hotkey accelerator without binding it. The settings UI calls

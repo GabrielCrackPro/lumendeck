@@ -1,10 +1,10 @@
 //! Tray quick-controls: pause/resume wallpaper, cycle lighting modes, switch
-//! RGB profiles — all without opening the dashboard.
+//! saved configs — all without opening the dashboard.
 //!
 //! The tray menu cannot be mutated in place reliably across platforms, so
 //! `refresh` rebuilds the whole menu from current state and replaces it on the
 //! existing tray icon. Call `refresh` after any state change that the menu
-//! displays (pause toggle, mode change, profile edit).
+//! displays (pause toggle, mode change, config applied).
 //!
 //! Every action below is also a public function, because `crate::hotkeys`
 //! binds the same set to system-wide keys. The menu is a front end for these
@@ -20,7 +20,7 @@ pub const ID_DASHBOARD: &str = "dashboard";
 pub const ID_PAUSE: &str = "pause";
 pub const ID_EDIT: &str = "edit";
 pub const ID_MODE: &str = "mode-";
-pub const ID_PROFILE: &str = "profile-";
+pub const ID_CONFIG: &str = "config-";
 pub const ID_RESTORE_WP: &str = "restore-wallpaper";
 pub const ID_QUIT: &str = "quit";
 pub const ID_HOTKEYS: &str = "hotkeys";
@@ -147,34 +147,36 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?;
 
-    // Profiles submenu (only when the user has saved some).
-    let profile_items: Vec<MenuItem<tauri::Wry>> = cfg
-        .rgb
-        .profiles
+    // Configs submenu (only when the user has saved some). These are whole-look
+    // snapshots, so an entry here moves the wallpaper and the stickers too --
+    // the same thing the dashboard's config selector does, not a lighting-only
+    // variant of it.
+    let config_items: Vec<MenuItem<tauri::Wry>> = cfg
+        .scenes
         .iter()
-        .map(|p| {
+        .map(|s| {
             MenuItem::with_id(
                 app,
-                format!("{ID_PROFILE}{}", p.name),
-                &p.name,
+                format!("{ID_CONFIG}{}", s.id),
+                &s.name,
                 true,
                 None::<&str>,
             )
         })
         .collect::<Result<_, _>>()?;
-    let profile_sub = if profile_items.is_empty() {
+    let config_sub = if config_items.is_empty() {
         None
     } else {
-        let profile_refs: Vec<&dyn IsMenuItem<tauri::Wry>> = profile_items
+        let config_refs: Vec<&dyn IsMenuItem<tauri::Wry>> = config_items
             .iter()
             .map(|m| m as &dyn IsMenuItem<tauri::Wry>)
             .collect();
         Some(Submenu::with_id_and_items(
             app,
-            "profile-sub",
+            "config-sub",
             crate::i18n::t("tray.profiles"),
             true,
-            &profile_refs,
+            &config_refs,
         )?)
     };
 
@@ -191,7 +193,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 
     let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
         vec![&dashboard, &sep, &pause, &hotkeys, &sep2, &next_mode, &mode_sub];
-    if let Some(sub) = &profile_sub {
+    if let Some(sub) = &config_sub {
         items.push(sub);
     }
     let restore_wp = MenuItem::with_id(
@@ -213,8 +215,15 @@ pub fn handle(app: &tauri::AppHandle, id: &str) -> bool {
             return true;
         }
     }
-    if let Some(name) = id.strip_prefix(ID_PROFILE) {
-        apply_profile(app, name);
+    if let Some(id) = id.strip_prefix(ID_CONFIG) {
+        // The same command the dashboard calls. Rebuilding the menu here
+        // matches every other entry in this function: the config write would
+        // refresh it indirectly anyway, but the submenu's contents are the
+        // point of this entry, so it is not left to that side effect.
+        if crate::ipc::scene_apply(app.clone(), id.to_string()).is_err() {
+            return false;
+        }
+        refresh(app);
         return true;
     }
     match id {
@@ -279,19 +288,6 @@ fn set_mode(app: &tauri::AppHandle, mode: RgbMode) {
     refresh(app);
 }
 
-fn apply_profile(app: &tauri::AppHandle, name: &str) {
-    let cfg = crate::config_store::get();
-    if let Some(p) = cfg.rgb.profiles.iter().find(|p| p.name == name) {
-        let _ = crate::config_store::update(|c| {
-            c.rgb.mode = p.mode;
-            c.rgb.static_color = p.static_color;
-            c.rgb.animation_speed = p.animation_speed;
-        });
-        log::info!("profile \"{name}\" applied");
-        refresh(app);
-    }
-}
-
 // ---------- Actions shared with the global hotkeys ----------
 //
 // These are the single implementation behind both the tray menu entries and
@@ -351,25 +347,7 @@ pub fn cycle_lighting_mode(app: &tauri::AppHandle) {
     set_mode(app, ALL_MODES[(idx + 1) % ALL_MODES.len()]);
 }
 
-/// Apply the next saved RGB profile (wrapping). No-op without profiles.
-pub fn cycle_profile(app: &tauri::AppHandle) -> bool {
-    let cfg = crate::config_store::get();
-    if cfg.rgb.profiles.is_empty() {
-        return false;
-    }
-    let idx = cfg
-        .rgb
-        .profiles
-        .iter()
-        .position(|p| p.mode == cfg.rgb.mode && p.static_color == cfg.rgb.static_color)
-        .map(|i| (i + 1) % cfg.rgb.profiles.len())
-        .unwrap_or(0);
-    let name = cfg.rgb.profiles[idx].name.clone();
-    apply_profile(app, &name);
-    true
-}
-
-/// Apply the next saved scene profile (wrapping). No-op without scenes.
+/// Apply the next saved config (wrapping). No-op without configs.
 pub fn cycle_scene(app: &tauri::AppHandle) -> bool {
     let cfg = crate::config_store::get();
     if cfg.scenes.is_empty() {

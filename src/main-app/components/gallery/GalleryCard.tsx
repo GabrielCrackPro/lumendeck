@@ -3,6 +3,8 @@ import { IconCheck, IconInfo, IconPencil, IconPlay, IconStar, IconTrash } from "
 import { OVERLAY_ICON_BTN } from "../ui";
 import { t } from "../../i18n";
 import { GALLERY_KIND_LABEL } from "./kindLabels";
+import { hasTileMeta, tileMetaFor } from "./tileMeta";
+import type { VaultIndex } from "./vaultIndex";
 import { useNearViewport } from "./useNearViewport";
 import type { Unhealthy } from "./vaultHealth";
 import type { ClickModifiers } from "./selection";
@@ -45,6 +47,15 @@ export interface GalleryCardProps {
   /** Set when a playlist is rotating the wallpaper, so the live tile can say so
    *  instead of silently changing under the user. */
   rotating: string | null;
+  /**
+   * The vault-wide metadata index, when one has been built.
+   *
+   * Read for the tile's resolution and duration rather than probing per tile:
+   * a vault of several hundred tiles would fire a metadata request each, which
+   * is exactly the storm mediaMeta's cache exists to prevent. Unmeasured tiles
+   * simply show no facts until the index exists.
+   */
+  index?: VaultIndex;
 }
 
 function GalleryCardImpl({
@@ -66,6 +77,7 @@ function GalleryCardImpl({
   favorite,
   onToggleFavorite,
   rotating,
+  index,
   draggable,
   onDragStart,
 }: GalleryCardProps) {
@@ -82,6 +94,12 @@ function GalleryCardImpl({
   // played it once.
   const [starTick, setStarTick] = useState(0);
   const [popping, setPopping] = useState(false);
+  // Resolution and length, from the vault index if it has measured this file.
+  // Both are things people compare wallpapers on, and the drawer already shows
+  // them -- having to open every tile to tell a 4K file from a 1080p one is
+  // what this row exists to remove.
+  const meta = tileMetaFor(entry, index);
+  const showMeta = hasTileMeta(meta);
   useEffect(() => {
     if (!popping) return;
     const id = setTimeout(() => setPopping(false), 460);
@@ -277,7 +295,8 @@ function GalleryCardImpl({
       {/* Caption. A solid strip rather than a gradient over the picture, so the
           name and the kind are readable at rest without spending any of the
           frame you came here to look at. */}
-      <div className="flex min-w-0 items-center gap-2 border-t border-[var(--line)] bg-[var(--panel-sunken)] px-2.5 py-1.5">
+      <div className="border-t border-[var(--line)] bg-[var(--panel-sunken)] px-2.5 py-1.5">
+      <div className="flex min-w-0 items-center gap-2">
         <div className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--text)]">
           {entry.name}
         </div>
@@ -317,6 +336,25 @@ function GalleryCardImpl({
             title={collections.map((c) => c.name).join(", ")}
           />
         )}
+      </div>
+      {/* Facts line. Rendered only when the index knows something about this
+          file, so the row does not appear and then empty itself a moment later
+          on every tile in a vault that has never been indexed. */}
+      {showMeta && (
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 font-mono text-[10px] leading-none text-[var(--text-faint)]">
+          {meta.resolution && <span className="truncate">{meta.resolution}</span>}
+          {meta.resolution && meta.duration && (
+            <span aria-hidden className="shrink-0 opacity-60">
+              &middot;
+            </span>
+          )}
+          {meta.duration && (
+            <span className="shrink-0">
+              {t("gallery.length-{duration}", { duration: meta.duration })}
+            </span>
+          )}
+        </div>
+      )}
       </div>
     </div>
   );

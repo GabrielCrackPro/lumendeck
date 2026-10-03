@@ -127,9 +127,17 @@ export const api = {
   /** Windows display language ("es-ES"); resolved against the user's
    *  preference in `general.language` to pick the UI locale. */
   systemLanguage: () => invoke<string>("system_language"),
+  /** The signed-in Windows account name, verbatim. Empty if Windows won't say. */
+  accountName: () => invoke<string>("account_name"),
   sceneDelete: (id: string) => invoke<void>("scene_delete", { id }),
   sceneRename: (id: string, name: string) =>
     invoke<void>("scene_rename", { id, name }),
+  /**
+   * Copy an image into the media directory and use it as the config's avatar.
+   * Null clears it and the initial comes back. Returns the stored path.
+   */
+  sceneSetLogo: (id: string, source: string | null) =>
+    invoke<string>("scene_set_logo", { id, source }),
 
   rgbStatus: () => invoke<RgbStatus>("rgb_status"),
   rgbRefresh: () => invoke<void>("rgb_refresh"),

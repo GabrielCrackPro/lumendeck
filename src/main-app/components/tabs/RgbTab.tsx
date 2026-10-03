@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Toggle, Slider, Btn, ColorInput, Section, Segmented, InfoNote, ItemTitle, IconBox } from "../ui";
+import { Card, Toggle, Slider, Btn, ColorInput, Section, Segmented, InfoNote, IconBox } from "../ui";
 import { DeviceRow } from "../DeviceRow";
 import { LiveStage } from "../lighting/LiveStage";
 import { ModePicker } from "../lighting/ModePicker";
-import { IconCheck, IconRefresh, IconZap, IconPlus, IconTrash } from "../icons";
+import { IconRefresh, IconZap } from "../icons";
 import { RGB_MODES, ANIMATION_MODES } from "@shared/constants";
-import { rgbToHex } from "../../utilities";
 import type { AudioLevel, DeviceColor, RgbMode } from "@shared/types";
 import { t } from "../../i18n";
 
@@ -65,13 +64,12 @@ export default function RgbTab() {
       if (timer) clearInterval(timer);
     };
   }, []);
-  const [profileNaming, setProfileNaming] = useState(false);
-  const [profileNameVal, setProfileNameVal] = useState("");
-  const promptProfileName = () => {
-    setProfileNaming(true);
-    setProfileNameVal(`Profile ${(cfg?.rgb.profiles.length ?? 0) + 1}`);
-    return null; // commit happens via the inline form below
-  };
+  // Lighting-only profiles used to have a save/apply card at the foot of this
+  // tab. It is gone, and so is the data behind it: a snapshot that captures a
+  // mode and a colour is half a config, and the half that misses the wallpaper
+  // and the desk is the half people switch setups for. Whole-config recall
+  // lives in Overview and Settings instead, and the tray's config submenu and
+  // the nextProfile hotkey drive the same list.
   // Hooks must run unconditionally — derive everything after they complete.
   if (!cfg) return null;
   const rgbCfg = cfg.rgb;
@@ -574,125 +572,6 @@ export default function RgbTab() {
               </Section>
             </div>
 
-            {/* ---- profiles: save/apply named snapshots, also in the tray.
-                Last, because a snapshot is something you take once the rest is
-                how you want it. */}
-            <div className="mt-5 border-t border-[var(--line)] pt-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <ItemTitle>{t("common.profiles")}</ItemTitle>
-                  <div className="mt-0.5 text-dim-sm">
-                    {t("common.save-the-current-mode-color-and-speed-as-a-snaps")}
-                  </div>
-                </div>
-                {profileNaming ? (
-                  <form
-                    className="flex items-center gap-2"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const name = profileNameVal.trim();
-                      if (name) {
-                        save((c) => {
-                          c.rgb.profiles = [
-                            ...c.rgb.profiles.filter((p) => p.name !== name),
-                            {
-                              name,
-                              mode: rgbCfg.mode,
-                              staticColor: rgbCfg.staticColor,
-                              animationSpeed: rgbCfg.animationSpeed,
-                            },
-                          ];
-                        });
-                      }
-                      setProfileNaming(false);
-                    }}
-                  >
-                    <input
-                      autoFocus
-                      value={profileNameVal}
-                      onChange={(e) => setProfileNameVal(e.target.value)}
-                      onKeyDown={(e) => e.key === "Escape" && setProfileNaming(false)}
-                      placeholder={t("common.profile-name")}
-                      className="w-36 rounded-lg border border-[rgb(var(--glow)/0.4)] bg-[var(--panel-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text)] outline-none"
-                    />
-                    <Btn variant="primary" onClick={() => {}}>
-                      <IconCheck className="h-4 w-4" />
-                      {t("common.save")}
-                    </Btn>
-                  </form>
-                ) : (
-                  <Btn onClick={promptProfileName}>
-                    <IconPlus className="h-4 w-4" />
-                    {t("common.save-current")}
-                  </Btn>
-                )}
-              </div>
-              {(rgbCfg.profiles?.length ?? 0) === 0 ? (
-                <div className="rounded-xl border border-dashed border-[var(--line-strong)] px-4 py-5 text-center text-xs text-[var(--text-faint)]">
-                  {t("common.no-profiles-yet-tune-the-lights-then-save-the-lo")}
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {rgbCfg.profiles.map((p) => {
-                    const activeNow =
-                      p.mode === rgbCfg.mode &&
-                      p.staticColor.join() === rgbCfg.staticColor.join() &&
-                      Math.abs(p.animationSpeed - rgbCfg.animationSpeed) < 0.01;
-                    return (
-                      <div
-                        key={p.name}
-                        className={`group flex items-center gap-2 rounded-xl py-1.5 pl-1.5 pr-2 ${
-                          activeNow
-                            ? "border border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.12)]"
-                            : "border border-[var(--line)] bg-[var(--panel-strong)] hover:border-[var(--line-strong)]"
-                        }`}
-                      >
-                        <button
-                          onClick={() =>
-                            save((c) => {
-                              const src = c.rgb.profiles.find((x) => x.name === p.name);
-                              if (!src) return;
-                              c.rgb.mode = src.mode;
-                              c.rgb.staticColor = src.staticColor;
-                              c.rgb.animationSpeed = src.animationSpeed;
-                            })
-                          }
-                          className="flex items-center gap-2"
-                          title={`Apply "${p.name}"`}
-                        >
-                          <span
-                            className="h-4 w-4 shrink-0 rounded-full border border-white/20"
-                            style={{ background: rgbToHex(p.staticColor) }}
-                          />
-                          <span className="text-xs font-semibold text-[var(--text)]">{p.name}</span>
-                          <span className="font-mono text-[10px] text-[var(--text-faint)]">
-                            {p.mode === "audioReactive" ? "audio" : p.mode} · {p.animationSpeed.toFixed(1)}×
-                          </span>
-                        </button>
-                        <button
-                          aria-label={`Delete profile ${p.name}`}
-                          onClick={() => {
-                            save((c) => {
-                              c.rgb.profiles = c.rgb.profiles.filter(
-                                (x) => x.name !== p.name,
-                              );
-                            });
-                            useStore
-                              .getState()
-                              .undoDelete(`Deleted lighting profile "${p.name}"`, (c) => {
-                                c.rgb.profiles.push(p);
-                              });
-                          }}
-                          className="hidden text-[var(--text-faint)] transition-colors hover:text-red-400 group-hover:block"
-                        >
-                          <IconTrash className="h-4 w-4" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
           </Card>
         </div>
       </div>

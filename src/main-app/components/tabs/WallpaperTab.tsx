@@ -18,6 +18,7 @@ import { GalleryGrid } from "../gallery/GalleryGrid";
 import { GalleryDrawer } from "../gallery/GalleryDrawer";
 import { GalleryToolbar } from "../gallery/GalleryToolbar";
 import { CollectionsView } from "../gallery/CollectionsView";
+import { NowShowingCard } from "../gallery/NowShowingCard";
 import { DEFAULT_QUERY, selectGallery, type GalleryQuery, type SelectContext } from "../gallery/galleryQuery";
 import { GalleryThumb } from "../gallery/GalleryThumb";
 import { resolvePicked } from "../gallery/mediaKind";
@@ -807,6 +808,17 @@ export default function WallpaperTab() {
 
   return (
     <div className="stagger space-y-6">
+      {/* Above the vault, not inside it: the vault answers "what could I use"
+          and this answers "what is on my desktop right now". Inside the vault
+          card it would inherit that card's header, which already says "Vault"
+          and has a view switcher, and two competing headers is worse than the
+          one question this was added to answer. */}
+      <NowShowingCard
+        cfg={cfg}
+        activeEntry={activeEntry}
+        index={vaultIndex}
+        save={save}
+      />
         <Card
           title={t("common.vault")}
           right={
@@ -1059,6 +1071,7 @@ export default function WallpaperTab() {
               onDragEntry={setDraggingId}
               rotating={rotating}
               onToggleFavorite={(g) => toggleFavorite(g, !g.favorite)}
+              index={vaultIndex}
             />
 
             {visibleGallery.length < gallery.length && (

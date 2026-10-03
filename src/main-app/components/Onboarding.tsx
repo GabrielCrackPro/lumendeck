@@ -1,9 +1,10 @@
-// First-run onboarding: five steps, done in under a minute.
+// First-run onboarding: six steps, done in under a minute.
 //  1. Wallpaper — pick from the vault (or keep the default)
 //  2. Import — pull media into the vault (file / folder / URL)
 //  3. Lighting — detect OpenRGB, or skip (wallpaper-only is a valid setup)
 //  4. Mood — a starting lighting mode + accent behavior
 //  5. Configs — the toggles most people change (power, startup, visuals)
+//  6. Profile — name the setup they just made, so there is something to return to
 // Skippable at any point; the app is fully usable without finishing.
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -13,10 +14,11 @@ import { Btn, Toggle, ThemePicker, ItemTitle } from "./ui";
 import { RGB_MODES } from "@shared/constants";
 import { basename, truncateError } from "../utilities";
 import { resolvePicked } from "./gallery/mediaKind";
+import { IconUser } from "./icons";
 import type { RgbMode } from "@shared/types";
 import { t } from "../i18n";
 
-const STEPS = ["Wallpaper", "Import", "Lighting", "Mood", "Config"] as const;
+const STEPS = ["Wallpaper", "Import", "Lighting", "Mood", "Config", "Profile"] as const;
 
 export default function Onboarding({ onDone }: { onDone: () => void }) {
   const { cfg, save, rgb } = useStore(
@@ -27,6 +29,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   const [urlMode, setUrlMode] = useState(false);
   const [url, setUrl] = useState("");
   const [imported, setImported] = useState(0);
+  const [profileName, setProfileName] = useState("");
   const toast = (tone: "error" | "ok", msg: string) =>
     useStore.getState().toast(tone, msg);
 
@@ -40,6 +43,41 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
       setBusy(false);
       onDone();
     });
+  };
+
+  /**
+   * Name the setup they have just built and capture it.
+   *
+   * Offered at the end rather than left to Settings because the first run is
+   * the one moment the machine is on a look worth coming back to, and a
+   * profile nobody named is one nobody switches to. Skippable, because a blank
+   * name is not a reason to trap anyone on the last screen of setup.
+   *
+   * The profile is captured before `onboarded` is set so a failure here leaves
+   * the wizard open on this step rather than closing over a name that was
+   * never saved.
+   */
+  const createProfile = async () => {
+    const name = profileName.trim();
+    if (name.length === 0) {
+      toast("error", t("onboarding.profile-name-required"));
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.sceneSave(name);
+      // Re-read rather than trusting the returned scene: the capture happened
+      // on the Rust side and its view of the config is the one that was written.
+      useStore.setState({ cfg: await api.getConfig() });
+    } catch (e) {
+      toast("error", t("common.save-failed-{error}", { error: truncateError(e) }));
+      setBusy(false);
+      return;
+    }
+    setBusy(false);
+    // Straight to done: the profile now exists, so there is no state worth
+    // landing back on and the wizard's last screen has been seen.
+    finish();
   };
 
   const applyVaultFirst = async () => {
@@ -449,8 +487,44 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                 <Btn variant="ghost" onClick={() => setStep(3)}>
                   {t("onboarding.back")}
                 </Btn>
-                <Btn variant="primary" onClick={finish} disabled={busy}>
-                  {busy ? t("onboarding.saving") : t("onboarding.finish-setup")}
+                <Btn variant="primary" onClick={() => setStep(5)} disabled={busy}>
+                  {t("onboarding.next")}
+                </Btn>
+              </div>
+            </>
+          )}
+
+          {step === 5 && (
+            <>
+              <div className="flex items-center gap-3">
+                <IconUser className="h-5 w-5 text-[rgb(var(--glow))]" />
+                <h1 className="lednum text-lg text-[var(--text)]">
+                  {t("onboarding.name-your-profile")}
+                </h1>
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
+                {t("onboarding.profiles-are-one-click-away-from-this-look")}
+              </p>
+              <input
+                autoFocus
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !busy && void createProfile()}
+                placeholder={t("common.name-this-look-e-g-night-gaming")}
+                className="mt-4 w-full rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)] focus:outline-none"
+              />
+              <div className="mt-6 flex justify-between">
+                <Btn variant="ghost" onClick={finish} disabled={busy}>
+                  {t("onboarding.skip-setup")}
+                </Btn>
+                <Btn
+                  variant="primary"
+                  onClick={() => void createProfile()}
+                  disabled={busy}
+                >
+                  {busy
+                    ? t("onboarding.saving")
+                    : t("onboarding.create-profile")}
                 </Btn>
               </div>
             </>

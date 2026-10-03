@@ -134,14 +134,8 @@ export const HOTKEY_ACTIONS: {
   },
   {
     id: "nextProfile",
-    label: "hotkeys.nextProfile",
-    description: "hotkeys.nextProfile-description",
-    suggested: "Ctrl+Alt+R",
-  },
-  {
-    id: "nextScene",
-    label: "hotkeys.nextScene",
-    description: "hotkeys.nextScene-description",
+    label: "hotkeys.next-profile",
+    description: "hotkeys.next-profile-description",
     suggested: "Ctrl+Alt+S",
   },
   {

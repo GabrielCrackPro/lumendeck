@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type Reac
 import { GalleryCard } from "./GalleryCard";
 import { DENSITY_CLASS, type GalleryDensity } from "./GalleryToolbar";
 import type { Unhealthy } from "./vaultHealth";
+import type { VaultIndex } from "./vaultIndex";
 import type { ClickModifiers } from "./selection";
 import { t } from "../../i18n";
 import { IconClose, IconEyeOff, IconFolder, IconMonitor, IconTrash, IconSpinner } from "../icons";
@@ -56,6 +57,11 @@ export interface GalleryGridProps {
   onDragEntry: (id: string) => void;
   /** "N min" when a playlist is rotating, else null. */
   rotating: string | null;
+  /**
+   * The vault-wide metadata index, passed through to each tile so it can print
+   * resolution and length without probing per tile.
+   */
+  index?: VaultIndex;
   onToggleFavorite: (entry: GalleryEntry) => void;
 }
 
@@ -96,6 +102,7 @@ export function GalleryGrid({
   onDragEntry,
   rotating,
   onToggleFavorite,
+  index,
 }: GalleryGridProps) {
   const gridRef = useRef<HTMLDivElement | null>(null);
   // Roving tabindex: one cell is tabbable, the rest are -1, so Tab enters the
@@ -428,6 +435,7 @@ export function GalleryGrid({
             favorite={!!entry.favorite}
             onToggleFavorite={() => onToggleFavorite(entry)}
             rotating={rotating}
+            index={index}
             draggable
             onDragStart={(e) => {
               e.dataTransfer.setData("text/lumendeck-entry", entry.id);

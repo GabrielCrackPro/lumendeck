@@ -69,7 +69,7 @@ const GROUP_ORDER: [string, string][] = [
   ["wallpaper", "palette.group-wallpaper"],
   ["wallpapers", "palette.group-wallpapers"],
   ["rgb", "palette.group-lighting"],
-  ["scene", "palette.group-scenes"],
+  ["scene", "palette.group-profiles"],
   ["config", "palette.group-config"],
   ["app", "palette.group-app"],
 ];
@@ -316,7 +316,7 @@ export default function CommandPalette({
     if (cfg.scenes.length > 0) {
       cmds.push({
         id: "scene-set",
-        label: t("palette.apply-scene"),
+        label: t("palette.apply-profile"),
         group: "scene",
         icon: IconLayers,
         keywords: "apply use switch scene profile recall",
@@ -406,7 +406,7 @@ export default function CommandPalette({
       group: "scenes",
       icon: IconLayers,
       keywords: "apply use scene profile",
-      run: () => run(api.sceneApply(s.id), t("palette.scene-applied-{name}", { name: s.name })),
+      run: () => run(api.sceneApply(s.id), t("palette.profile-applied-{name}", { name: s.name })),
     }));
   }, [cfg, toast, locale]);
 
@@ -494,7 +494,7 @@ export default function CommandPalette({
 
   const SUB_META: Record<Exclude<typeof sub, null>, { title: string; crumb: string }> = {
     wallpapers: { title: t("palette.group-wallpapers"), crumb: t("palette.set-wallcrumb") },
-    scenes: { title: t("palette.group-scenes"), crumb: t("palette.apply-scene-crumb") },
+    scenes: { title: t("palette.group-profiles"), crumb: t("palette.apply-profile-crumb") },
     rgb: { title: t("palette.group-lighting"), crumb: t("palette.set-lighting-crumb") },
   };
 
@@ -541,7 +541,7 @@ export default function CommandPalette({
               sub === "wallpapers"
                 ? t("palette.search-wallpapers")
                 : sub === "scenes"
-                  ? t("palette.search-scenes")
+                  ? t("palette.search-profiles")
                   : sub === "rgb"
                     ? t("palette.search-modes")
                     : t("palette.type-a-command")
@@ -570,7 +570,7 @@ export default function CommandPalette({
                     sub === "wallpapers"
                       ? "palette.kind-wallpapers"
                       : sub === "scenes"
-                        ? "palette.kind-scenes"
+                        ? "palette.kind-profiles"
                         : sub === "rgb"
                           ? "palette.kind-modes"
                           : "palette.kind-commands",

@@ -11,6 +11,10 @@ import { AppMark } from "./ui";
 import Sidebar, { SETTINGS_TAB, TABS, shortcutRows } from "./Sidebar";
 import type { TabId } from "./Sidebar";
 import { t } from "../i18n";
+import { ConfigAvatar } from "./ConfigAvatar";
+import { ConfigPickerModal } from "./ConfigPickerModal";
+import { useConfigPicker } from "./useConfigPicker";
+import { isLiveStatus } from "./liveStatus";
 
 /** Read the --glow triplet currently on :root, or null when unparsable. */
 function currentGlow(): [number, number, number] | null {
@@ -286,24 +290,52 @@ function Toasts() {
   );
 }
 
-/** Live status readout pinned to the right of the header. */
-function HeaderStatus() {
+/**
+ * The config avatar, and the only place configs are switched from.
+ *
+ * It lives in the header rather than on a tab because it describes the machine
+ * rather than the screen: the previous version sat beside the greeting and
+ * therefore disappeared the moment you opened the Lighting tab, which is
+ * exactly when you might want to leave a setup.
+ */
+function HeaderConfigAvatar() {
+  const picker = useConfigPicker();
+  const rgbConnected = useStore((s) => s.rgb.connected);
   const wallpaperPaused = useStore((s) => s.wallpaperPaused);
-  // Quiet mono readout: one dot + label. Device/LED counts live in the
-  // Lighting tab and Overview — the header stays calm.
+  const wallpaperEnabled = useStore((s) => s.cfg?.general.wallpaperEnabled ?? false);
+  const rgbEnabled = useStore((s) => s.cfg?.rgb.enabled ?? false);
+
   return (
-    <div className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-faint)]">
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${
-          wallpaperPaused
-            ? "bg-amber-400"
-            : "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"
-        }`}
+    <>
+      <ConfigAvatar
+        scene={picker.activeScene}
+        onClick={picker.openBrowse}
+        live={isLiveStatus({
+          rgbConnected,
+          rgbEnabled,
+          wallpaperRunning: wallpaperEnabled && !wallpaperPaused,
+        })}
       />
-      {t(wallpaperPaused ? "shell.paused" : "shell.live")}
-    </div>
+      {picker.open && (
+        <ConfigPickerModal
+          scenes={picker.scenes}
+          activeId={picker.activeId}
+          applyingId={picker.applyingId}
+          startIn={picker.startInSave ? "save" : "browse"}
+          onClose={picker.close}
+          onApply={picker.apply}
+          onSave={picker.save}
+          onRename={picker.rename}
+          onDelete={picker.remove}
+          onChooseLogo={picker.chooseLogo}
+          onClearLogo={(id) => picker.setLogo(id, null)}
+          canDelete={picker.canDelete}
+        />
+      )}
+    </>
   );
 }
+
 
 /** "?" overlay: the keyboard map, since the hints only show on hover. */
 function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
@@ -550,7 +582,7 @@ export default function Shell() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-3">
-              <HeaderStatus />
+              <HeaderConfigAvatar />
             </div>
           </header>
 

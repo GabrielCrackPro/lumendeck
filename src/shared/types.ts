@@ -98,8 +98,6 @@ export interface RgbConfig {
   waveDirection: 1 | -1;
   /** Cycle rainbow spread across the strip in degrees (30..720). */
   cycleSpread: number;
-  /** Named lighting profiles for quick switching (tray + dashboard). */
-  profiles: RgbProfile[];
   /** Night dimming window (local "hh:mm", wraps midnight; empty = off). */
   nightStart: string;
   nightEnd: string;
@@ -107,13 +105,6 @@ export interface RgbConfig {
   nightBrightness: number;
   /** Flash on SMTC track change: duration in ms, 0 = disabled. */
   trackFlashMs: number;
-}
-
-export interface RgbProfile {
-  name: string;
-  mode: RgbMode;
-  staticColor: [number, number, number];
-  animationSpeed: number;
 }
 
 export type StickerFit = "contain" | "cover" | "fill";
@@ -172,6 +163,13 @@ export interface GeneralConfig {
   lockScreenArmed: boolean;
   /** First-run onboarding wizard has been completed. */
   onboarded: boolean;
+  /**
+   * The profile the machine is running, or null. Set by the backend when a
+   * profile is applied or captured, and cleared when that profile is deleted.
+   * While it is set, every config write re-captures that profile, so edits made
+   * after switching to one are kept.
+   */
+  activeProfileId: string | null;
   /**
    * How strongly the dashboard accent is shade-adjusted for legibility on
    * the theme surface (0 = raw source colors, 1 = full contrast lift).
@@ -233,7 +231,6 @@ export interface HotkeyConfig {
   toggleWallpaper: HotkeyBinding;
   cycleLightingMode: HotkeyBinding;
   nextProfile: HotkeyBinding;
-  nextScene: HotkeyBinding;
   nextWallpaper: HotkeyBinding;
 }
 
@@ -313,6 +310,20 @@ export interface SceneProfile {
   name: string;
   wallpaper: WallpaperConfig;
   rgb: RgbConfig;
+  /**
+   * Sticker placements, restored on recall.
+   *
+   * Empty for any scene saved before stickers were captured, which is the same
+   * state the Rust side sees: an older scene recalls with a clear desk rather
+   * than failing.
+   */
+  stickers: StickerDef[];
+  /**
+   * Absolute path to the avatar image, copied into the app's media directory.
+   * Null or absent means "draw the initial", which is what every config saved
+   * before avatars existed reads as.
+   */
+  logo: string | null;
   createdMs: number;
 }
 

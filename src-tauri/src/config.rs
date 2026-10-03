@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const CONFIG_VERSION: u32 = 1;
+pub const CONFIG_VERSION: u32 = 2;
 
 /// Migrate a config written by an older app version to the current schema.
 /// Serde's `default` fields already absorb additive changes; this hook is for
@@ -21,11 +21,131 @@ pub fn migrate(raw: &mut serde_json::Value, from: Option<u32>) -> Result<(), Str
             "config was written by a newer app (schema v{from} > v{CONFIG_VERSION})"
         ));
     }
-    // Example for a future break:
-    //   if from < 2 { rename_key(raw, "oldName", "newName"); }
+    // v2: lighting-only profiles were replaced by whole-look configs, and
+    // every profile someone had saved became one. See
+    // `lighting_profiles_become_configs`.
+    if from < 2 {
+        lighting_profiles_become_configs(raw);
+        rename_hotkey_key(raw, "nextScene", "nextProfile");
+    }
     let _ = from;
     raw["version"] = serde_json::json!(CONFIG_VERSION);
     Ok(())
+}
+
+/// Carry a stored hotkey binding across a rename.
+///
+/// Written as a raw move rather than a serde alias because the pair has to
+/// move in the file too: the old key is removed, so the next write does not
+/// leave two spellings of one binding behind. A key that is absent is not an
+/// error — an unbound action has nothing to carry.
+fn rename_hotkey_key(raw: &mut serde_json::Value, from: &str, to: &str) {
+    let Some(hotkeys) = raw
+        .get_mut("general")
+        .and_then(|g| g.get_mut("hotkeys"))
+        .and_then(|h| h.as_object_mut())
+    else {
+        return;
+    };
+    let Some(value) = hotkeys.remove(from) else {
+        return;
+    };
+    // Refuses to clobber: if the new name is already bound, the old one is
+    // dropped instead, because two bindings for one action is worse than one.
+    hotkeys.entry(to.to_string()).or_insert(value);
+}
+
+/// Milliseconds since the Unix epoch, for `created_ms`.
+///
+/// A named time source because two call sites writing the same four lines of
+/// `SystemTime` boilerplate is how one of them ends up truncating to seconds.
+pub(crate) fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// v1 -> v2: every saved lighting profile becomes a whole-look config.
+///
+/// A profile captured only mode, colour and speed; a config captures a whole
+/// look. Each profile is therefore converted rather than dropped — it becomes
+/// the wallpaper and the stickers currently on screen plus its own lighting,
+/// which is what it meant in practice: a profile changed the lights and left
+/// the desktop alone.
+///
+/// Converting rather than discarding is the whole reason this exists. A user
+/// with eight saved profiles and no configs would otherwise come back from the
+/// upgrade to an empty Settings page with no way to find out why.
+fn lighting_profiles_become_configs(raw: &mut serde_json::Value) {
+    let profiles = match raw.get("rgb").and_then(|rgb| rgb.get("profiles")) {
+        Some(serde_json::Value::Array(list)) if !list.is_empty() => list.clone(),
+        _ => return,
+    };
+    let base_rgb = raw.get("rgb").cloned().unwrap_or_else(|| serde_json::json!({}));
+    let created_ms = now_ms();
+    // Migrated profiles land after the configs the user already has: they are
+    // the older thing, and the array order is the order the UI lists them in.
+    let mut scenes: Vec<serde_json::Value> = match raw.get("scenes") {
+        Some(serde_json::Value::Array(existing)) => existing.clone(),
+        _ => Vec::new(),
+    };
+    let mut taken_ids: std::collections::HashSet<String> = scenes
+        .iter()
+        .filter_map(|s| s.get("id").and_then(|id| id.as_str()).map(String::from))
+        .collect();
+
+    for (i, profile) in profiles.iter().enumerate() {
+        let name = profile
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("Config")
+            .to_string();
+        // Ids are how "apply this config" finds its target, so a migrated id
+        // that collided with a saved one would make two entries on the list
+        // land on the same config. Deterministic ids keep the migration
+        // testable; the suffix loop is what keeps them from overlapping.
+        let mut id = format!("scene-from-profile-{i}");
+        let mut bump = 1;
+        while taken_ids.contains(&id) {
+            id = format!("scene-from-profile-{i}-{bump}");
+            bump += 1;
+        }
+        taken_ids.insert(id.clone());
+        let mut rgb = base_rgb.clone();
+        if let Some(obj) = rgb.as_object_mut() {
+            // Only the three knobs a profile ever captured. Everything else in
+            // the RGB config stays as this machine has it.
+            for key in ["mode", "staticColor", "animationSpeed"] {
+                if let Some(v) = profile.get(key) {
+                    obj.insert(key.to_string(), v.clone());
+                }
+            }
+            // The list being migrated must not survive inside every copy of the
+            // RGB config, or recalling a config would resurrect it.
+            obj.remove("profiles");
+        }
+        let mut scene = serde_json::Map::new();
+        scene.insert("id".into(), serde_json::json!(id));
+        scene.insert("name".into(), serde_json::json!(name));
+        // Inserted only when present, so a missing section falls back to the
+        // serde default instead of failing on an explicit null.
+        if let Some(wallpaper) = raw.get("wallpaper") {
+            scene.insert("wallpaper".into(), wallpaper.clone());
+        }
+        scene.insert("rgb".into(), rgb);
+        if let Some(stickers) = raw.get("stickers") {
+            scene.insert("stickers".into(), stickers.clone());
+        }
+        scene.insert("createdMs".into(), serde_json::json!(created_ms));
+        scenes.push(serde_json::Value::Object(scene));
+    }
+
+    raw["scenes"] = serde_json::json!(scenes);
+    if let Some(rgb) = raw.get_mut("rgb").and_then(|r| r.as_object_mut()) {
+        rgb.remove("profiles");
+    }
+    log::info!("migrated {} lighting profile(s) to configs", profiles.len());
 }
 
 // ---------- General ----------
@@ -85,6 +205,16 @@ pub struct GeneralConfig {
     /// First-run onboarding wizard has been completed. False on fresh
     /// installs; the dashboard shows a guided setup until it's done.
     pub onboarded: bool,
+    /// The profile the machine is currently running, or null when it is on
+    /// something no profile describes.
+    ///
+    /// Stored rather than re-derived by matching the config against every
+    /// profile, because two profiles can describe the same state and only the
+    /// id says which one the user picked. The match is still the fallback: a
+    /// config written before this field existed has no id, and its profiles
+    /// should still light up. While it is set, every config write re-captures
+    /// that profile (see `config_store::sync_active_profile`).
+    pub active_profile_id: Option<String>,
     /// Dashboard accent auto-shade: how strongly the UI lifts/darkens a
     /// source color until it is legible on the theme surface. 0.0 = off
     /// (raw colors, may be hard to read), 1.0 = full adjustment to clear
@@ -193,10 +323,10 @@ pub struct HotkeyConfig {
     pub toggle_wallpaper: HotkeyBinding,
     /// Step to the next lighting mode (same order as the tray menu).
     pub cycle_lighting_mode: HotkeyBinding,
-    /// Cycle saved RGB profiles.
+    /// Apply the next saved profile. Renamed from `next_scene`; the migration
+    /// carries an existing binding across rather than leaving a user who had
+    /// set one with nothing bound after the upgrade.
     pub next_profile: HotkeyBinding,
-    /// Apply the next saved scene profile.
-    pub next_scene: HotkeyBinding,
     /// Advance the active playlist / gallery to the next entry.
     pub next_wallpaper: HotkeyBinding,
 }
@@ -204,7 +334,7 @@ pub struct HotkeyConfig {
 impl HotkeyConfig {
     /// `(action id, binding)` pairs, in a stable order. The ids match the
     /// frontend's `HotkeyAction` union and the tray's dispatch table.
-    pub fn entries(&self) -> [(&'static str, &HotkeyBinding); 12] {
+    pub fn entries(&self) -> [(&'static str, &HotkeyBinding); 11] {
         [
             ("toggleDashboard", &self.toggle_dashboard),
             ("playPause", &self.play_pause),
@@ -216,7 +346,6 @@ impl HotkeyConfig {
             ("toggleWallpaper", &self.toggle_wallpaper),
             ("cycleLightingMode", &self.cycle_lighting_mode),
             ("nextProfile", &self.next_profile),
-            ("nextScene", &self.next_scene),
             ("nextWallpaper", &self.next_wallpaper),
         ]
     }
@@ -242,6 +371,7 @@ impl Default for GeneralConfig {
             lock_screen_follows_wallpaper: false,
             lock_screen_armed: false,
             onboarded: false,
+            active_profile_id: None,
             accent_auto_shade: 1.0,
             amoled: false,
             // The fallback for configs predating the field, so existing users
@@ -455,8 +585,6 @@ pub struct RgbConfig {
     pub wave_direction: i32,
     /// Cycle mode rainbow spread across the strip in degrees (30..720).
     pub cycle_spread: f64,
-    /// Named lighting profiles: snapshot of mode/color/speed for quick switching.
-    pub profiles: Vec<RgbProfile>,
     /// Night dimming: between `night_start` and `night_end` (local "hh:mm",
     /// may wrap midnight), device brightness is capped at `night_brightness`
     /// (0..1). Empty strings = disabled.
@@ -484,16 +612,6 @@ fn default_hotkey_blink_color() -> [u8; 3] {
     crate::tokens::hotkey_blink()
 }
 
-/// A named lighting profile bundling the most-tweaked RGB knobs.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct RgbProfile {
-    pub name: String,
-    pub mode: RgbMode,
-    pub static_color: [u8; 3],
-    pub animation_speed: f64,
-}
-
 impl Default for RgbConfig {
     fn default() -> Self {
         Self {
@@ -516,7 +634,6 @@ impl Default for RgbConfig {
             audio_source: "system".into(),
             wave_direction: 1,
             cycle_spread: 360.0,
-            profiles: Vec::new(),
             night_start: String::new(),
             night_end: String::new(),
             night_brightness: 0.3,
@@ -805,8 +922,34 @@ pub struct SceneProfile {
     pub name: String,
     /// Whole-wallpaper config (kind/source/videoFit/fx/per-monitor overrides).
     pub wallpaper: WallpaperConfig,
-    /// Whole-RGB config (mode/mixer/zones/profiles list stays shared).
+    /// Whole-RGB config (mode/mixer/zones/accents and the rest).
     pub rgb: RgbConfig,
+    /// Sticker placements, so a recall restores the whole arrangement.
+    ///
+    /// This reverses an earlier decision to leave stickers alone as
+    /// "positional, not mood". A desk with three different sticker layouts and
+    /// three different wallpapers is one setup saved three times, which is the
+    /// thing a config is for. `#[serde(default)]` matters more here than on the
+    /// other fields: a scene stored before this existed deserialises to an
+    /// empty list, and recall then clears the desktop rather than failing.
+    ///
+    /// That is the sharp edge of restoring stickers and it is why the
+    /// confirmation is the user's to give, not ours to assume either way.
+    ///
+    /// No `#[serde(default)]` here on purpose: the struct already carries one,
+    /// and mutation proved a field-level copy changes nothing — the test still
+    /// passed with it removed. Two attributes reading as load-bearing when only
+    /// the outer one is is how the next person deletes the one that matters.
+    pub stickers: Vec<StickerDef>,
+    /// Absolute path to the avatar image, when the user chose one.
+    ///
+    /// A copy in the app's own media directory rather than the path they
+    /// picked: a config is the one thing here that is meant to still work in a
+    /// year, and the file behind "Next to my Downloads" is the first thing that
+    /// gets tidied away. `None` is the ordinary case and means "draw the
+    /// initial", which is also what every config written before this field
+    /// existed reads as.
+    pub logo: Option<String>,
     /// Snapshot timestamp (ms) for the UI.
     pub created_ms: u64,
 }
@@ -818,6 +961,8 @@ impl Default for SceneProfile {
             name: String::new(),
             wallpaper: WallpaperConfig::default(),
             rgb: RgbConfig::default(),
+            stickers: Vec::new(),
+            logo: None,
             created_ms: 0,
         }
     }
@@ -954,6 +1099,162 @@ mod playlist_tests {
         assert!(cfg.playlists.is_empty());
     }
 
+    /// A config stored before scenes carried stickers must still load.
+    ///
+    /// This is the migration that matters: `SceneProfile` carries a
+    /// struct-level `#[serde(default)]`, so an old scene deserialises to an
+    /// empty sticker list rather than failing the whole config read. Without it
+    /// every existing user's app would fail to start on upgrade, which is the
+    /// failure mode a `default` attribute exists to prevent and the one worth a
+    /// test rather than a comment.
+    #[test]
+    fn an_old_scene_without_stickers_still_deserializes() {
+        let old = r#"{
+            "id": "scene-1",
+            "name": "Evening",
+            "createdMs": 1700000000000,
+            "wallpaper": {},
+            "rgb": {}
+        }"#;
+        let scene: SceneProfile = serde_json::from_str(old).expect("old scene must load");
+        assert_eq!(scene.name, "Evening");
+        assert!(
+            scene.stickers.is_empty(),
+            "an old scene recalls with an empty desk, not a failed load"
+        );
+    }
+
+    #[test]
+    fn a_scene_roundtrips_its_stickers() {
+        let mut scene = SceneProfile {
+            id: "scene-2".into(),
+            name: "Desk".into(),
+            created_ms: 1,
+            ..Default::default()
+        };
+        scene.stickers.push(StickerDef {
+            id: "s1".into(),
+            name: "clock".into(),
+            url: "media://s1.png".into(),
+            x: 10,
+            y: 20,
+            w: 100,
+            h: 100,
+            ..Default::default()
+        });
+        let json = serde_json::to_string(&scene).expect("scene serialises");
+        let back: SceneProfile = serde_json::from_str(&json).expect("scene deserialises");
+        assert_eq!(back.stickers.len(), 1);
+        assert_eq!(back.stickers[0].name, "clock");
+    }
+
+    #[test]
+    fn saved_lighting_profiles_become_configs_on_load() {
+        // The one test that matters for the v1 -> v2 migration: a user who
+        // saved profiles must come back to configs, not to an empty page.
+        let old = serde_json::json!({
+            "version": 1,
+            "wallpaper": { "kind": "video", "source": "media://a.mp4" },
+            "stickers": [{ "id": "s1", "name": "cat" }],
+            "rgb": {
+                "mode": "ambient",
+                "staticColor": [80, 120, 255],
+                "animationSpeed": 1.0,
+                "enabled": false,
+                "profiles": [
+                    { "name": "Chill", "mode": "ambient", "staticColor": [0, 0, 255], "animationSpeed": 0.5 },
+                    { "name": "Rage", "mode": "wave", "staticColor": [255, 0, 0], "animationSpeed": 3.0 }
+                ]
+            }
+        });
+        let mut raw = old;
+        migrate(&mut raw, Some(1)).expect("a v1 config must migrate");
+
+        let cfg: Config = serde_json::from_value(raw.clone()).expect("migrated config parses");
+        assert_eq!(cfg.scenes.len(), 2, "each profile becomes one config");
+        assert_eq!(cfg.scenes[0].name, "Chill");
+        assert_eq!(cfg.scenes[1].name, "Rage");
+
+        // The three knobs the profile captured come from the profile...
+        assert_eq!(cfg.scenes[0].rgb.mode, RgbMode::Ambient);
+        assert_eq!(cfg.scenes[0].rgb.static_color, [0, 0, 255]);
+        assert_eq!(cfg.scenes[0].rgb.animation_speed, 0.5);
+        assert_eq!(cfg.scenes[1].rgb.mode, RgbMode::Wave);
+        // ...and everything else the profile never knew about stays as the
+        // machine had it.
+        assert!(!cfg.scenes[0].rgb.enabled, "unrelated RGB settings must survive");
+        // The desktop a profile was used against is the one it now carries.
+        assert_eq!(cfg.scenes[0].wallpaper.kind, WallpaperKind::Video);
+        assert_eq!(cfg.scenes[0].wallpaper.source, "media://a.mp4");
+        assert_eq!(cfg.scenes[0].stickers.len(), 1);
+
+        // The list must not survive inside the migrated copies, or recalling a
+        // config would bring the retired profiles back.
+        assert!(raw["rgb"].get("profiles").is_none());
+        assert!(raw["scenes"][0]["rgb"].get("profiles").is_none());
+    }
+
+    #[test]
+    fn ids_of_migrated_configs_cannot_collide_with_saved_ones() {
+        let old = serde_json::json!({
+            "version": 1,
+            "rgb": { "profiles": [
+                { "name": "Chill", "mode": "ambient", "staticColor": [0, 0, 255], "animationSpeed": 1.0 }
+            ]},
+            "scenes": [{ "id": "scene-from-profile-0", "name": "Mine", "wallpaper": {}, "rgb": {} }]
+        });
+        let mut raw = old;
+        migrate(&mut raw, Some(1)).expect("a v1 config must migrate");
+        let ids: Vec<String> = raw["scenes"]
+            .as_array()
+            .expect("scenes stay an array")
+            .iter()
+            .map(|s| s["id"].as_str().expect("every config has an id").to_string())
+            .collect();
+        assert_eq!(ids.len(), 2);
+        // Two configs answering to one id is the failure that makes "apply this
+        // config" land on the wrong one, so the migration has to move out of
+        // the way of ids it could collide with.
+        assert_ne!(
+            ids[0], ids[1],
+            "a migrated config must not reuse a stored id"
+        );
+    }
+
+    #[test]
+    fn a_config_without_saved_profiles_is_left_alone() {
+        let old = serde_json::json!({
+            "version": 1,
+            "rgb": { "mode": "wave" },
+            "scenes": [{ "id": "scene-1", "name": "Mine", "wallpaper": {}, "rgb": {} }]
+        });
+        let mut raw = old;
+        migrate(&mut raw, Some(1)).expect("a v1 config must migrate");
+        let cfg: Config = serde_json::from_value(raw).expect("config parses");
+        assert_eq!(cfg.scenes.len(), 1, "nothing to convert means nothing added");
+        assert_eq!(cfg.scenes[0].name, "Mine");
+    }
+
+    #[test]
+    fn a_bound_next_scene_hotkey_survives_its_rename() {
+        let old = serde_json::json!({
+            "version": 1,
+            "general": { "hotkeys": { "nextScene": { "accelerator": "Ctrl+Alt+S" } } }
+        });
+        let mut raw = old;
+        migrate(&mut raw, Some(1)).expect("a v1 config must migrate");
+        let cfg: Config = serde_json::from_value(raw.clone()).expect("config parses");
+        assert_eq!(
+            cfg.general.hotkeys.next_profile.accelerator,
+            "Ctrl+Alt+S",
+            "a user who bound the action keeps it after the rename"
+        );
+        assert!(
+            !raw["general"]["hotkeys"].as_object().expect("hotkeys stay an object").contains_key("nextScene"),
+            "the old key must not be written back out"
+        );
+    }
+
     #[test]
     fn playlist_serde_roundtrip() {
         let pl = WallpaperPlaylist {
@@ -1000,7 +1301,6 @@ mod playlist_tests {
             "toggleWallpaper",
             "cycleLightingMode",
             "nextProfile",
-            "nextScene",
             "nextWallpaper",
         ] {
             assert!(ids.contains(&expected), "entries() is missing {expected}");
