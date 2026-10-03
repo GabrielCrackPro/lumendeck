@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { IconRefresh, IconMonitor, IconCheck, IconCopy, IconPipette, IconChevronDown, IconPencil, IconSearch } from "./icons";
+import { IconRefresh, IconMonitor, IconCheck, IconCopy, IconPipette, IconChevronDown, IconPencil, IconSearch, IconSpinner } from "./icons";
 import { useCopy } from "./useCopy";
 import { versionLabel } from "./buildIdentity";
 import { filterRail, foldForSearch } from "./settings/railFilter";
@@ -175,7 +175,10 @@ export function Card({
   return (
     <section className={`glass overflow-hidden ${className ?? ""}`}>
       <header className="flex min-h-[42px] items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4">
-        <h2 className="kicker flex items-center gap-2 !text-[var(--text-dim)]">
+        {/* `min-w-0` + truncate: a long card title is a flex item like any
+            other, and without a minimum of zero its nowrap text widens the
+            header until the panel clips its own right edge. */}
+        <h2 className="kicker flex min-w-0 items-center gap-2 truncate !text-[var(--text-dim)]">
           {icon && <span className="text-[rgb(var(--glow))] [&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>}
           {title}
         </h2>
@@ -221,34 +224,160 @@ export function Chip({
 }
 
 /** Visual-only switch: the pill + knob + ripple, without any label row. */
+/**
+ * The switch skin: track, ripple, knob. No behaviour of its own.
+ *
+ * Extracted because two controls need this exact drawing — a bare switch
+ * beside something (`SwitchBtn`) and a whole labelled row (`SwitchRow`) —
+ * and two copies of it is how those two drift apart, which is the reason the
+ * shared primitives exist in the first place.
+ *
+ * `pointer-events-none` because in `SwitchRow` the whole row is the button;
+ * a track that swallowed clicks would leave dead pixels inside the target.
+ *
+ * The `switch-btn` class belongs on the interactive element, not here: the
+ * press animation is `.switch-btn:active .switch-ripple`, and a span that is
+ * `pointer-events-none` can never be `:active`, so putting it here would
+ * silently kill the faster ripple timing.
+ */
+function SwitchTrack({
+  checked,
+  disabled,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <span
+      aria-hidden
+      // `block` is load-bearing, not decoration. This used to be the <button> itself,
+      // which is `inline-block`, so `w-[34px]` applied. Moved onto a <span> — which
+      // is `display: inline`, where width and height are ignored — the track
+      // collapsed to zero content width plus its 1px borders: a 2px sliver. The
+      // absolutely-positioned knob escaped it and painted outside the card, so
+      // the switch read as a thin line beside a floating white dot.
+      className={`pointer-events-none relative block h-[20px] w-[34px] shrink-0 rounded-full border transition-all duration-200 ${
+        disabled
+          ? checked
+            ? "border-transparent bg-[rgb(var(--glow)/0.3)]"
+            : "border-[var(--line)] bg-[var(--panel-sunken)] opacity-60"
+          : checked
+            ? "border-transparent bg-[rgb(var(--glow))]"
+            : // `--panel-strong`, not `--panel-sunken`: the off state was a
+              // barely-darker-than-the-card wash, so an off switch read as an
+              // empty gap rather than a control you could aim at.
+              "border-[var(--line-strong)] bg-[var(--panel-strong)]"
+      }`}
+    >
+      {/* ripple burst on toggle */}
+      <span key={String(checked)} className="switch-ripple absolute inset-0 rounded-full" />
+      <span
+        // `--text` is the theme foreground: near-white in dark, near-black in
+        // light, so the knob inverts with the theme. Not `--accent-lift`,
+        // which is a JavaScript-only token and resolves to nothing in CSS —
+        // using it made this knob fully transparent and the switch vanished.
+        // The fallback keeps a future unresolved token from turning the
+        // control invisible, which is the worst way for this to fail.
+        className={`absolute top-[2.5px] h-[14px] w-[14px] rounded-full bg-[var(--text,#ecedef)] shadow transition-all duration-200 ${
+          checked ? "left-[17px]" : "left-[2.5px]"
+        } ${disabled ? "opacity-70" : ""}`}
+      />
+    </span>
+  );
+}
+
 export function SwitchBtn({
   checked,
   onChange,
   title,
+  disabled,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
+  /** Also the accessible name: a bare switch has no other label. */
   title?: string;
+  /** A setting with nothing to act on should not invite the click. */
+  disabled?: boolean;
 }) {
   return (
     <button
+      // Without this the switch submits whatever form it happens to sit in,
+      // which is not a decision a control should make on its own.
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={title}
+      title={title}
+      disabled={disabled}
+      onClick={() => !disabled && onChange(!checked)}
+      className="switch-btn shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--panel-sunken)] disabled:cursor-not-allowed"
+    >
+      <SwitchTrack checked={checked} disabled={disabled} />
+    </button>
+  );
+}
+
+/**
+ * A labelled switch whose entire row is the target.
+ *
+ * `Toggle` used to wrap a switch button in a `<label>` and rely on the label
+ * to forward the click. It does not: a `<label>` activates an associated
+ * *form control*, and `<button role="switch">` is not one — so the row was
+ * drawn clickable (`cursor-pointer`) and silently was not. The whole row is
+ * the button here instead, which also makes the target the label rather than
+ * a 22px sliver, and makes it work from the keyboard for the same reason it
+ * works from the mouse.
+ *
+ * `className` is for sizing, not for skin: it cannot restyle the track, so
+ * this cannot drift into a second switch.
+ */
+export function SwitchRow({
+  checked,
+  onChange,
+  label,
+  description,
+  title,
+  icon,
+  disabled,
+  className = "",
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  description?: string;
+  /** Tooltip for the compact header use, where there is no description. */
+  title?: string;
+  /** Optional leading plate, for a control worth giving visual weight. */
+  icon?: ReactNode;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
       role="switch"
       aria-checked={checked}
       title={title}
-      onClick={() => onChange(!checked)}
-      className={`switch-btn relative h-[22px] w-[38px] shrink-0 rounded-md border transition-all duration-200 ${
-        checked
-          ? "border-transparent bg-[rgb(var(--glow))]"
-          : "border-[var(--line-strong)] bg-[var(--panel-sunken)]"
-      }`}
+      disabled={disabled}
+      onClick={() => !disabled && onChange(!checked)}
+      className={`switch-btn flex w-full min-w-0 items-center gap-3 rounded-[var(--radius-md)] py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.6)] disabled:cursor-not-allowed ${className}`}
     >
-      {/* ripple burst on toggle */}
-      <span key={String(checked)} className="switch-ripple absolute inset-0 rounded-md" />
-      <span
-        className={`absolute top-[3px] h-[14px] w-[16px] rounded-[3px] bg-white shadow transition-all duration-200 ${
-          checked ? "left-[19px]" : "left-[3px]"
-        }`}
-      />
+      {icon && <span className="shrink-0">{icon}</span>}
+      {/* `min-w-0` is what lets the text shrink instead of forcing the row
+          wider than its container. Without it a grid item's automatic minimum
+          size is its min-content width, and a long label silently widens the
+          whole column until the card clips its own right edge. */}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium leading-tight text-[var(--text)]">
+          {label}
+        </span>
+        {description && (
+          <span className="mt-0.5 block truncate text-[11px] leading-snug text-[var(--text-faint)]">
+            {description}
+          </span>
+        )}
+      </span>
+      <SwitchTrack checked={checked} disabled={disabled} />
     </button>
   );
 }
@@ -264,18 +393,29 @@ export function Toggle({
   label: string;
   description?: string;
 }) {
+  // Was a `<label>` wrapping a `SwitchBtn`, which meant the row only *looked*
+  // clickable — a label activates a form control, and a button is not one.
+  // The row is the button now. Typography is left as it was: this renders at
+  // list scale, and the settings rows that use it should not all restyle
+  // because the master switch gained a row of its own.
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-4 py-3">
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="switch-btn flex w-full min-w-0 cursor-pointer items-center justify-between gap-4 rounded-[var(--radius-md)] py-3 text-left outline-none transition-colors hover:bg-[var(--panel-strong)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.6)]"
+    >
       <span className="min-w-0">
-        <span className="block text-sm font-medium text-[var(--text)]">{label}</span>
+        <span className="block truncate text-sm font-medium text-[var(--text)]">{label}</span>
         {description && (
           <span className="mt-0.5 block text-xs leading-relaxed text-[var(--text-faint)]">
             {description}
           </span>
         )}
       </span>
-      <SwitchBtn checked={checked} onChange={onChange} />
-    </label>
+      <SwitchTrack checked={checked} />
+    </button>
   );
 }
 
@@ -369,6 +509,8 @@ export function Dropdown<T extends string | number>({
   ariaLabel,
   title,
   icon,
+  chip = false,
+  chipActive,
 }: {
   value: T;
   options: { id: T; label: string }[];
@@ -390,6 +532,25 @@ export function Dropdown<T extends string | number>({
    * sort order is visible in the tiles anyway.
    */
   icon?: ReactNode;
+  /**
+   * Shape the trigger as one of the panel's filter pills rather than a form
+   * field.
+   *
+   * The resolution floor used to be an icon-mode `Dropdown`, which in a row of
+   * pills was a lone 32px square whose only statement about the current filter
+   * was a tooltip -- the one control in the panel you could not read at a
+   * glance, in the panel whose entire job is being readable at a glance.
+   */
+  chip?: boolean;
+  /**
+   * Whether a `chip` trigger reads as pressed.
+   *
+   * Defaults to "the menu is open", which is right for a field that opens. It
+   * is wrong for a filter: picking a resolution floor and then reading the
+   * panel should still show it as applied, so callers pass the filter's own
+   * state rather than the popover's.
+   */
+  chipActive?: boolean;
 }) {
   const pop = useAnchoredPopover();
   const current = options.find((o) => o.id === value);
@@ -433,19 +594,24 @@ export function Dropdown<T extends string | number>({
         aria-haspopup="listbox"
         aria-expanded={pop.shown}
         aria-label={ariaLabel}
-        title={title}
-        className={`flex w-full items-center justify-between gap-2 rounded-lg border text-left transition-colors ${
-          compact ? "px-2.5 py-1 text-xs" : "px-3 py-2 text-sm"
-        } ${
-          pop.shown
-            ? "border-[rgb(var(--glow)/0.6)]"
-            : "border-[var(--line-strong)] hover:border-[rgb(var(--glow)/0.5)]"
-        } bg-[var(--panel-strong)] text-[var(--text)]`}
-      >
-        <span className="min-w-0 truncate">{current?.label ?? String(value)}</span>
-        <svg
-          viewBox="0 0 24 24"
-          className={`${compact ? "h-3 w-3" : "h-4 w-4"} shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${pop.shown ? "rotate-180" : ""}`}
+        title={title}className={
+            chip
+              ? `flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${
+                  (chipActive ?? pop.shown) ? CHIP_ON : CHIP_OFF
+                }`
+              : `flex w-full items-center justify-between gap-2 rounded-lg border text-left transition-colors ${
+                  compact ? "px-2.5 py-1 text-xs" : "px-3 py-2 text-sm"
+                } ${
+                  pop.shown
+                    ? "border-[rgb(var(--glow)/0.6)]"
+                    : "border-[var(--line-strong)] hover:border-[rgb(var(--glow)/0.5)]"
+                } bg-[var(--panel-strong)] text-[var(--text)]`
+          }
+        >
+          <span className="min-w-0 truncate">{current?.label ?? String(value)}</span>
+          <svg
+            viewBox="0 0 24 24"
+            className={`${chip || compact ? "h-3 w-3" : "h-4 w-4"} shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${pop.shown ? "rotate-180" : ""}`}
           fill="none"
           stroke="currentColor"
           strokeWidth="1.8"
@@ -473,6 +639,17 @@ export function Dropdown<T extends string | number>({
     </div>
   );
 }
+
+/**
+ * Chip height in the filter panel: a `py-1 text-xs` pill plus its 1px border.
+ *
+ * Stated as a token because three separate controls have to agree on it -- the
+ * collection chip's action half, the "new collection" button and the
+ * resolution dropdown all sit in the same row, and each used to be sized from
+ * its own idea of what a pill is (26px, 24px and 32px respectively), which is
+ * what made that row look like it had been assembled from three panels.
+ */
+export const CHIP_H = "h-[26px]";
 
 /**
  * The option list a `Dropdown` opens.
@@ -541,6 +718,7 @@ export function Btn({
   disabled,
   className,
   type = "button",
+  pending,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -551,6 +729,19 @@ export function Btn({
   className?: string;
   /** Defaults to "button", not HTML's implicit "submit". */
   type?: "button" | "submit";
+  /**
+   * The button is waiting on an IPC call. Shows a spinner *beside* the label
+   * rather than replacing it: the words are what tells the user what is
+   * happening, and "import" turning into a bare arc reads as an unknown
+   * control. Icon-only buttons swap their glyph for the arc instead, because
+   * there the glyph is the only thing in the box.
+   *
+   * Do not combine this with a leading icon of your own: the two sit side by
+   * side and read as two separate controls. A button with an icon should drop
+   * the icon while it pends, or not use this at all -- which is why every
+   * current caller of `pending` is a label-only button.
+   */
+  pending?: boolean;
 }) {
   const styles = {
     default:
@@ -571,9 +762,11 @@ export function Btn({
     <button
       type={type}
       onClick={onClick}
-      disabled={disabled}
+      disabled={disabled || pending}
+      aria-busy={pending || undefined}
       className={`inline-flex select-none items-center justify-center gap-2 font-semibold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${sizing} ${styles} ${className ?? ""}`}
     >
+      {pending && <IconSpinner className="h-3.5 w-3.5 shrink-0" />}
       {children}
     </button>
   );
@@ -963,7 +1156,7 @@ export function ColorInput({
               }}
             />
             <div
-              className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgb(0_0_0/0.6)]"
+              className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--text,#ecedef)] shadow-[0_0_0_1px_rgb(0_0_0/0.6)]"
               style={{ left: `calc(8px + (100% - 16px) * ${hue / 360})`, background: hueHex }}
             />
             <input

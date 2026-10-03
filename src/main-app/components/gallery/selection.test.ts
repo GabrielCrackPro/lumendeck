@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   anchorIsVisible,
   applyClick,
-  applyOrder,
   clearSelection,
   emptySelection,
   pruneSelection,
@@ -259,27 +258,10 @@ describe("anchorIsVisible", () => {
   });
 });
 
-describe("applyOrder", () => {
-  const entry = (id: string, addedMs: number) => ({ id, addedMs });
-  const entries = [entry("new", 30), entry("old", 10), entry("mid", 20)];
-
-  it("returns only the selected entries, oldest first", () => {
-    // Stable regardless of click order, so applying a selection gives the same
-    // result however it was built.
-    const out = applyOrder(entries, set("new", "old"));
-    expect(out.map((e) => e.id)).toEqual(["old", "new"]);
-  });
-
-  it("breaks ties by id so the order is total", () => {
-    const same = [entry("b", 5), entry("a", 5)];
-    expect(applyOrder(same, set("a", "b")).map((e) => e.id)).toEqual(["a", "b"]);
-  });
-
-  it("is empty for an empty selection", () => {
-    expect(applyOrder(entries, set())).toEqual([]);
-  });
-
-  it("ignores ids that are no longer in the vault", () => {
-    expect(applyOrder(entries, set("old", "gone")).map((e) => e.id)).toEqual(["old"]);
-  });
-});
+// `applyOrder` used to live here and is gone. It ordered the selection for a
+// bulk apply that applied *every* selected wallpaper in turn, which is why the
+// button's tooltip and `applyOrder`'s own comment disagreed with what the user
+// saw: twenty wallpaper changes for a selection that ends in the same place
+// either way. The apply now sets one wallpaper, and the ordering that decision
+// needs lives in bulkSelection.ts as `bulkApplyPlan`, alongside the delete it
+// shares an order with. Two copies of one rule is how they drift.

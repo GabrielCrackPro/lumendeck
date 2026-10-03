@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { IconGrid, IconLayers, IconSearch, IconSelectAll, IconSliders, IconSort, IconSparkle, IconStar } from "../icons";
+import { IconClose, IconGrid, IconLayers, IconSearch, IconSelectAll, IconSliders, IconSort, IconSparkle, IconStar } from "../icons";
 import type { SelectAllState } from "./selection";
 import { t } from "../../i18n";
 import { GALLERY_KINDS, GALLERY_KIND_LABEL } from "./kindLabels";
 import { kindCounts, type GalleryPick, type GalleryQuery, type GallerySort, type SelectContext } from "./galleryQuery";
-import { chipStyle, Dropdown, ICON_BTN, ICON_BTN_ACTIVE, ICON_BTN_IDLE } from "../ui";
+import { activeFilters, filterBadgeCount } from "./activeFilters";
+import { CHIP_H, chipStyle, Dropdown, ICON_BTN, ICON_BTN_ACTIVE, ICON_BTN_IDLE } from "../ui";
 import type { GalleryEntry, WallpaperCollection } from "@shared/types";
 
 export interface GalleryToolbarProps {
@@ -72,7 +73,6 @@ const SORTS: { id: GallerySort; label: string }[] = [
   { id: "length", label: "gallery.sort-length" },
 ];
 
-/** Shortcut filters that are neither a kind nor a collection. */
 /**
  * The quick filters.
  *
@@ -86,7 +86,6 @@ const SORTS: { id: GallerySort; label: string }[] = [
  */
 const PICKS: { id: GalleryPick; label: string; icon: ReactNode }[] = [
   { id: "favourites", label: "gallery.favourites", icon: <IconStar className="h-3 w-3" /> },
-  { id: "uncollected", label: "gallery.uncollected", icon: <IconLayers className="h-3 w-3" /> },
 ];
 
 /** Width floors offered by the resolution filter. "Any" is the absence of one. */
@@ -115,7 +114,7 @@ export const DENSITY_CLASS: Record<GalleryDensity, string> = {
 };
 
 /**
- * Find, order, filter, add.
+ * Find, order, filter, add. One filter dimension per row.
  *
  * The first attempt wrapped all of this in a bordered panel nested inside the
  * vault Card, which read as a second card and boxed in a surface that is
@@ -127,9 +126,9 @@ export const DENSITY_CLASS: Record<GalleryDensity, string> = {
  * Kind and collection are refinements — you set them once and then look at
  * wallpapers, and eleven chips sitting under every grid is chrome competing
  * with the pictures. The toggle carries a count of what is currently applied,
- * so a collapsed bar is never ambiguous about why the grid looks short.
- */
-/**
+ * and the row below it names the filters, so a collapsed panel is never
+ * ambiguous about why the grid looks short.
+ *
  * One filter dimension: a fixed-width label and its chips.
  *
  * The label is what makes the panel readable. Four rows of pills separated by
@@ -144,8 +143,15 @@ function FilterGroup({ label, children }: { label: string; children: ReactNode }
       {/* 56px fits the longest label ("Quality") at this tracking with a little to
           spare. It started at 80px, which read fine but stole 24px from every
           chip row and made the panel wrap into a taller block than the single
-          row it replaced. */}
-      <span className="kicker w-14 shrink-0 pt-1.5 text-right">{label}</span>
+          row it replaced.
+
+          The label is a 26px flex box rather than a `pt-1.5` span so it centres
+          on the chip row by construction. A padding nudge was 3px out against a
+          26px pill -- measurable, and the reason every row's label sat a hair
+          high. */}
+      <span className={`kicker ${CHIP_H} flex w-14 shrink-0 items-center justify-end`}>
+        {label}
+      </span>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{children}</div>
     </div>
   );
@@ -200,22 +206,6 @@ export function GalleryToolbar({
       document.removeEventListener("keydown", esc);
     };
   }, [chipMenu]);
-  // How many filter dimensions are narrowing the grid. Search and sort are not
-  // counted: they are visible in the top row, so a badge for them would be
-  // saying something the user can already see.
-  // How many filter dimensions are narrowing the grid. Search and sort are not
-  // counted: they are visible in the top row, so a badge for them would be
-  // saying something the user can already see. The resolution floor *is*
-  // counted -- it lives down here with the rest of the filters, so omitting it
-  // left the Filters button reading 0 while a resolution filter was active, and
-  // no "clear filters" affordance appearing for a filter that was visibly on.
-  const activeCount =
-    (query.kind !== "all" ? 1 : 0) +
-    (query.collection !== "all" ? 1 : 0) +
-    (query.picks !== "all" ? 1 : 0) +
-    (query.display !== "all" ? 1 : 0) +
-    (query.minWidth != null ? 1 : 0);
-
   /**
    * Put every filter dimension back to "no narrowing".
    *
@@ -234,6 +224,23 @@ export function GalleryToolbar({
     });
     onCollection("all");
   };
+
+  /**
+   * The applied filters, each with the patch that takes it back off.
+   *
+   * One list, computed once. It answers both "which chips are shown" and "what
+   * number is on the Filters button", which is the point: two answers to "is
+   * this filter on" is how the badge came to read 0 while a resolution floor
+   * was applied.
+   */
+  const chips = activeFilters(query, collections, {
+    floors: WIDTH_FLOORS,
+    anyResolution: "gallery.any-resolution",
+    displays,
+    anyDisplay: "gallery.any-display",
+    unknownCollection: "gallery.view-collections",
+  });
+  const activeCount = filterBadgeCount(chips);
 
   return (
     <div className="mb-4 space-y-2.5">
@@ -353,16 +360,6 @@ export function GalleryToolbar({
               </button>
             ))}
           </FilterGroup>
-          {PICKS.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => onQuery({ picks: p.id })}
-              aria-pressed={query.picks === p.id}
-              className={`rounded-full px-3 py-1 text-xs ${chipStyle(query.picks === p.id)}`}
-            >
-              {t(p.label)}
-            </button>
-          ))}
 
           {displays.length > 1 && (
             <FilterGroup label={t("gallery.filter-display")}>
@@ -466,7 +463,7 @@ export function GalleryToolbar({
                     e.stopPropagation();
                     setChipMenu(c.id);
                   }}
-                  className={`flex h-6 w-6 items-center justify-center rounded-r-full text-[10px] font-bold leading-none ${chipStyle(query.collection === c.id)}`}
+                  className={`flex ${CHIP_H} w-6 items-center justify-center rounded-r-full text-[10px] font-bold leading-none ${chipStyle(query.collection === c.id)}`}
                 >
                   ⋯
                 </button>
@@ -502,7 +499,7 @@ export function GalleryToolbar({
             onClick={onNewCollection}
             title={t("gallery.new-collection")}
             aria-label={t("gallery.new-collection")}
-            className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-[var(--line-strong)] text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text)]"
+            className={`flex ${CHIP_H} w-[26px] items-center justify-center rounded-full border border-dashed border-[var(--line-strong)] text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text)]`}
           >
             +
           </button>
@@ -514,8 +511,14 @@ export function GalleryToolbar({
               burying that behind a chip row made it look like a fifth kind. */}
           <FilterGroup label={t("gallery.filter-quality")}>
             {indexReady ? (
+              /* A pill showing its own value, like every other control in this
+                 panel. It was an icon-mode dropdown -- a lone 32px square in a
+                 row of 26px pills, whose only statement about the active floor
+                 was a tooltip -- so the panel's one legible-where-it-matters
+                 filter was the one you had to hover to read. */
               <Dropdown
-                icon={<IconGrid className="h-4 w-4" />}
+                chip
+                chipActive={query.minWidth != null}
                 ariaLabel={t("gallery.minimum-resolution")}
                 title={`${t("gallery.minimum-resolution")}: ${t(WIDTH_FLOORS.find((w) => w.id === String(query.minWidth ?? 0))?.label ?? "gallery.any-resolution")}`}
                 value={String(query.minWidth ?? 0)}
@@ -534,16 +537,49 @@ export function GalleryToolbar({
                   : t("gallery.index-the-vault")}
               </button>
             )}
-
-            {activeCount > 0 ? (
-              <button
-                onClick={clearFilters}
-                className="rounded-full px-2.5 py-1 text-xs text-[var(--text-faint)] underline underline-offset-2 transition-colors hover:text-[var(--text)]"
-              >
-                {t("gallery.clear-filters")}
-              </button>
-            ) : null}
           </FilterGroup>
+        </div>
+      )}
+
+      {/* What is applied, said plainly.
+
+          The badge on the Filters button says how many dimensions are narrowing
+          the grid and nothing about which, so a collapsed panel left a short
+          vault with no visible reason. These name the filters and take each one
+          back individually, which is what you actually want: "Clear filters"
+          also wipes the search box, and the filter you want gone is rarely the
+          only one you want gone.
+
+          Shown in both states rather than only when collapsed, because the
+          panel hides its own state the moment you close it -- which is the
+          moment you most want to check it. */}
+      {view === "wallpapers" && chips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {chips.map((c) => {
+            const name = c.labelKey ? t(c.labelKey) : c.label;
+            return (
+              <button
+                key={c.key}
+                onClick={() =>
+                  c.clear.kind === "collection" ? onCollection(c.clear.id) : onQuery(c.clear.patch)
+                }
+                aria-label={t("gallery.remove-the-{name}-filter", { name })}
+                title={t("gallery.remove-the-{name}-filter", { name })}
+                className="flex max-w-full items-center gap-1.5 rounded-full border border-[rgb(var(--glow)/0.35)] bg-[rgb(var(--glow)/0.08)] py-0.5 pl-2.5 pr-1.5 text-xs text-[rgb(var(--glow))] transition-colors hover:border-[rgb(var(--glow)/0.7)] hover:bg-[rgb(var(--glow)/0.14)]"
+              >
+                <span className="truncate">{name}</span>
+                <IconClose className="h-3 w-3 shrink-0" />
+              </button>
+            );
+          })}
+          {chips.length > 1 && (
+            <button
+              onClick={clearFilters}
+              className="rounded-full px-2 py-0.5 text-xs text-[var(--text-faint)] underline underline-offset-2 transition-colors hover:text-[var(--text)]"
+            >
+              {t("gallery.clear-filters")}
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -224,6 +224,18 @@ export const IconRailCollapse = (props: P) => (
   </svg>
 );
 
+// Busy arc for a control that is waiting on work. Not a static icon, but it is
+// drawn as one -- same stroke language, same currentColor inheritance -- so it
+// drops into a button without restyling it. The dash gap is what makes it read
+// as rotating; a full circle would just sit there.
+export const IconSpinner = (props: P) => (
+  // Class is merged after `base`, not passed into it: `base` spreads props
+  // last, so a caller className ("h-4 w-4") would replace the spin outright.
+  <svg {...base(props)} className={`animate-spin ${props.className ?? ""}`}>
+    <circle cx="12" cy="12" r="8.5" strokeDasharray="30 23" />
+  </svg>
+);
+
 export const IconShuffle = (props: P) => (
   <svg {...base(props)}>
     <path d="M16 4h4v4M20 4l-6.5 6.5M4 20 9 15M16 20h4v-4M14.5 14.5 20 20M4 4l5 5" />
@@ -420,7 +432,44 @@ const DEVICE_ICONS: Record<string, ReactNode> = {
       <path d="M8 7h.01M12 7h.01M16 7h.01M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01" />
     </>
   ),
+  // Added after checking the SDK's DeviceType rather than the shapes already
+  // here: Gamepad, Light and Speaker are all real enum variants and all three
+  // were falling through to the generic box, so a game controller and a desk
+  // lamp were drawn the same as each other and as an unrecognised device.
+  gamepad: (
+    <>
+      <path d="M7.5 8h9a4.5 4.5 0 0 1 4.4 3.7l1 5A2.6 2.6 0 0 1 17 18.5l-1.4-2.2H8.4L7 18.5a2.6 2.6 0 0 1-4.9-1.8l1-5A4.5 4.5 0 0 1 7.5 8Z" />
+      <path d="M8 11.5v2.5M6.8 12.8h2.5M15.5 12h.01M17.8 13.6h.01" />
+    </>
+  ),
+  // Deliberately the same shape as `IconBulb`: the SDK has both "Light" and
+  // "Headset" lighting, and a lamp card should be the bulb the rest of the
+  // interface already uses for the idea of a lamp.
+  light: (
+    <>
+      <path d="M9 18h6M10 21h4" />
+      <path d="M12 3a6 6 0 0 1 3.5 10.9c-.6.5-.9 1.2-.9 2.1a2.6 2.6 0 0 1-5.2 0c0-.9-.3-1.6-.9-2.1A6 6 0 0 1 12 3z" />
+      <path d="M9.5 13c.7-1 1.4-1.8 2.5-2.6 1.1.8 1.8 1.6 2.5 2.6" />
+    </>
+  ),
+  speaker: (
+    <>
+      <rect x="5" y="2.5" width="14" height="19" rx="2" />
+      <circle cx="12" cy="14.5" r="3.2" />
+      <circle cx="12" cy="7.5" r="1.4" />
+    </>
+  ),
 };
+
+/**
+ * Every kind `IconDevice` can actually draw, read off the map itself.
+ *
+ * Exported so the pairing with `deviceKind` can be tested without a copy of
+ * the key list: a kind added there without a glyph here renders the generic
+ * box silently, and a test that listed the kinds by hand would simply be
+ * updated alongside the mistake.
+ */
+export const DEVICE_KINDS = Object.keys(DEVICE_ICONS);
 
 /**
  * Which kind of thing a device is, from its OpenRGB type name.
@@ -446,6 +495,13 @@ export function deviceKind(type: string): string {
     (t.includes("strip") || t.includes("led") || t.includes("ambient") ? "strip" : false) ||
     (t.includes("fan") || t.includes("cooler") || t.includes("cooling") ? "fan" : false) ||
     (t.includes("keypad") ? "keypad" : false) ||
+    // The SDK's own `Gamepad`, `Light` and `Speaker`. These have to be named
+    // explicitly: "gamepad" is not a "keypad", "light" is not an "led" strip
+    // and "speaker" is not a "headset", so the substring rules above cannot
+    // reach them and each was rendering as the generic box.
+    (t.includes("gamepad") ? "gamepad" : false) ||
+    (t.includes("light") ? "light" : false) ||
+    (t.includes("speaker") ? "speaker" : false) ||
     "other"
   );
 }

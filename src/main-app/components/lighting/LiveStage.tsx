@@ -9,7 +9,7 @@
 // The order here is the argument: state, then what it is doing, then what it is
 // driving, then what feeds the interface, then the switch itself.
 
-import { Card, Chip, Dropdown, IconBox, Stat, SwitchBtn } from "../ui";
+import { Card, Chip, Dropdown, IconBox, Stat, SwitchRow } from "../ui";
 import { KeyboardPreview } from "../KeyboardPreview";
 import { deviceName } from "../DeviceRow";
 import { IconZap } from "../icons";
@@ -148,35 +148,33 @@ export function LiveStage(props: LiveStageProps) {
                 : "border-[rgb(var(--glow)/0.35)] bg-[rgb(var(--glow)/0.06)]"
             }`}
           >
-            <div className="flex items-center gap-3">
-              <IconBox variant={faulted ? "amber" : "glow"}>
-                <IconZap />
-              </IconBox>
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium leading-tight text-[var(--text)]">
-                  {t("common.rgb-sync-enabled")}
-                </div>
-                <div className="mt-0.5 truncate text-[11px] leading-snug text-[var(--text-faint)]">
-                  {faulted ? faultLabel : t("common.master-lighting-switch")}
-                </div>
-              </div>
-              <SwitchBtn
-                checked={enabled}
-                onChange={props.onToggleEnabled}
-                title={t("common.rgb-sync-enabled")}
-              />
-            </div>
+            <SwitchRow
+              checked={enabled}
+              onChange={props.onToggleEnabled}
+              // Nothing to act on with no server reachable: the switch would
+              // flip a setting that cannot take effect until a reconnect,
+              // which is exactly the "it did nothing" moment a master control
+              // should not produce.
+              disabled={!connected}
+              label={t("common.rgb-sync-enabled")}
+              description={faulted ? faultLabel : t("common.master-lighting-switch")}
+              icon={
+                <IconBox variant={faulted ? "amber" : "glow"}>
+                  <IconZap />
+                </IconBox>
+              }
+              className="w-full"
+            />
             <div className="mt-2 border-t border-[var(--line)] pt-2">
-              <div className="flex items-center gap-3">
-                <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-dim)]">
-                  {t("common.ui-follows-lights")}
-                </span>
-                <SwitchBtn
-                  checked={props.accentLive}
-                  onChange={props.onToggleAccentLive}
-                  title={t("common.ui-follows-lights")}
-                />
-              </div>
+              {/* Deliberately still live while the lights are off: it is a
+                  preference about where the accent colour comes from, not a
+                  claim that the lights are running. */}
+              <SwitchRow
+                checked={props.accentLive}
+                onChange={props.onToggleAccentLive}
+                label={t("common.ui-follows-lights")}
+                className="w-full py-0.5"
+              />
             </div>
           </div>
         </div>

@@ -16,6 +16,8 @@ import type {
   RgbStatus,
 } from "@shared/types";
 import { api } from "./ipc";
+import { pruneDeviceColors } from "./deviceColors";
+import { baselineArrivals, markArrivals, type ArrivalMarks } from "./hotplug";
 import { truncateError } from "./utilities";
 import type { AvailableUpdate } from "./updater";
 
@@ -46,6 +48,15 @@ interface Store {
   rgb: RgbStatus;
   /** Latest colors actually pushed to OpenRGB, keyed by device id. */
   deviceColors: Record<number, DeviceColor>;
+  /**
+   * When each device id arrived, ms. Drives the "just connected" highlight on
+   * the device card, which has to outlive the toast because a toast only helps
+   * someone already looking at the dashboard.
+   *
+   * A device with no entry was present when we started watching — it has not
+   * been seen to arrive, so it gets no badge.
+   */
+  deviceAddedAt: ArrivalMarks;
   /** Live audio level from the audio-reactive mode. */
   audioLevel: AudioLevel;
   /** What the OS media session is playing (null = nothing). */
@@ -76,6 +87,13 @@ interface Store {
   load: () => Promise<void>;
   save: (mutate: (cfg: Config) => void) => Promise<void>;
   setRgb: (rgb: RgbStatus) => void;
+  /**
+   * Adopt a device list we asked for rather than were told, without recording
+   * arrivals. Only the boot poll may use this: hardware already plugged in
+   * when the app launched did not just connect, and a dashboard that opens
+   * with six "just connected" cards is worse than one that says nothing.
+   */
+  seedRgb: (rgb: RgbStatus) => void;
   setDeviceColors: (frame: DeviceColor[]) => void;
   setAudioLevel: (level: AudioLevel) => void;
   setMedia: (media: MediaInfo | null) => void;
@@ -134,6 +152,7 @@ export const useStore = create<Store>((set, get) => ({
     lastError: null,
   },
   deviceColors: {},
+  deviceAddedAt: {},
   audioLevel: { volume: 0, pulse: 0, deviceName: "" },
   media: null,
   wallpaperColor: null,
@@ -263,7 +282,39 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
-  setRgb: (rgb) => set({ rgb }),
+  // Pruning lives here rather than at the event listener so that every route
+  // into a new device list gets it: the `rgb-status` event, the boot poll, and
+  // the onboarding probe. A caller that remembered to prune would have been
+  // the same class of bug as the one that never emitted the event at all.
+  setRgb: (rgb) =>
+    set((s) => ({
+      rgb,
+      deviceColors: pruneDeviceColors(
+        s.deviceColors,
+        rgb.devices.map((d) => d.id),
+      ),
+      deviceAddedAt: markArrivals(
+        s.deviceAddedAt,
+        s.rgb.devices.map((d) => d.id),
+        rgb.devices.map((d) => d.id),
+        Date.now(),
+      ),
+    })),
+  // The one status we requested rather than were told. Diffing it against an
+  // empty baseline would report every device the user already owns as a fresh
+  // arrival, so it is adopted without recording anything.
+  seedRgb: (rgb) =>
+    set((s) => ({
+      rgb,
+      deviceColors: pruneDeviceColors(
+        s.deviceColors,
+        rgb.devices.map((d) => d.id),
+      ),
+      deviceAddedAt: baselineArrivals(
+        s.deviceAddedAt,
+        rgb.devices.map((d) => d.id),
+      ),
+    })),
   setDeviceColors: (frame) =>
     set((s) => {
       const next = { ...s.deviceColors };
@@ -293,7 +344,11 @@ export async function bindEvents(): Promise<() => void> {
     await listen<RgbStatus>(EVENTS.RGB_STATUS, (e) => {
       const prev = lastDeviceIds;
       const next = e.payload.devices.map((d) => d.id);
-      if (prev !== null && !e.payload.connected && prev.length > 0) {
+      // Turning lighting off in the settings clears the backend's device list
+      // too, which would otherwise read as OpenRGB having crashed and raise a
+      // toast every time the user toggled the feature they were looking at.
+      const userDisabled = useStore.getState().cfg?.rgb.enabled === false;
+      if (prev !== null && !e.payload.connected && prev.length > 0 && !userDisabled) {
         useStore
           .getState()
           .toast("info", "OpenRGB disconnected", { key: "openrgb" });
@@ -394,6 +449,27 @@ export async function bindEvents(): Promise<() => void> {
       useStore.getState().setHotkeyFailures(e.payload ?? []);
     }),
   );
+  // The backend only emits on a *transition* — emitting every poll would wake
+  // all four webviews once a second to re-render an unchanged list. So a
+  // machine whose gear never changes emits nothing, and the dashboard would
+  // sit on its boot-time default showing no devices at all. One poll is the
+  // baseline; every later change arrives as an event. Seeding
+  // `lastDeviceIds` at the same time is what keeps the first real transition
+  // from looking like a mass disconnect.
+  //
+  // Last, deliberately: this is an awaited round-trip, and every listener
+  // above needs to be subscribed before it returns or early `rgb-frame`s have
+  // nowhere to land.
+  try {
+    const initial = await api.rgbStatus();
+    lastDeviceIds = initial.connected ? initial.devices.map((d) => d.id) : [];
+    useStore.getState().seedRgb(initial);
+  } catch (e) {
+    // Not swallowing this: an unreachable IPC host is a real fault, and the
+    // device list stays empty with nothing to say why. A missing OpenRGB
+    // server is not — `rgbStatus` still returns a status in that case.
+    console.error("[rgb] initial status poll failed", e);
+  }
   return () => {
     unsubs.forEach((u) => u());
     if (frameTimer != null) clearInterval(frameTimer);

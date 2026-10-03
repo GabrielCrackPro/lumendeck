@@ -1,14 +1,15 @@
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useState, useRef, type CSSProperties, type ReactNode } from "react";
 import { useStore } from "../../store";
-import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, ItemTitle, SwitchBtn, Segmented, ICON_BTN, ICON_BTN_IDLE, ICON_BTN_ACTIVE, ICON_BTN_PRIMARY, MINI_BTN } from "../ui";
+import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, ItemTitle, SwitchBtn, Segmented, ICON_BTN, ICON_BTN_IDLE, ICON_BTN_ACTIVE, ICON_BTN_PRIMARY, MINI_BTN, OVERLAY_ICON_BTN } from "../ui";
 import { DeviceRow } from "../DeviceRow";
-import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause, IconNext, IconPrevious, IconWave, IconSun, IconZap, IconChevronRight, IconMediaApp, IconShuffle, IconRepeat } from "../icons";
+import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause, IconNext, IconPrevious, IconWave, IconSun, IconZap, IconChevronRight, IconMediaApp, IconShuffle, IconRepeat, IconSpinner } from "../icons";
 import { SHADERS, SHADER_ART, RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import type { Config, MediaInfo, RgbMode } from "@shared/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { basename } from "../../utilities";
 import { api } from "../../ipc";
+import { usePending } from "../../pending";
 import { EqEngine } from "../../eq";
 import {
   formatDuration,
@@ -16,6 +17,7 @@ import {
   progressFraction,
   skewedPosition,
 } from "../player/mediaTime";
+import { waitForChange, type MediaSnapshot, type TransportAction } from "../player/mediaPending";
 import { t } from "../../i18n";
 
 /** Compact wallpaper thumb: video plays muted, image static, shader art. */
@@ -214,7 +216,11 @@ function WallpaperStage({
 }) {
   return (
     <div
-      className="relative h-44 w-full overflow-hidden rounded-xl border border-[var(--line)] bg-black"
+      // `group/stage` rather than `group`: the hover target for the actions is
+      // the whole picture, not the two buttons, or the pointer has to find a
+      // 28px target before the buttons it is aiming at become visible. Named so
+      // it cannot be shadowed by an ancestor `group` — `AudioPulse` is one.
+      className="group/stage relative h-44 w-full overflow-hidden rounded-xl border border-[var(--line)] bg-black"
       style={{
         // Audio-reactive halo: volume widens and brightens a glow ring around
         // the stage; a detected beat adds a short bright flash on top.
@@ -225,39 +231,60 @@ function WallpaperStage({
       <WallpaperThumb kind={cfg.wallpaper.kind} source={cfg.wallpaper.source} paused={paused} bare />
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(0_0_0/0.3),transparent_35%)]" />
 
-      <div className="absolute left-3 top-3 flex max-w-[calc(100%-13rem)] items-center gap-2 rounded-lg bg-black/45 px-2.5 py-1.5 backdrop-blur-sm">
+      <div className="absolute left-3 top-3 flex max-w-[calc(100%-6.5rem)] items-center gap-2 rounded-lg bg-black/45 px-2.5 py-1.5 backdrop-blur-sm">
         <IconImage className="h-4 w-4 shrink-0 text-white/75" />
         <span className="truncate font-mono text-[10px] text-white/90" title={wallpaperName}>
           {wallpaperName}
         </span>
       </div>
 
-      {/* wallpaper quick-actions, over the scrim, top-right */}
-      <div className="absolute right-3 top-3 flex items-center gap-1.5">
+      {/* Wallpaper quick-actions.
+
+          Hover-only, because this is a picture and these are not the point of
+          it. Two uppercase mono labels permanently pinned over the top-right of
+          a wallpaper is the loudest thing on the card, and the card is called
+          "Now playing" — the picture is the content, the buttons are a
+          utility. The gallery tiles set the precedent: the same reveal on
+          hover, on keyboard focus, and while the tile is selected.
+
+          `focus-within` rather than hover alone. `opacity-0` does not remove a
+          button from the tab order, so without it these two would be reachable
+          by Tab and completely invisible while focused — the one state a control
+          must never be in.
+
+          `OVERLAY_ICON_BTN` rather than a local style. It is the app's token for
+          a control drawn over a picture, and its own comment records that the
+          hand-rolled versions had drifted to two hit areas and three radii.
+          These two were part of that drift: `rounded-lg` at one height, a
+          `bg-black/45` scrim of their own, and an uppercase mono label that
+          belongs to the card-header language, not the over-media one.
+
+          The hierarchy is the other half of it. Pause takes the accent on
+          hover, because pausing is the act you perform on this surface and it
+          is reversible. Change is navigation — it leaves for the wallpaper tab
+          — so it stays a plain scrim button. It used to be the filled accent
+          one, which made the least-committal action in the row the loudest. */}
+      <div className="absolute right-3 top-3 flex items-center gap-1.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/stage:opacity-100">
         <button
           onClick={onTogglePause}
+          aria-label={paused ? t("common.resume-wallpaper") : t("common.pause-wallpaper")}
           title={paused ? t("common.resume-wallpaper") : t("common.pause-wallpaper")}
-          className="flex h-7 items-center gap-1.5 rounded-lg bg-black/45 px-2.5 font-mono text-[10px] uppercase tracking-wider text-white/85 backdrop-blur-sm transition-all hover:bg-black/60 hover:text-white active:scale-95"
+          className={`${OVERLAY_ICON_BTN} hover:!border-transparent hover:!bg-[rgb(var(--glow))] hover:!text-[#06121f]`}
         >
-          {paused ? (
-            <>
-              <IconPlay className="h-3 w-3" />
-              {t("common.resume")}
-            </>
-          ) : (
-            <>
-              <IconPause className="h-3 w-3" />
-              {t("common.pause")}
-            </>
-          )}
+          {paused ? <IconPlay className="h-4 w-4" /> : <IconPause className="h-4 w-4" />}
         </button>
         <button
           onClick={onChange}
+          aria-label={t("common.change-wallpaper")}
           title={t("common.change-wallpaper")}
-          className="flex h-7 items-center gap-1.5 rounded-lg bg-[rgb(var(--glow)/0.85)] px-2.5 font-mono text-[10px] uppercase tracking-wider text-black/90 backdrop-blur-sm transition-all hover:bg-[rgb(var(--glow))] active:scale-95"
+          className={OVERLAY_ICON_BTN}
         >
-          <IconImage className="h-3 w-3" />
-          {t("common.change")}
+          {/* Not IconImage, which is the chip on the left of this same row:
+              the same glyph twice on one surface reads as one button drawn
+              twice. And not IconNext either, which the transport row directly
+              below uses for the next *track*. A chevron says "go there", which
+              is exactly what this does. */}
+          <IconChevronRight className="h-4 w-4" />
         </button>
       </div>
     </div>
@@ -579,6 +606,7 @@ function VolumeControl() {
   // and then kept live by the backend's WASAPI change notifications, so
   // keyboard/taskbar/other-app volume edits mirror here in real time.
   const event = useStore((s) => s.systemVolume);
+  const { pending, run } = usePending();
   const [vol, setVol] = useState<number | null>(null);
   const [muted, setMuted] = useState(false);
   const [live, setLive] = useState<number | null>(null);
@@ -605,14 +633,17 @@ function VolumeControl() {
     // A live event means our scrub is stale — external change wins.
     setLive(null);
   }, [event]);
+  // A scrub produces a legitimate run of successive writes (pointerup, keyup,
+  // blur all commit), so this one is deliberately *not* guarded: refusing the
+  // second write would leave the slider showing a volume the system never got.
   const commit = (v: number) => {
     setVol(v);
     void api.volumeSet(v).catch(() => {});
   };
+  // The mute button is a discrete press, so it takes the guard: two clicks in
+  // one frame means mute-then-unmute, which is not what anyone means.
   const toggleMute = () => {
-    void api.volumeMuteToggle()
-      .then((next) => setMuted(next))
-      .catch(() => {});
+    void run("mute", () => api.volumeMuteToggle().then((next) => setMuted(next)));
   };
   if (shown == null) return null;
   return (
@@ -620,13 +651,16 @@ function VolumeControl() {
       <button
         aria-label={t(muted ? "common.unmute" : "common.mute")}
         onClick={toggleMute}
+        aria-busy={pending.has("mute") || undefined}
         className={`${ICON_BTN} ${
           muted
             ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
             : ICON_BTN_IDLE
         }`}
       >
-        {muted || shown === 0 ? (
+        {pending.has("mute") ? (
+          <IconSpinner className="h-3.5 w-3.5" />
+        ) : muted || shown === 0 ? (
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M11 5 6 9H3v6h3l5 4V5Z" />
             <path d="m16 9 5 5m0-5-5 5" />
@@ -645,7 +679,11 @@ function VolumeControl() {
         step={1}
         value={shown}
         style={{ "--fill": `${shown}%`, width: "72px" } as CSSProperties}
-        className="h-1"
+        // No height override. `h-1` made the input 4px tall, but the shared
+        // range CSS sizes the input to 22px precisely so the 16px thumb, hung
+        // on the 3px track with `margin-top: -6.5px`, has somewhere to sit. At
+        // 4px the thumb was clipped into a cropped square — which read as a
+        // broken control rather than a compact one.
         onChange={(e) => setLive(Number(e.target.value))}
         onPointerUp={() => {
           if (live != null) commit(live);
@@ -690,7 +728,15 @@ function TransportButtons({
   // button renders disabled rather than showing a possibly-wrong state.
   const shuffleSupported = shuffle !== null;
   const repeatSupported = repeat !== null;
-  const [busy, setBusy] = useState(false);
+  // One control at a time across the whole row: a second press while the
+  // first is unresolved reads as the key sticking, not as a queue, and SMTC
+  // answers slowly enough that two in flight can land in the wrong order.
+  const { pending, run } = usePending({ exclusive: true });
+  // Mirror of the props for the confirmation wait, which outlives the render
+  // that started it: the SMTC sampler ticks at 1 Hz, so the state that proves
+  // the command landed arrives long after `send` captured its "before".
+  const latest = useRef<MediaSnapshot>({ playing, trackKey, shuffle, repeat });
+  latest.current = { playing, trackKey, shuffle, repeat };
   const [pulseId, setPulseId] = useState(0);
   const first = useRef(true);
   useEffect(() => {
@@ -700,15 +746,26 @@ function TransportButtons({
     }
     setPulseId((n) => n + 1);
   }, [trackKey]);
-  const send = async (action: "toggle" | "next" | "previous") => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await api.mediaTransport(action);
-    } finally {
-      setBusy(false);
-    }
+  // The pressed button drops its glyph for a spinner, and stays lit: the
+  // disabled treatment is 30% opacity, which a hairline arc cannot survive. It
+  // is not `disabled` either -- `run` already refuses the second click, and a
+  // real disabled button would also lose its focus ring mid-press.
+  const busy = pending.size > 0;
+  const send = (action: TransportAction, call: () => Promise<unknown>) => {
+    // Snapshot *now*: this is the state the command is meant to move.
+    const before: MediaSnapshot = { playing, trackKey, shuffle, repeat };
+    // The key stays held until the player proves it acted, not merely until the
+    // OS accepted the request — so the guard and the spinner both mean "still
+    // working". `waitForChange` always settles, so a sender that ignores the
+    // command cannot wedge the row.
+    void run(action, async () => {
+      await call();
+      await waitForChange(action, before, () => latest.current);
+    });
   };
+  const inert = (action: TransportAction) => busy && !pending.has(action);
+  const glyph = (action: TransportAction, idle: ReactNode, size: string) =>
+    pending.has(action) ? <IconSpinner className={size} /> : idle;
   // Remounting the row (key=pulseId) replays the ripple on every track
   // change; the ring starts at the button, so no fill-mode is wanted.
   // Must compose the same idle style as the other buttons — the base token
@@ -725,31 +782,45 @@ function TransportButtons({
         <button
           aria-label={t("common.toggle-shuffle")}
           title={t(shuffleSupported ? "common.shuffle" : "common.shuffle-unavailable")}
-          disabled={!shuffleSupported || busy}
-          onClick={() => void api.mediaShuffle(!shuffle).catch(() => {})}
+          disabled={!shuffleSupported || inert("shuffle")}
+          aria-busy={pending.has("shuffle")}
+          onClick={() => void send("shuffle", () => api.mediaShuffle(!shuffle))}
           className={`${ICON_BTN} ${shuffle ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
         >
           <span key={String(shuffle)} className={shuffle ? "player-toggle-pop flex" : "flex"}>
-            <IconShuffle className="h-4 w-4" />
+            {glyph("shuffle", <IconShuffle className="h-4 w-4" />, "h-4 w-4")}
           </span>
         </button>
       )}
-      <button aria-label={t("common.previous-track")} disabled={busy} onClick={() => send("previous")} {...ripple(90)}>
-        <IconPrevious className="h-4 w-4" />
+      <button
+        aria-label={t("common.previous-track")}
+        disabled={inert("previous")}
+        aria-busy={pending.has("previous")}
+        onClick={() => void send("previous", () => api.mediaTransport("previous"))}
+        {...ripple(90)}
+      >
+        {glyph("previous", <IconPrevious className="h-4 w-4" />, "h-4 w-4")}
       </button>
       <button
         aria-label={t(playing ? "common.pause" : "common.play")}
         className={`${ICON_BTN} ${ICON_BTN_PRIMARY} ${pulseId > 0 ? "transport-pulse" : ""}`}
-        disabled={busy}
-        onClick={() => send("toggle")}
+        disabled={inert("toggle")}
+        aria-busy={pending.has("toggle")}
+        onClick={() => void send("toggle", () => api.mediaTransport("toggle"))}
       >
         {/* key re-mounts the glyph on state flip, replaying the swap spin */}
         <span key={playing ? "pause" : "play"} className="player-icon-swap flex">
-          {playing ? <IconPause className="h-5 w-5" /> : <IconPlay className="h-5 w-5" />}
+          {glyph("toggle", playing ? <IconPause className="h-5 w-5" /> : <IconPlay className="h-5 w-5" />, "h-5 w-5")}
         </span>
       </button>
-      <button aria-label={t("common.next-track")} disabled={busy} onClick={() => send("next")} {...ripple(180)}>
-        <IconNext className="h-4 w-4" />
+      <button
+        aria-label={t("common.next-track")}
+        disabled={inert("next")}
+        aria-busy={pending.has("next")}
+        onClick={() => void send("next", () => api.mediaTransport("next"))}
+        {...ripple(180)}
+      >
+        {glyph("next", <IconNext className="h-4 w-4" />, "h-4 w-4")}
       </button>
       {/* Repeat: cycles off -> track -> list. `on` = list repeat (accent);
           track repeat adds the "1" superscript, like every music app. */}
@@ -765,12 +836,13 @@ function TransportButtons({
                   : "common.repeat-off"
               : "common.repeat-unavailable",
           )}
-          disabled={!repeatSupported || busy}
-          onClick={() => void api.mediaRepeat(repeat).catch(() => {})}
+          disabled={!repeatSupported || inert("repeat")}
+          aria-busy={pending.has("repeat")}
+          onClick={() => void send("repeat", () => api.mediaRepeat(repeat))}
           className={`relative ${ICON_BTN} ${(repeat ?? 0) > 0 ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
         >
           <span key={String(repeat)} className={(repeat ?? 0) > 0 ? "player-toggle-pop flex" : "flex"}>
-            <IconRepeat className="h-4 w-4" />
+            {glyph("repeat", <IconRepeat className="h-4 w-4" />, "h-4 w-4")}
           </span>
           {repeat === 1 && (
             <span className="absolute -right-0 -top-0.5 font-mono text-[8px] font-bold leading-none text-[rgb(var(--glow))]">
@@ -839,6 +911,9 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
       media: s.media,
     })),
   );
+  // The list rows below each drive one IPC call, keyed by entity so two rows
+  // can be in flight without blocking one another.
+  const { pending, run } = usePending();
 
   if (!cfg) return null;
 
@@ -907,7 +982,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
         </div>
       </div>
       {/* ===== row 1: now playing + engine ===== */}
-      <div className="grid gap-5 xl:grid-cols-12">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-12">
         {/* Now playing — spans 5. Wallpaper stage on top, media + transport
             below, wallpaper context strip last. */}
         <Card
@@ -977,9 +1052,9 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
           icon={<IconBulb />}
           className="xl:col-span-7"
           right={
-            <div className="flex items-center gap-2.5">
+            <div className="flex min-w-0 shrink items-center gap-2.5">
               {rgb.devices.length > 0 && (
-                <span className="hidden font-mono text-[10px] text-[var(--text-faint)] sm:inline">
+                <span className="hidden min-w-0 truncate font-mono text-[10px] text-[var(--text-faint)] lg:inline">
                   {t("common.{active}-{total}-devices-{led}-{totalleds}-leds", {
                     active: activeDevices.length,
                     total: rgb.devices.length,
@@ -991,16 +1066,28 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               <Chip tone={rgb.connected ? "ok" : "danger"} pulse={rgb.connected}>
                 {rgb.connected ? t("common.connected") : t("common.offline")}
               </Chip>
+              {/* Bare here on purpose. The card header already says
+                  "Lighting engine", so a visible label would only repeat it —
+                  and that repetition is what overflowed the header and made
+                  the card clip every switch down its right edge. The
+                  accessible name comes from the tooltip instead, and it is
+                  this switch rather than a device's mute switch because the
+                  header and the chip beside it describe the whole engine. */}
               <SwitchBtn
                 checked={cfg.rgb.enabled}
                 onChange={(v) => save((c) => (c.rgb.enabled = v))}
+                disabled={!rgb.connected}
                 title={t("common.master-lighting-switch")}
               />
             </div>
           }
         >
           <div
-            className="relative"
+            // `min-w-0` down this chain: a grid or flex item's automatic
+            // minimum size is its content width, so without a zero minimum
+            // anywhere on the path the device list can widen the whole card
+            // and the panel's `overflow-hidden` clips the switch off the end.
+            className="relative min-w-0"
             style={{
               // Audio-reactive halo, matching the wallpaper stage.
               boxShadow: cfg.rgb.enabled
@@ -1009,7 +1096,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             }}
           >
             {rgb.devices.length > 0 ? (
-              <ul className="space-y-2">
+              <ul className="min-w-0 space-y-2">
                 {rgb.devices.map((d) => (
                   <DeviceRow
                     key={d.id}
@@ -1114,7 +1201,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
       </div>
 
       {/* ===== row 2: displays + stickers ===== */}
-      <div className="grid gap-5 xl:grid-cols-12">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-12">
         <div className="xl:col-span-7">
           <DisplaysCard compact />
         </div>
@@ -1143,9 +1230,12 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                   <button
                     key={s.id}
                     title={t(s.visible ? "overview.hide-this-sticker" : "overview.show-this-sticker")}
-                    onClick={() =>
-                      api.updateSticker({ ...s, visible: !s.visible }).catch(console.error)
-                    }
+                    onClick={() => {
+                      void run(`sticker-${s.id}`, () =>
+                        api.updateSticker({ ...s, visible: !s.visible }),
+                      );
+                    }}
+                    aria-busy={pending.has(`sticker-${s.id}`) || undefined}
                     className="flex w-full items-center gap-3 rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] px-3 py-2 text-left transition-all hover:border-[var(--line-strong)] active:scale-[0.99]"
                   >
                     <img
@@ -1192,7 +1282,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
 
       {/* ===== row 3: scenes + shortcuts ===== */}
       {scenes.length > 0 && (
-        <div className="grid gap-5 xl:grid-cols-12">
+        <div className="grid min-w-0 gap-5 xl:grid-cols-12">
           <Card title={t("common.scenes")} icon={<IconLayers />} className="xl:col-span-7" right={
             <button
               onClick={() => onNavigate("general")}
@@ -1205,20 +1295,20 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               {scenes.slice(0, 6).map((s) => (
                 <button
                   key={s.id}
-                  onClick={async () => {
-                    try {
-                      const { api } = await import("../../ipc");
-                      await api.sceneApply(s.id);
-                      useStore
-                        .getState()
-                        .toast(
-                          "ok",
-                          t("common.scene-applied", { name: s.name }),
-                        );
-                    } catch {
-                      useStore.getState().toast("error", t("common.apply-failed"));
-                    }
+                  onClick={() => {
+                    void run(
+                      `scene-${s.id}`,
+                      () => api.sceneApply(s.id),
+                      () => useStore.getState().toast("error", t("common.apply-failed")),
+                    ).then((ok) => {
+                      if (ok) {
+                        useStore
+                          .getState()
+                          .toast("ok", t("common.scene-applied", { name: s.name }));
+                      }
+                    });
                   }}
+                  aria-busy={pending.has(`scene-${s.id}`) || undefined}
                   className="group flex items-center gap-1.5 rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-1.5 text-xs font-semibold text-[var(--text-dim)] hover-glow active:scale-[0.97]"
                 >
                   <IconLayers className="h-4 w-4 text-[var(--text-faint)] transition-colors group-hover:text-[rgb(var(--glow))]" />

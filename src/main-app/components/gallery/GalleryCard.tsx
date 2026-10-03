@@ -98,7 +98,7 @@ function GalleryCardImpl({
       onClick={(e) => onSelect({ shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey })}
       draggable={draggable}
       onDragStart={onDragStart}
-      className={`group flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] outline-none transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow))] ${near ? "tile-revealed" : "tile-reveal"} ${
+      className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] outline-none transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow))] ${near ? "tile-revealed" : "tile-reveal"} ${
         active
           ? "border-[rgb(var(--glow)/0.7)] shadow-[0_14px_36px_-14px_rgb(var(--glow)/0.55)] ring-2 ring-[rgb(var(--glow)/0.22)]"
           : selected
@@ -109,9 +109,9 @@ function GalleryCardImpl({
       }`}
     >
       {/* Media. Everything that used to sit on top of the picture lives on the
-          strip below instead, apart from the badges: those are transient, and
-          covering a wallpaper with its own name is the one thing a wallpaper
-          gallery should not do. */}
+          strip below instead, apart from the corner overlays: those are either
+          transient or about the picture itself, and covering a wallpaper with
+          its own name is the one thing a wallpaper gallery should not do. */}
       <div className="relative aspect-video w-full overflow-hidden">
         {/* Zoomed, and clipped by the media box, so the badges above stay put
             while the picture moves under them. */}
@@ -119,31 +119,55 @@ function GalleryCardImpl({
           {thumbFor(entry)}
         </div>
 
-      {active && (
-        <div className="live-pop pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-semibold text-[#06121f] shadow-[0_0_14px_rgb(var(--glow)/0.7)]">
-          <span className="h-1 w-1 rounded-full bg-[#06121f]" />
-          {t("shell.live")}
-        </div>
-      )}
+      {/* Four corners, one occupant each.
 
-      {/* A playlist can replace the wallpaper on a timer while you are looking
-          at the grid. Saying so on the live tile is the difference between a
-          vault that surprises you and one you can predict. */}
-      {active && rotating && (
-        <div
-          className="live-pop pointer-events-none absolute left-2 top-7 rounded-full bg-black/60 px-2 py-0.5 font-mono text-[9px] font-semibold text-white/80 backdrop-blur"
-          title={rotating}
-        >
-          {t("gallery.rotating-every-{n}-min", { n: rotating })}
-        </div>
-      )}
+          This used to be three overlays on the same two corners. The live pill
+          and the selection tick both sat at `left-2 top-2` and were measured
+          overlapping exactly, so a tile that was both live and ticked showed
+          the tick painted over the word "live"; the display badges and the
+          hover actions both sat at `right-2 top-2` and were measured
+          overlapping too, so hovering a wallpaper running on two displays
+          hid the fact that it was running on two displays.
 
-        {/* Which displays show this entry. Always visible, and parked opposite
-            the live pill so the two cannot collide. It is state, not an
-            action — hiding it behind hover made multi-monitor setups
+          Corners rather than a stack because nothing here has an order that
+          survives: every combination of live, ticked, unhealthy and hovering
+          is reachable. Corner 1 is the tick, corner 2 the display badges,
+          corner 3 the status stack, corner 4 the actions. */}
+      <div className="pointer-events-none absolute bottom-2 left-2 z-10 flex flex-col items-start gap-1">
+        {active && (
+          <div className="live-pop flex items-center gap-1 rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-semibold text-[#06121f] shadow-[0_0_14px_rgb(var(--glow)/0.7)]">
+            <span className="h-1 w-1 rounded-full bg-[#06121f]" />
+            {t("shell.live")}
+          </div>
+        )}
+
+        {/* A playlist can replace the wallpaper on a timer while you are
+            looking at the grid. Saying so on the live tile is the difference
+            between a vault that surprises you and one you can predict. */}
+        {active && rotating && (
+          <div
+            className="live-pop rounded-full bg-black/60 px-2 py-0.5 font-mono text-[9px] font-semibold text-white/80 backdrop-blur"
+            title={rotating}
+          >
+            {t("gallery.rotating-every-{n}-min", { n: rotating })}
+          </div>
+        )}
+
+        {health && (
+          <span
+            title={t(health === "missing" ? "gallery.file-is-missing" : "gallery.duplicated-entry")}
+            className="rounded bg-amber-500/90 px-1.5 py-px font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-black"
+          >
+            {t(health === "missing" ? "gallery.missing-short" : "gallery.duplicate-short")}
+          </span>
+        )}
+      </div>
+
+        {/* Which displays show this entry. Always visible -- it is state, not
+            an action, and hiding it behind hover made multi-monitor setups
             unreadable. */}
         {runningOn.length > 0 && (
-          <div className="pointer-events-none absolute right-2 top-2 flex gap-1">
+          <div className="pointer-events-none absolute right-2 top-2 z-10 flex gap-1">
             {runningOn.map((n) => (
               <span
                 key={n}
@@ -157,9 +181,15 @@ function GalleryCardImpl({
 
         {/* Actions. Shown on hover, on keyboard focus, and whenever the card is
             selected — the old hover-only version left rename and delete
-            unreachable without a pointer. */}
+            unreachable without a pointer.
+
+            Bottom-right, wrapping, so they cannot be clipped by a narrow tile
+            and cannot land on the badges. Four 28px buttons plus gaps is 124px,
+            which is most of a compact two-column tile at 640px, so the cluster
+            is allowed to break onto a second row of two rather than be cut off
+            at the media box edge. */}
         <div
-          className={`absolute right-2 top-2 flex items-center gap-1 transition-opacity ${
+          className={`absolute bottom-2 right-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap justify-end gap-1 transition-opacity ${
             selected ? "opacity-100" : "opacity-0 focus-within:opacity-100 group-hover:opacity-100"
           }`}
         >
@@ -172,7 +202,11 @@ function GalleryCardImpl({
             title={t("gallery.apply-everywhere-hint")}
             onClick={(e) => {
               e.stopPropagation();
-              onSelect({});
+              // Deliberately does not touch the selection. This used to select
+              // the tile first, which on a twenty-item selection collapsed it to
+              // one -- so hovering an unrelated tile and pressing Apply threw
+              // away a bulk choice the user had not finished with, with no way
+              // to get it back.
               onApplyAll();
             }}
             className={`${OVERLAY_BTN} hover:!bg-[rgb(var(--glow))] hover:text-[#06121f]`}
@@ -210,38 +244,35 @@ function GalleryCardImpl({
             <IconTrash className="h-4 w-4" />
           </button>
         </div>
-      </div>
 
-      {/* Selection tick. Hidden until the tile is hovered or focused, so the
-          thumbnail keeps its corner at rest, but never *only* on hover while
-          unchecked-and-unfocused would hide a control some people need: a
-          checked tile always shows its tick, because a selection you cannot
-          see is the one bug worth being conservative about. */}
-      <button
-        role="checkbox"
-        aria-checked={checked}
-        aria-label={t("gallery.select-{name}", { name: entry.name })}
-        onClick={(e) => {
-          e.stopPropagation();
-          onSelect({ shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
-        }}
-        className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-md border backdrop-blur transition-opacity duration-150 ${
-          checked
-            ? "border-transparent bg-[rgb(var(--glow))] text-[#06121f] opacity-100"
-            : "border-white/40 bg-black/45 text-transparent opacity-0 hover:border-white/70 group-hover:opacity-100 focus-visible:opacity-100"
-        }`}
-      >
-        <IconCheck className="h-4 w-4" />
-      </button>
+        {/* Selection tick, top-left. Inside the media box, so it is positioned
+            against the picture rather than against whatever ancestor happened
+            to be positioned -- as a sibling of the box it resolved against the
+            card, which drifted as soon as a caption was taller than another.
 
-      {health && (
-        <span
-          title={t(health === "missing" ? "gallery.file-is-missing" : "gallery.duplicated-entry")}
-          className="absolute bottom-8 left-2 z-10 rounded bg-amber-500/90 px-1.5 py-px font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-black"
+            Dimmed rather than invisible at rest. It used to be `opacity-0`
+            until hover or focus, which meant the one control that makes
+            multi-select possible was invisible to anyone not currently pointing
+            at the tile -- on a trackpad, and on every touch screen, the tick
+            simply did not exist. At rest it reads as an empty checkbox, which
+            is what it is. */}
+        <button
+          role="checkbox"
+          aria-checked={checked}
+          aria-label={t("gallery.select-{name}", { name: entry.name })}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect({ shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
+          }}
+          className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-md border backdrop-blur transition-opacity duration-150 ${
+            checked
+              ? "border-transparent bg-[rgb(var(--glow))] text-[#06121f] opacity-100"
+              : "border-white/40 bg-black/45 text-transparent opacity-40 hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+          }`}
         >
-          {t(health === "missing" ? "gallery.missing-short" : "gallery.duplicate-short")}
-        </span>
-      )}
+          <IconCheck className="h-4 w-4" />
+        </button>
+      </div>
 
       {/* Caption. A solid strip rather than a gradient over the picture, so the
           name and the kind are readable at rest without spending any of the
@@ -264,7 +295,11 @@ function GalleryCardImpl({
             setPopping(true);
             onToggleFavorite();
           }}
-          className={`shrink-0 rounded p-0.5 transition-colors ${
+          // A 24px hit area around a 16px glyph: `p-0.5` gave 20px, which is under
+          // the smallest comfortable target on the tile and the smallest
+          // control the rest of the app uses. The negative margin keeps the
+          // glyph exactly where it was, so nothing in the caption shifts.
+          className={`-m-1 shrink-0 rounded p-1 transition-colors ${
             favorite
               ? "text-[rgb(var(--glow))]"
               : "text-[var(--text-faint)] hover:text-[var(--text-dim)]"

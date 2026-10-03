@@ -4,9 +4,10 @@ import { DENSITY_CLASS, type GalleryDensity } from "./GalleryToolbar";
 import type { Unhealthy } from "./vaultHealth";
 import type { ClickModifiers } from "./selection";
 import { t } from "../../i18n";
-import { IconClose, IconEyeOff, IconFolder, IconMonitor, IconTrash } from "../icons";
+import { IconClose, IconEyeOff, IconFolder, IconMonitor, IconTrash, IconSpinner } from "../icons";
+import { SEL_BTN, SEL_BTN_IDLE, SEL_BTN_LABEL, SEL_BTN_PRIMARY } from "./selBar";
 import type { GalleryEntry, WallpaperCollection } from "@shared/types";
-import { ICON_BTN, ICON_BTN_ACTIVE, ICON_BTN_IDLE, ICON_BTN_PRIMARY, type MonitorEntry } from "../ui";
+import { ICON_BTN_ACTIVE, type MonitorEntry } from "../ui";
 
 export interface GalleryGridProps {
   entries: GalleryEntry[];
@@ -35,6 +36,9 @@ export interface GalleryGridProps {
   /** Applies the selection: the last entry in it ends up on every display. */
   onApplyChecked: () => void;
   onRemoveChecked: () => void;
+  /** Either bulk action is mid-flight (one IPC call per ticked wallpaper). */
+  applyPending?: boolean;
+  removePending?: boolean;
   onClearChecked: () => void;
   /**
    * File the ticked wallpapers into a collection.
@@ -83,6 +87,8 @@ export function GalleryGrid({
   selectAllActive,
   onApplyChecked,
   onRemoveChecked,
+  applyPending,
+  removePending,
   onClearChecked,
   onAddCheckedToCollection,
   hiddenChecked,
@@ -184,11 +190,17 @@ export function GalleryGrid({
       // for it, while applying changes every display and therefore gets the
       // key people already press to confirm. Details move to "i", which is
       // otherwise taken by nothing here.
+      //
+      // None of the action keys below touch the selection. They used to select
+      // the tile first, on the reasoning that acting on a tile should also
+      // select it -- but that silently replaced a bulk selection with one entry,
+      // so arrowing onto a tile and pressing Delete threw away a twenty-item
+      // choice. The cursor and the selection are separate things; an action
+      // acts on the cursor and leaves the selection alone.
       case "Enter": {
         const entry = entries[cursor];
         if (entry) {
           e.preventDefault();
-          onSelect(entry.id, {});
           onApplyAll(entry);
         }
         return;
@@ -214,7 +226,6 @@ export function GalleryGrid({
         const entry = entries[cursor];
         if (entry) {
           e.preventDefault();
-          onSelect(entry.id, {});
           onRename(entry);
         }
         return;
@@ -224,7 +235,6 @@ export function GalleryGrid({
         const entry = entries[cursor];
         if (entry) {
           e.preventDefault();
-          onSelect(entry.id, {});
           onRemove(entry);
         }
         return;
@@ -242,15 +252,40 @@ export function GalleryGrid({
           appeared for a bare select mode, which put a second row of checkbox-
           shaped controls directly above a grid of checkbox-bearing tiles -- it
           read as a duplicated checkbox -- and made the bar mount and unmount as
-          the count crossed zero, replaying the enter animation each time. */}
+          the count crossed zero, replaying the enter animation each time.
+
+          Neutral tokens, on purpose. This bar was a glow ring around a glow
+          tint, which made it the only lit object in a card whose whole surface
+          language is flat panels and hairlines -- it read as a second card
+          dropped on top of the first, and the toolbar's own comment already
+          names that mistake for the filter panel it sits next to.
+
+          So it is built the way the other band inside this card is built: the
+          same `--line-strong` border, the same `--panel-strong` fill, the same
+          `rounded-xl`, and the same 3/2 padding as the "entries need
+          attention" banner. The accent does not vanish -- it stays on the count
+          and on the one filled button, which is where it means something. A
+          selection still reads as a selection; it just reads as part of the
+          vault instead of as an alert about it. */}
       {checked.size > 0 && (
-        <div className="page-enter mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.08)] px-2 py-1.5">
-          {/* Count first, then icons. The count is information and has to be
-              read; the four actions were four long sentences competing with it
-              for the same row, which is why this bar wrapped to two lines on a
-              narrow window. Icons give each action a fixed 32px slot, so the
-              row never reflows as the selection grows. */}
-          <span className="pl-1 text-xs font-semibold tabular-nums text-[rgb(var(--glow))]">
+        <div className="page-enter mb-3 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-2">
+          {/* Count first, then the actions.
+
+              Three columns, not one wrapping row. `flex-wrap` plus an
+              `ml-auto` close button meant the bar could break into two lines
+              with the count on one and the actions on the other, which is how
+              it ended up taller than the buttons it contains. Now the count,
+              the actions and the close each own a track; only the action
+              cluster may wrap, and only on its own.
+
+              The actions are labelled and sit at the right. Four unlabelled
+              glyphs were narrower and unusable: the bar's entire job is to be
+              acted on, and a filled square, a folder and a bin are not a
+              sentence. Right-aligned so the bar reads as the toolbar above it
+              -- information left, controls right -- rather than as the count
+              and the buttons having been typed next to each other. */}
+          <div className="flex shrink items-center gap-2">
+          <span className="text-xs font-semibold tabular-nums text-[rgb(var(--glow))]">
             {t("common.{n}-selected", { n: checked.size })}
           </span>
           {/* A selection outlives a filter change, so without this the bar reads
@@ -267,7 +302,14 @@ export function GalleryGrid({
               {hiddenChecked}
             </span>
           )}
-          <span className="mx-0.5 h-5 w-px bg-[rgb(var(--glow)/0.3)]" />
+          </div>
+
+          {/* Dividers are a hairline colour rather than a dimmed accent. The
+              glow at 0.3 was the only thing in this row that glowed without
+              saying anything, and beside a neutral bar it read as a stray
+              highlight. */}
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+          <span className="h-5 w-px bg-[var(--line-strong)]" />
 
           <div className="relative" ref={collectionMenuRoot}>
             <button
@@ -281,9 +323,10 @@ export function GalleryGrid({
                   ? t("gallery.all-selected-already-collected")
                   : t("gallery.add-the-selection-to")
               }
-              className={`${ICON_BTN} ${collectionOptions.length === 0 ? ICON_BTN_IDLE : ICON_BTN_ACTIVE}`}
+              className={`${SEL_BTN} ${collectionOptions.length === 0 ? SEL_BTN_IDLE : ICON_BTN_ACTIVE}`}
             >
-              <IconFolder className="h-4 w-4" />
+              <IconFolder className="h-4 w-4 shrink-0" />
+              <span className={SEL_BTN_LABEL}>{t("gallery.file-the-selection")}</span>
             </button>
             {collectionMenu && collectionOptions.length > 0 && (
               <div className="page-enter absolute left-0 top-10 z-20 max-h-56 w-52 overflow-y-auto rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] py-1 shadow-[var(--shadow)]">
@@ -311,32 +354,45 @@ export function GalleryGrid({
           <button
             onClick={onApplyChecked}
             aria-label={t("gallery.apply-selection")}
-            title={t("gallery.apply-the-last-one-selected-explained")}
-            className={`${ICON_BTN} ${ICON_BTN_PRIMARY}`}
+            aria-busy={applyPending || undefined}
+            title={t("gallery.sets-the-newest-of-the-ticked-wallpapers")}
+            className={`${SEL_BTN} ${SEL_BTN_PRIMARY}`}
           >
-            <IconMonitor className="h-4 w-4" />
+            {applyPending ? (
+              <IconSpinner className="h-4 w-4 shrink-0" />
+            ) : (
+              <IconMonitor className="h-4 w-4 shrink-0" />
+            )}
+            <span className={SEL_BTN_LABEL}>{t("gallery.apply-selection-short")}</span>
           </button>
 
           {/* Destructive, and the only action here that loses wallpaper, so it
               sits behind a divider: the three buttons to its left can be
               undone by clicking something else. */}
-          <span className="mx-0.5 h-5 w-px bg-[rgb(var(--glow)/0.3)]" />
+          <span className="h-5 w-px bg-[var(--line-strong)]" />
           <button
             onClick={onRemoveChecked}
             aria-label={t("gallery.remove-the-selected")}
+            aria-busy={removePending || undefined}
             title={t("gallery.remove-the-selected")}
-            className={`${ICON_BTN} ${ICON_BTN_IDLE} hover:border-red-500/60 hover:bg-red-500/10 hover:text-red-400`}
+            className={`${SEL_BTN} ${SEL_BTN_IDLE} hover:border-red-500/60 hover:bg-red-500/10 hover:text-red-400`}
           >
-            <IconTrash className="h-4 w-4" />
+            {removePending ? (
+              <IconSpinner className="h-4 w-4 shrink-0" />
+            ) : (
+              <IconTrash className="h-4 w-4 shrink-0" />
+            )}
+            <span className={SEL_BTN_LABEL}>{t("gallery.remove-the-selected")}</span>
           </button>
+          </div>
 
           <button
             onClick={onClearChecked}
             aria-label={t("gallery.clear-the-selection")}
             title={t("gallery.clear-the-selection")}
-            className={`${ICON_BTN} ${ICON_BTN_IDLE} ml-auto`}
+            className={`${SEL_BTN} w-8 justify-center px-0 ${SEL_BTN_IDLE}`}
           >
-            <IconClose className="h-4 w-4" />
+            <IconClose className="h-4 w-4 shrink-0" />
           </button>
         </div>
       )}

@@ -161,6 +161,25 @@ for (const [lang, flat] of [
   }
 }
 
+// The same placeholder names in both languages.
+//
+// Every other check here proves a key *exists* in both catalogs. None of them
+// prove the Spanish uses the same `{{name}}` as the English, and a catalog
+// where it does not typechecks, passes this file, builds, and ships — with the
+// English placeholder name left unsubstituted in the Spanish UI. That is the
+// failure this catches, and nothing else here would.
+const PLACEHOLDER = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
+const placeholderNames = (v) =>
+  typeof v === "string"
+    ? [...v.matchAll(PLACEHOLDER)].map((m) => m[1]).sort().join(",")
+    : "";
+const placeholderMismatch = [];
+for (const [k, v] of enFlat) {
+  const en = placeholderNames(v);
+  const es = placeholderNames(esFlat.get(k));
+  if (en !== es) placeholderMismatch.push(`${k}: en {{${en}}} vs es {{${es}}}`);
+}
+
 const mangled = [];
 for (const [lang, flat] of [
   ["en", enFlat],
@@ -401,6 +420,7 @@ report("IDENTICAL IN BOTH (not translated)", untranslated);
 report("MANGLED ESCAPES (doubled backslashes)", mangled);
 report("SINGLE-BRACE PLACEHOLDER (will not interpolate)", uninterpolated);
 report("BARE JSX TEXT (not run through t)", jsxLeaks);
+report("PLACEHOLDER MISMATCH BETWEEN CATALOGS", placeholderMismatch);
 
 if (uninterpolated.length) {
   console.error(
@@ -411,6 +431,13 @@ if (uninterpolated.length) {
 
 if (mangled.length) {
   console.error("\nFAIL: a catalog value has doubled backslashes; it will render literal punctuation.");
+  process.exit(1);
+}
+
+if (placeholderMismatch.length) {
+  console.error(
+    "\nFAIL: the two catalogs disagree on a placeholder name; the unmatched one renders literally.",
+  );
   process.exit(1);
 }
 

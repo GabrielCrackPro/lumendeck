@@ -178,18 +178,7 @@ export function anchorIsVisible(visibleIds: readonly string[], anchor: string | 
   return anchor !== null && visibleIds.includes(anchor);
 }
 
-/**
- * The entries to apply, in a stable order.
- *
- * Ordered by the vault rather than by click order, so applying a selection
- * gives the same result however it was built. The caller applies the last one,
- * so "last" is the most recently added wallpaper, not an arbitrary one.
- */
-export function applyOrder<T extends { id: string; addedMs: number }>(
-  entries: readonly T[],
-  selected: SelectedIds,
-): T[] {
-  return entries
-    .filter((e) => selected.has(e.id))
-    .sort((a, b) => a.addedMs - b.addedMs || a.id.localeCompare(b.id));
-}
+// The ordering a bulk action resolves a selection in used to be `applyOrder`,
+// here. It moved to bulkSelection.ts with the decision it exists to serve: the
+// apply sets one wallpaper rather than every selected one, and the delete needs
+// the same order so its undo hands back a set the user recognises.

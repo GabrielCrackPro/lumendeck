@@ -22,6 +22,7 @@ import {
   type SettingsSectionDef,
 } from "../ui";
 import { api } from "../../ipc";
+import { usePending } from "../../pending";
 import { truncateError } from "../../utilities";
 import { checkForAppUpdate, installAppUpdate, announceUpdate } from "../../updater";
 
@@ -226,6 +227,9 @@ export default function GeneralTab() {
         setUpdateAvailable: s.setUpdateAvailable,
       })),
     );
+  // Scene rows each drive a save/apply/delete of their own entry, keyed by id
+  // so two rows can work without blocking one another.
+  const { pending, run } = usePending();
   // Appearance first: it is the setting people change most, and it is the
   // one whose effect you notice immediately.
   const [section, setSection] = useState(SECTIONS[0]!.id);
@@ -397,21 +401,24 @@ export default function GeneralTab() {
             </p>
             <SaveScene
               onSave={async (name) => {
-                try {
-                  await api.sceneSave(name);
-                  const fresh = await api.getConfig();
-                  useStore.setState({ cfg: fresh });
-                  useStore
-                    .getState()
-                    .toast("ok", t("common.scene-{name}-saved", { name }));
-                } catch (e) {
-                  useStore
-                    .getState()
-                    .toast(
-                      "error",
-                      t("common.save-failed-{error}", { error: truncateError(e) }),
-                    );
-                }
+                await run(
+                  "scene-save",
+                  async () => {
+                    await api.sceneSave(name);
+                    const fresh = await api.getConfig();
+                    useStore.setState({ cfg: fresh });
+                    useStore
+                      .getState()
+                      .toast("ok", t("common.scene-{name}-saved", { name }));
+                  },
+                  (e) =>
+                    useStore
+                      .getState()
+                      .toast(
+                        "error",
+                        t("common.save-failed-{error}", { error: truncateError(e) }),
+                      ),
+                );
               }}
             />
             {(cfg.scenes ?? []).length > 0 ? (
@@ -429,43 +436,51 @@ export default function GeneralTab() {
                     </div>
                     <Btn
                       variant="primary"
-                      onClick={async () => {
-                        try {
-                          await api.sceneApply(s.id);
-                          useStore
-                            .getState()
-                            .toast("ok", t("common.scene-{name}-applied", { name: s.name }));
-                        } catch (e) {
-                          useStore
-                            .getState()
-                            .toast(
-                              "error",
-                              t("common.apply-failed-{error}", {
-                                error: truncateError(e),
-                              }),
-                            );
-                        }
+                      pending={pending.has(`scene-apply-${s.id}`)}
+                      onClick={() => {
+                        void run(
+                          `scene-apply-${s.id}`,
+                          () => api.sceneApply(s.id),
+                          (e) =>
+                            useStore
+                              .getState()
+                              .toast(
+                                "error",
+                                t("common.apply-failed-{error}", {
+                                  error: truncateError(e),
+                                }),
+                              ),
+                        ).then((ok) => {
+                          if (ok) {
+                            useStore
+                              .getState()
+                              .toast("ok", t("common.scene-{name}-applied", { name: s.name }));
+                          }
+                        });
                       }}
                     >
                       {t("common.apply")}
                     </Btn>
                     <Btn
                       variant="ghost"
-                      onClick={async () => {
-                        await api.sceneDelete(s.id).catch(() => {});
-                        const fresh = await api.getConfig();
-                        useStore.setState({ cfg: fresh });
-                        useStore
-                          .getState()
-                          .undoDelete(
-                            t("common.deleted-scene", { name: s.name }),
-                            (next) => {
-                            // Pushed back verbatim: the scene carries its own
-                            // wallpaper + rgb snapshot, and keeping the id means
-                            // anything pointing at it still resolves.
-                            next.scenes.push(s);
-                            },
-                          );
+                      pending={pending.has(`scene-delete-${s.id}`)}
+                      onClick={() => {
+                        void run(`scene-delete-${s.id}`, async () => {
+                          await api.sceneDelete(s.id).catch(() => {});
+                          const fresh = await api.getConfig();
+                          useStore.setState({ cfg: fresh });
+                          useStore
+                            .getState()
+                            .undoDelete(
+                              t("common.deleted-scene", { name: s.name }),
+                              (next) => {
+                                // Pushed back verbatim: the scene carries its own
+                                // wallpaper + rgb snapshot, and keeping the id means
+                                // anything pointing at it still resolves.
+                                next.scenes.push(s);
+                              },
+                            );
+                        });
                       }}
                     >
                       {t("common.delete")}
@@ -778,6 +793,7 @@ function LogViewerCard() {
   const [lines, setLines] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [onlyErrors, setOnlyErrors] = useState(false);
+  const { run } = usePending();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -815,7 +831,13 @@ function LogViewerCard() {
             <IconRefresh className="h-4 w-4" />
             {loading ? t("common.loading") : t("common.refresh")}
           </Btn>
-          <Btn size="sm" variant="ghost" onClick={() => void api.revealLog()}>
+          <Btn
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              void run("reveal-log", () => api.revealLog());
+            }}
+          >
             <IconFolder className="h-4 w-4" />
             {t("common.open-folder")}
           </Btn>

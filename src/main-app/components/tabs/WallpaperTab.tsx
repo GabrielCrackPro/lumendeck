@@ -9,6 +9,7 @@ import { IconImage, IconGlobe, IconFolder, IconPlus, IconTrash, IconClipboard, I
 import { SHADERS, SHADER_ART } from "@shared/constants";
 import type { Config, EntryOptions, GalleryEntry, WallpaperCollection, ZoneDef } from "@shared/types";
 import { api } from "../../ipc";
+import { usePending } from "../../pending";
 import { truncateError } from "../../utilities";
 import { t } from "../../i18n";
 import { deviceName } from "../DeviceRow";
@@ -23,8 +24,12 @@ import { resolvePicked } from "../gallery/mediaKind";
 import { duplicateIds, healthOf, type Unhealthy } from "../gallery/vaultHealth";
 import { membershipDiff, visibleSelection } from "../gallery/collections";
 import {
+  bulkApplyPlan,
+  bulkRemovePlan,
+  restoreEntries,
+} from "../gallery/bulkSelection";
+import {
   applyClick,
-  applyOrder,
   clearSelection,
   emptySelection,
   pruneSelection,
@@ -52,7 +57,17 @@ export default function WallpaperTab() {
   const { cfg, rgb, save } = useStore(
     useShallow((s) => ({ cfg: s.cfg, rgb: s.rgb, save: s.save })),
   );
-  const [busy, setBusy] = useState(false);
+  // One import at a time, and it owns the dialog: browse and folder open an
+  // OS picker, so a second press while one is open would stack a second dialog
+  // behind the first. Exclusive because these are all routes into the same
+  // vault write, not independent actions.
+  const { pending, run } = usePending({ exclusive: true });
+  // Drag-and-drop import is deliberately outside `pending`: dropping again
+  // while the first batch is still importing is a *newer* intent that should
+  // supersede the older one, not a double-press to refuse. It still holds the
+  // import buttons off, so the two cannot import over each other.
+  const [dropBusy, setDropBusy] = useState(false);
+  const busy = pending.size > 0 || dropBusy;
   // The add dialog is two steps rather than two dialogs. Picking "From URL" used
   // to dismiss the picker and open a second, differently-shaped form underneath
   // the vault grid — two layouts, two focuses, and a cancel that left you
@@ -138,7 +153,7 @@ export default function WallpaperTab() {
           const paths = event.payload.paths;
           if (paths.length === 0) return;
           const seq = ++importSeq;
-          setBusy(true);
+          setDropBusy(true);
           api
             .galleryImportPaths(paths)
             .then((list) => {
@@ -159,7 +174,7 @@ export default function WallpaperTab() {
               );
             })
             .finally(() => {
-              if (seq === importSeq) setBusy(false);
+              if (seq === importSeq) setDropBusy(false);
             });
         } else {
           setDropActive(false);
@@ -269,34 +284,36 @@ export default function WallpaperTab() {
   const isActive = (g: GalleryEntry) => g.kind === wall.kind && g.source === wall.source;
   const activeEntry = cfg.gallery.find((x) => isActive(x)) ?? null;
 
+  // The four gallery actions below are the ones a card, the drawer and the
+  // selection bar all funnel through, so the guard lives here rather than in
+  // three sets of button props. Keyed per entry (or per display) so applying
+  // one wallpaper never blocks applying another.
   const applyToAll = (g: GalleryEntry) =>
-    api
-      .galleryApply(g.id)
-      .then(() =>
-        toast("ok", t("gallery.applied-to-every-display", { name: g.name })),
-      )
-      .catch((e) =>
-        toast(
-          "error",
-          t("gallery.apply-failed-{error}", { error: truncateError(e) }),
-        ),
-      );
+    void run(
+      `apply-${g.id}`,
+      () =>
+        api
+          .galleryApply(g.id)
+          .then(() =>
+            toast("ok", t("gallery.applied-to-every-display", { name: g.name })),
+          ),
+      (e) =>
+        toast("error", t("gallery.apply-failed-{error}", { error: truncateError(e) })),
+    );
 
   const removeEntry = (g: GalleryEntry) =>
-    api
-      .galleryRemove(g.id)
-      .then(() => {
-        if (inspectedId === g.id) setInspectedId(null);
-        undoDelete(t("gallery.removed-{name}", { name: g.name }), (next) => {
-          next.gallery.push(g);
-        });
-      })
-      .catch((e) =>
-        toast(
-          "error",
-          t("gallery.remove-failed-{error}", { error: truncateError(e) }),
-        ),
-      );
+    void run(
+      `remove-${g.id}`,
+      () =>
+        api.galleryRemove(g.id).then(() => {
+          if (inspectedId === g.id) setInspectedId(null);
+          undoDelete(t("gallery.removed-{name}", { name: g.name }), (next) => {
+            next.gallery.push(g);
+          });
+        }),
+      (e) =>
+        toast("error", t("gallery.remove-failed-{error}", { error: truncateError(e) })),
+    );
 
   const startRename = (g: GalleryEntry) => {
     setInspectedId(g.id);
@@ -313,21 +330,26 @@ export default function WallpaperTab() {
     });
   };
   const applyToMonitor = (g: GalleryEntry, device: string) =>
-    api
-      .galleryApplyMonitor(g.id, device)
-      .then(() =>
-        toast("ok", t("gallery.applied-to-one-display", { name: g.name })),
-      )
-      .catch((e) =>
+    void run(
+      `apply-${g.id}-${device}`,
+      () =>
+        api
+          .galleryApplyMonitor(g.id, device)
+          .then(() =>
+            toast("ok", t("gallery.applied-to-one-display", { name: g.name })),
+          ),
+      (e) =>
         toast("error", t("gallery.apply-failed-{error}", { error: truncateError(e) })),
-      );
+    );
   const clearMonitor = (device: string) =>
-    api
-      .galleryApplyMonitor(null, device)
-      .then(() => toast("info", t("common.display-reset-to-the-global-wallpaper")))
-      .catch((e) =>
-        toast("error", t("common.reset-failed-{error}", { error: truncateError(e) })),
-      );
+    void run(
+      `clear-${device}`,
+      () =>
+        api
+          .galleryApplyMonitor(null, device)
+          .then(() => toast("info", t("common.display-reset-to-the-global-wallpaper"))),
+      (e) => toast("error", t("common.reset-failed-{error}", { error: truncateError(e) })),
+    );
 
   const toast = (tone: "error" | "info" | "ok", msg: string) =>
     useStore.getState().toast(tone, msg);
@@ -349,44 +371,40 @@ export default function WallpaperTab() {
    * them in turn would leave the same end state as applying the last one, with
    * twenty wallpaper changes on the way there.
    */
-  const pickAndAddMany = async () => {
-    setBusy(true);
-    try {
-      const picked = resolvePicked(await api.pickMediaFiles());
-      if (picked.length === 0) return;
-      const lists = await Promise.all(
-        picked.map((p) =>
-          api.galleryAdd({ name: p.name, kind: p.kind, source: p.path }),
-        ),
-      );
-      const last = lists.at(-1)?.at(-1);
-      if (last && appliesOnImport) await api.galleryApply(last.id);
-      toast(
-        "ok",
-        appliesOnImport
-          ? t("gallery.added-{n}-items", { n: picked.length })
-          : t("gallery.added-{n}-items-not-applied", { n: picked.length }),
-      );
-    } catch (e) {
-      toast("error", t("gallery.import-failed-{error}", { error: truncateError(e) }));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const pickAndAddMany = () =>
+    run(
+      "browse",
+      async () => {
+        const picked = resolvePicked(await api.pickMediaFiles());
+        if (picked.length === 0) return;
+        const lists = await Promise.all(
+          picked.map((p) =>
+            api.galleryAdd({ name: p.name, kind: p.kind, source: p.path }),
+          ),
+        );
+        const last = lists.at(-1)?.at(-1);
+        if (last && appliesOnImport) await api.galleryApply(last.id);
+        toast(
+          "ok",
+          appliesOnImport
+            ? t("gallery.added-{n}-items", { n: picked.length })
+            : t("gallery.added-{n}-items-not-applied", { n: picked.length }),
+        );
+      },
+      (e) => toast("error", t("gallery.import-failed-{error}", { error: truncateError(e) })),
+    );
 
-  const pickSlideshow = async () => {
-    setBusy(true);
-    try {
-      const folder = await api.pickMediaFolder();
-      if (!folder) return;
-      const list = await api.galleryImportFolder(folder);
-      toast("ok", t("gallery.imported-{n}-items-from-the-folder", { n: list.length }));
-    } catch (e) {
-      toast("error", t("gallery.folder-import-failed-{error}", { error: truncateError(e) }));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const pickSlideshow = () =>
+    run(
+      "folder",
+      async () => {
+        const folder = await api.pickMediaFolder();
+        if (!folder) return;
+        const list = await api.galleryImportFolder(folder);
+        toast("ok", t("gallery.imported-{n}-items-from-the-folder", { n: list.length }));
+      },
+      (e) => toast("error", t("gallery.folder-import-failed-{error}", { error: truncateError(e) })),
+    );
 
   /** Whether a fresh import should take over the screens. */
   const appliesOnImport = wall.applyAfterImport !== false;
@@ -399,31 +417,28 @@ export default function WallpaperTab() {
    * route ends up applying the wallpaper while the form does not — or worse,
    * neither does.
    */
-  const addFromUrl = async (raw: string, name?: string) => {
+  const addFromUrl = (raw: string, name?: string) => {
     const url = raw.trim();
-    if (!url || busy) return false;
-    setBusy(true);
-    try {
-      const list = await api.galleryAddFromUrl(url, name?.trim() || undefined);
-      const added = list[list.length - 1];
-      const applied = !!added && appliesOnImport;
-      if (applied) await api.galleryApply(added!.id);
-      toast(
-        "ok",
-        t(
-          applied
-            ? "gallery.downloaded-and-applied"
-            : "gallery.downloaded-not-applied",
-          { name: added?.name ?? (name?.trim() || url) },
-        ),
-      );
-      return true;
-    } catch (e) {
-      toast("error", t("gallery.url-import-failed", { error: truncateError(e) }));
-      return false;
-    } finally {
-      setBusy(false);
-    }
+    if (!url) return Promise.resolve(false);
+    return run(
+      "url",
+      async () => {
+        const list = await api.galleryAddFromUrl(url, name?.trim() || undefined);
+        const added = list[list.length - 1];
+        const applied = !!added && appliesOnImport;
+        if (applied) await api.galleryApply(added!.id);
+        toast(
+          "ok",
+          t(
+            applied
+              ? "gallery.downloaded-and-applied"
+              : "gallery.downloaded-not-applied",
+            { name: added?.name ?? (name?.trim() || url) },
+          ),
+        );
+      },
+      (e) => toast("error", t("gallery.url-import-failed", { error: truncateError(e) })),
+    );
   };
 
   /**
@@ -640,7 +655,7 @@ export default function WallpaperTab() {
    * collection. Adding a selection that is half-present is the normal case, not
    * an edge case, and it would silently unfile the other half.
    */
-  const addCheckedToCollection = async (collectionId: string) => {
+  const addCheckedToCollection = (collectionId: string) => {
     const col = collections.find((c) => c.id === collectionId);
     if (!col) return;
     const { toAdd, alreadyIn } = membershipDiff(col, [...checked]);
@@ -648,7 +663,9 @@ export default function WallpaperTab() {
       toast("info", t("gallery.all-selected-already-collected"));
       return;
     }
-    try {
+    // Keyed per collection, not exclusive: filing one selection into two
+    // collections in a row is legitimate, and each is one batched config write.
+    void run(`collect-${collectionId}`, async () => {
       // One call, one config write. The batch command also skips ids already
       // present, so the diff above is only about the message, not correctness.
       await api.collectionAddEntries(collectionId, toAdd);
@@ -659,9 +676,7 @@ export default function WallpaperTab() {
           ? t("gallery.added-{n}-to-{name}", { n: toAdd.length, name })
           : t("common.added-to", { name }),
       );
-    } catch (e) {
-      toast("error", t("common.failed-{error}", { error: truncateError(e) }));
-    }
+    }, (e) => toast("error", t("common.failed-{error}", { error: truncateError(e) })));
   };
 
   /** Collections the current selection is not already filed under. */
@@ -682,33 +697,106 @@ export default function WallpaperTab() {
   );
 
   /**
-   * Apply the selection and leave the newest one showing.
+   * Apply the selection, leaving the newest one showing.
    *
-   * Applying each in turn is what a selection of many implies, but the end
-   * state is the last one either way — the difference is twenty wallpaper
-   * changes on the way there. `applyOrder` sorts by when each was added rather
-   * than by click order, so the same selection always ends in the same place.
+   * One apply, not one per selected wallpaper. Applying each in turn ends in
+   * the same place and costs a wallpaper change per item on the way there -- for
+   * a five-item selection that is five full decodes on every display -- and it
+   * raised one success toast per item. The button's tooltip has always said it
+   * applies the last ticked wallpaper, and the import path has always done
+   * exactly that; this now matches both.
+   *
+   * `bulkApplyPlan` orders by when each was added rather than by click order, so
+   * the same selection ends in the same place however it was built.
    */
-  const applyChecked = async () => {
-    const picked = applyOrder(cfg.gallery, checked);
-    if (picked.length === 0) return;
-    for (const g of picked) await applyToAll(g);
-    clearChecked();
+  const applyChecked = () => {
+    const { apply, collapsed } = bulkApplyPlan(cfg.gallery, checked);
+    if (!apply) return Promise.resolve();
+    return run("apply-checked", async () => {
+      await api.galleryApply(apply.id);
+      toast("ok", t("gallery.applied-to-every-display", { name: apply.name }));
+      clearChecked();
+      // Only worth saying when something was actually collapsed. For a
+      // single-item selection this is the plain "applied" toast underneath.
+      if (collapsed > 1) {
+        toast(
+          "info",
+          t("gallery.applied-the-newest-of-{n}-selected", { n: collapsed }),
+        );
+      }
+    }, (e) =>
+      toast("error", t("gallery.apply-failed-{error}", { error: truncateError(e) })),
+    );
   };
 
-  const removeChecked = async () => {
-    const picked = applyOrder(cfg.gallery, checked);
-    if (picked.length === 0) return;
-    for (const g of picked) await removeEntry(g);
-    clearChecked();
+  /**
+   * Remove the selection, as one undoable action.
+   *
+   * The deletes still happen one at a time -- each wallpaper has to actually
+   * leave the vault -- but the *reporting* is one toast with one Undo. It used
+   * to call `removeEntry` per entry, which meant a five-item delete stacked five
+   * undo cards in the corner and took five presses to take back, on the one
+   * action in the bar that cannot be redone by clicking something else.
+   *
+   * `restoreEntries` puts them all back in the undo's own callback, which is
+   * why the removed entries are captured before the loop rather than read from
+   * the vault afterwards.
+   */
+  const removeChecked = () => {
+    const picked = bulkRemovePlan(cfg.gallery, checked);
+    if (picked.length === 0) return Promise.resolve();
+    // Guarded because this is the destructive one, and it is slow: one IPC
+    // round trip per entry. A second press landing mid-loop would re-plan from
+    // a half-updated vault and delete entries the first pass never saw.
+    return run("remove", async () => {
+      const removed: GalleryEntry[] = [];
+      try {
+        for (const g of picked) {
+          await api.galleryRemove(g.id);
+          removed.push(g);
+        }
+      } catch (e) {
+        toast("error", t("gallery.remove-failed-{error}", { error: truncateError(e) }));
+      }
+      if (removed.length === 0) return;
+      // The drawer describes one entry; if that entry just left, close it.
+      if (inspectedId && removed.some((g) => g.id === inspectedId)) setInspectedId(null);
+      if (removed.length === picked.length) {
+        undoDelete(
+          t("gallery.removed-{n}-items", { n: removed.length }),
+          (next) => {
+            next.gallery = restoreEntries(next.gallery, removed);
+          },
+        );
+      } else {
+        // A partial delete cannot be undone as one thing without lying about
+        // what came back, so each survivor gets its own offer -- which is the
+        // old behaviour, reached only when it is the honest one.
+        for (const g of removed) {
+          undoDelete(t("gallery.removed-{name}", { name: g.name }), (next) => {
+            next.gallery = restoreEntries(next.gallery, [g]);
+          });
+        }
+      }
+      clearChecked();
+    });
   };
 
   /** Nuke every redundant copy of a duplicated file in one go. */
-  const removeDuplicates = async () => {
+  const removeDuplicates = () => {
     const redundant = cfg.gallery.filter((g) => duplicateSet.has(g.id));
-    if (redundant.length === 0) return;
-    for (const g of redundant) await removeEntry(g);
-    toast("ok", t("gallery.removed-{n}-duplicates", { n: redundant.length }));
+    if (redundant.length === 0) return Promise.resolve();
+    // One key for the whole sweep, and the loop lives inside it: `removeEntry`
+    // no longer returns a promise to await, so the count below has to be
+    // reported from inside the same guarded run.
+    return run(
+      "remove-duplicates",
+      async () => {
+        for (const g of redundant) await api.galleryRemove(g.id);
+        toast("ok", t("gallery.removed-{n}-duplicates", { n: redundant.length }));
+      },
+      (e) => toast("error", t("gallery.remove-failed-{error}", { error: truncateError(e) })),
+    );
   };
 
   const updateZone = (id: string, patch: Partial<ZoneDef>) =>
@@ -961,10 +1049,12 @@ export default function WallpaperTab() {
             onSelectAll={toggleSelectAll}
             selectAllActive={allState === "all"}
               onApplyChecked={() => void applyChecked()}
+              applyPending={pending.has("apply-checked")}
               onAddCheckedToCollection={(id) => void addCheckedToCollection(id)}
               hiddenChecked={hiddenChecked}
               collectionOptions={checkedCollectionOptions}
               onRemoveChecked={() => void removeChecked()}
+              removePending={pending.has("remove")}
               onClearChecked={clearChecked}
               onDragEntry={setDraggingId}
               rotating={rotating}
@@ -1091,17 +1181,18 @@ export default function WallpaperTab() {
                     );
                 }}
                 onRegenerateThumb={() => {
-                  setBusy(true);
-                  void api
-                    .galleryRegenerateThumb(selectedEntry.id)
-                    .then(() => toast("ok", t("gallery.thumbnail-regenerated")))
-                    .catch((e) =>
+                  void run(
+                    "regen-thumb",
+                    () =>
+                      api
+                        .galleryRegenerateThumb(selectedEntry.id)
+                        .then(() => toast("ok", t("gallery.thumbnail-regenerated"))),
+                    (e) =>
                       toast(
                         "error",
                         t("gallery.thumbnail-failed-{error}", { error: truncateError(e) }),
                       ),
-                    )
-                    .finally(() => setBusy(false));
+                  );
                 }}
                 globalOpts={{
                   fit: cfg.wallpaper.videoFit,
@@ -1255,7 +1346,7 @@ export default function WallpaperTab() {
                     <IconClipboard className="h-4 w-4" />
                     {t("gallery.paste-link")}
                   </Btn>
-                  <Btn type="submit" variant="primary" disabled={busy || !urlDraft.trim()}>
+                  <Btn type="submit" variant="primary" disabled={busy || !urlDraft.trim()} pending={pending.has("url")}>
                     {t("common.download")}
                   </Btn>
                 </div>

@@ -1,11 +1,50 @@
 import { useEffect, useRef, useState } from "react";
-import { IconChevronDown, IconClose, IconDevice, IconPencil, deviceKind } from "./icons";
+import { IconChevronDown, IconCheck, IconClose, IconDevice, IconPencil, deviceKind } from "./icons";
 import { rgbToHex } from "../utilities";
 import type { DeviceColor, RgbDeviceInfo } from "@shared/types";
 import { t } from "../i18n";
 import { AliasHint, CopyHexButton, SwitchBtn } from "./ui";
 import { useStore } from "../store";
 import { lightsGradient } from "./deviceLights";
+import { HOTPLUG_HIGHLIGHT_MS, isRecentlyArrived } from "../hotplug";
+
+/**
+ * Whether this device is still inside its "just connected" window.
+ *
+ * The store holds an absolute arrival timestamp rather than a boolean, so the
+ * expiry is computed against the wall clock on every mount. That matters
+ * because a row can be unmounted and remounted constantly — collapsing the
+ * tab, scrolling it out of the list, switching between the Overview and RGB
+ * tabs. A boolean in the store, cleared by a timer, would be wrong on every
+ * one of those: the row would come back wearing a badge whose timer had
+ * already fired with nobody watching.
+ *
+ * The timer is per-row and exists only while the row is highlighted, so a list
+ * of six idle devices schedules nothing at all. A single global ticker would
+ * re-render every row on every frame instead.
+ */
+function useRecentlyArrived(id: number): boolean {
+  const addedAt = useStore((s) => s.deviceAddedAt[id]);
+  // Lazy initialiser, not a plain `false`: a device that has just been
+  // enumerated mounts a brand new row, and starting from `false` would paint
+  // that first frame with no highlight at all — the badge appearing a frame
+  // after the card it belongs to, which is the one moment someone is actually
+  // looking straight at it.
+  const [active, setActive] = useState(() =>
+    isRecentlyArrived(addedAt, Date.now()),
+  );
+  useEffect(() => {
+    if (!isRecentlyArrived(addedAt, Date.now())) {
+      setActive(false);
+      return;
+    }
+    setActive(true);
+    const remaining = HOTPLUG_HIGHLIGHT_MS - (Date.now() - addedAt!);
+    const timer = setTimeout(() => setActive(false), Math.max(remaining, 0));
+    return () => clearTimeout(timer);
+  }, [addedAt]);
+  return active;
+}
 
 /**
  * OpenRGB type names are CamelCase with a trailing index: "LEDStrip1",
@@ -43,6 +82,9 @@ const DEVICE_TYPE_KEYS: Record<string, string> = {
   strip: "lighting.type-led-strip",
   fan: "lighting.type-fan",
   keypad: "lighting.type-keypad",
+  gamepad: "lighting.type-gamepad",
+  light: "lighting.type-light",
+  speaker: "lighting.type-speaker",
 };
 
 /**
@@ -130,6 +172,9 @@ export function DeviceRow({
   // onto a different device mid-edit. Remembering which device the draft was
   // started for is what stops an alias being written onto the wrong hardware.
   const renameFor = useRef<number | null>(null);
+  // A device that arrived in the last few seconds. The toast says it once; this
+  // stays until the user has actually had a chance to see it.
+  const justArrived = useRecentlyArrived(device.id);
 
   useEffect(() => {
     if (renameFor.current !== null && renameFor.current !== device.id) {
@@ -171,10 +216,16 @@ export function DeviceRow({
 
   return (
     <li
-      className={`rounded-xl border transition-colors duration-200 ${
-        muted
-          ? "border-[var(--line)] bg-[var(--panel-sunken)]"
-          : "border-[var(--line)] bg-[var(--panel-sunken)] hover:border-[var(--line-strong)]"
+      // The arrival state wins over the muted and hover styling rather than
+      // composing with them: a muted device that has just been plugged in still
+      // needs to be findable, and "the hardware is here" is a fact about the
+      // device, not about its colour.
+      className={`min-w-0 overflow-hidden rounded-xl border transition-colors duration-200 ${
+        justArrived
+          ? "border-emerald-400/50 bg-emerald-500/[0.07] shadow-[0_0_0_1px_rgb(16_185_129/0.25)]"
+          : muted
+            ? "border-[var(--line)] bg-[var(--panel-sunken)]"
+            : "border-[var(--line)] bg-[var(--panel-sunken)] hover:border-[var(--line-strong)]"
       }`}
     >
       {/*
@@ -183,7 +234,16 @@ export function DeviceRow({
         pages. What a list row owes the eye is: what it is, whether it is lit,
         and how to stop it.
       */}
-      <div className="flex items-center gap-2 py-2 pr-3 pl-3">
+      {/*
+        Two columns, and the switch owns the right-hand one outright:
+        `minmax(0,1fr)` for the expandable half, `auto` for the control.
+        This is the fix for the switch being pushed outside the card. Flex
+        only got us `min-w-0` at each link of a four-deep chain, and one
+        `shrink-0` text chip in the middle was enough to win; a grid track of
+        `minmax(0,1fr)` cannot be widened by its contents by definition, so
+        the switch keeps its 34px and stays inside whatever the card is.
+      */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2">
         {renaming ? (
           <>
             <input
@@ -223,7 +283,7 @@ export function DeviceRow({
               type="button"
               onClick={() => setOpen((v) => !v)}
               aria-expanded={open}
-              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-1 text-left"
+              className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg py-1 text-left"
             >
               {/*
                 The glyph stays neutral. It used to be tinted with the live
@@ -235,7 +295,11 @@ export function DeviceRow({
               </span>
 
               <span
-                className={`truncate text-sm ${
+                // `min-w-0` is not optional next to `truncate`: truncate sets
+                // `white-space: nowrap`, and without a zero minimum the name
+                // refuses to shrink. The grid track above already guarantees
+                // it, and this is the second lock on the same door.
+                className={`min-w-0 truncate text-sm ${
                   muted
                     ? "text-[var(--text-faint)]"
                     : "font-medium text-[var(--text)]"
@@ -244,19 +308,56 @@ export function DeviceRow({
                 {name}
               </span>
 
-              {/* Decorative: the state this shows is already in the switch
-                  beside it. */}
-              <span
-                aria-hidden
-                className="ml-auto h-1.5 w-20 shrink-0 rounded-full border border-white/10 sm:w-28"
-                style={{ background: lights }}
-              />
+              {/*
+                The persistent half of the connect notice. The toast says it
+                once and is gone in four seconds; this is the copy that is
+                still there when the user looks back at the dashboard after
+                plugging a keyboard in and getting on with something else.
 
-              <IconChevronDown
-                className={`h-3.5 w-3.5 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${
-                  open ? "rotate-180" : ""
-                }`}
-              />
+                Deliberately not `aria-hidden`, unlike the colour bar beside
+                it: the bar restates state the switch already announces, but
+                "just connected" is not otherwise available to anyone who does
+                not see the highlight. The same emerald vocabulary as the
+                success toast, so the two read as one event.
+              */}
+              {/*
+                The persistent half of the connect notice: the toast says it
+                once and is gone in four seconds, and this is what is still
+                there when the user looks back after plugging something in and
+                getting on with something else.
+
+                Not `aria-hidden`, unlike the colour bar below: the bar
+                restates state the switch already announces, but "just
+                connected" is not otherwise available to anyone who does not
+                see the highlight.
+
+                The label hides below `sm`. It is the one piece of copy in
+                this row that has no natural minimum width, and "Recién
+                conectado" is nearly twice the length of "Just connected" —
+                it was the widest thing competing with the switch. The border
+                and background already carry the meaning on a narrow row.
+              */}
+              {justArrived && (
+                <span className="hidden min-w-0 shrink items-center gap-1 truncate rounded-[var(--radius-sm)] bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 sm:flex">
+                  <IconCheck className="h-3 w-3 shrink-0" />
+                  {t("lighting.just-connected")}
+                </span>
+              )}
+
+              {/* Decorative: the state this shows is already in the switch
+                  beside it. Its own column, so the row cannot grow here. */}
+              <span className="flex items-center gap-2">
+                <span
+                  aria-hidden
+                  className="hidden h-1.5 w-16 rounded-full border border-white/10 sm:block sm:w-24 xl:w-28"
+                  style={{ background: lights }}
+                />
+                <IconChevronDown
+                  className={`h-3.5 w-3.5 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${
+                    open ? "rotate-180" : ""
+                  }`}
+                />
+              </span>
             </button>
 
             {/*

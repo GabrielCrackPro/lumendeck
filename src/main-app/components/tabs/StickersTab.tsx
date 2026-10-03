@@ -5,6 +5,7 @@ import { useStore } from "../../store";
 import { Card, Btn, Toggle, Slider, Select, NumberField, EmptyState, Section, InfoNote } from "../ui";
 import { IconCheck, IconClose, IconPlus, IconTrash, IconSparkle } from "../icons";
 import { api } from "../../ipc";
+import { usePending } from "../../pending";
 import { truncateError, basename } from "../../utilities";
 import type { StickerDef, StickerFit } from "@shared/types";
 import { t } from "../../i18n";
@@ -54,7 +55,11 @@ export default function StickersTab() {
   const { cfg, save } = useStore(
     useShallow((s) => ({ cfg: s.cfg, save: s.save })),
   );
-  const [busy, setBusy] = useState(false);
+  // Keyed per sticker so one row's save does not block another's; the import
+  // key also covers the placement session, which stays pending until the user
+  // finishes placing or cancels.
+  const { pending, run } = usePending();
+  const busy = pending.has("import");
   const [placing, setPlacing] = useState(false);
   const [editing, setEditing] = useState(false);
   // Which sticker the keyboard targets while editing (last clicked card).
@@ -112,22 +117,17 @@ export default function StickersTab() {
 
   if (!cfg) return null;
 
-  const importAndPlace = async () => {
-    if (busy) return; // guard: a stuck dialog must not wedge the flow
+  const importAndPlace = () => {
     console.info("[stickers] add clicked");
-    setBusy(true);
-    try {
+    // The guard is the hook's: a second press while the picker is open would
+    // otherwise stack a second OS dialog behind the first.
+    void run("import", async () => {
       const file = await api.pickImageFile();
       console.info("[stickers] picker returned", file);
       if (!file) return;
       const name = basename(file);
       await api.beginStickerPlacement(name, convertFileSrc(file, "media"), "image");
-    } catch (e) {
-      console.error("[stickers] placement failed", e);
-      // Right-click / ESC cancel resolves with "cancelled".
-    } finally {
-      setBusy(false);
-    }
+    }).catch(() => {});
   };
 
   const update = (id: string, patch: Partial<StickerDef>) => {
@@ -155,7 +155,13 @@ export default function StickersTab() {
               <span className="text-xs font-medium text-[rgb(var(--glow))]">
                 {t("common.click-anywhere-on-the-desktop-to-place-scroll-to")}
               </span>
-              <Btn size="sm" variant="danger" onClick={() => api.cancelStickerPlacement()}>
+              <Btn
+                size="sm"
+                variant="danger"
+                onClick={() => {
+                  void run("cancel-place", () => api.cancelStickerPlacement());
+                }}
+              >
                 <IconClose className="h-4 w-4" />
                 {t("common.cancel")}
               </Btn>
@@ -165,7 +171,13 @@ export default function StickersTab() {
               <span className="text-xs font-medium text-[rgb(var(--glow))]">
                 {t("common.drag-to-move-edges-corners-to-resize-right-click")}
               </span>
-              <Btn size="sm" variant="primary" onClick={() => api.endStickerEditor()}>
+              <Btn
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  void run("end-edit", () => api.endStickerEditor());
+                }}
+              >
                 <IconCheck className="h-4 w-4" />
                 {t("common.done")}
               </Btn>
@@ -176,7 +188,12 @@ export default function StickersTab() {
                 <IconPlus className="h-4 w-4" />
                 {t("common.add-sticker")}
               </Btn>
-              <Btn onClick={() => api.beginStickerEditor()} disabled={cfg.stickers.length === 0}>
+              <Btn
+                onClick={() => {
+                  void run("begin-edit", () => api.beginStickerEditor());
+                }}
+                disabled={cfg.stickers.length === 0}
+              >
                 <IconSparkle className="h-4 w-4" />
                 {t("common.edit-on-wallpaper")}
               </Btn>
@@ -348,19 +365,27 @@ export default function StickersTab() {
                   <div className="flex gap-1.5">
                     <Btn
                       size="sm"
-                      onClick={() => api.reorderSticker(s.id, -1).catch(console.error)}
+                      disabled={pending.has(`reorder-${s.id}`)}
+                      onClick={() => {
+                        void run(`reorder-${s.id}`, () => api.reorderSticker(s.id, -1));
+                      }}
                     >
                       {t("common.back")}
                     </Btn>
                     <Btn
                       size="sm"
-                      onClick={() => api.reorderSticker(s.id, 1).catch(console.error)}
+                      disabled={pending.has(`reorder-${s.id}`)}
+                      onClick={() => {
+                        void run(`reorder-${s.id}`, () => api.reorderSticker(s.id, 1));
+                      }}
                     >
                       {t("common.forward")}
                     </Btn>
                     <Btn
                       size="sm"
-                      onClick={() => api.duplicateSticker(s.id).catch(console.error)}
+                      onClick={() => {
+                        void run(`duplicate-${s.id}`, () => api.duplicateSticker(s.id));
+                      }}
                     >
                       {t("common.duplicate")}
                     </Btn>
@@ -370,19 +395,22 @@ export default function StickersTab() {
                     size="sm"
                     onClick={() => {
                       if (selected === s.id) setSelected(null);
-                      api
-                        .removeSticker(s.id)
-                        .then(() =>
-                          useStore
-                            .getState()
-                            .undoDelete(
-                              t("common.removed", { name: s.name }),
-                              (next) => {
-                              next.stickers.push(s);
-                              },
+                      void run(
+                        `remove-${s.id}`,
+                        () =>
+                          api
+                            .removeSticker(s.id)
+                            .then(() =>
+                              useStore
+                                .getState()
+                                .undoDelete(
+                                  t("common.removed", { name: s.name }),
+                                  (next) => {
+                                    next.stickers.push(s);
+                                  },
+                                ),
                             ),
-                        )
-                        .catch((e) =>
+                        (e) =>
                           useStore
                             .getState()
                             .toast(
@@ -391,7 +419,7 @@ export default function StickersTab() {
                                 error: truncateError(e),
                               }),
                             ),
-                        );
+                      );
                     }}
                   >
                     <IconTrash className="h-4 w-4" />
