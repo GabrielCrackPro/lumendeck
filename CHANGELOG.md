@@ -7,13 +7,15 @@ and it lands under that release's heading.
 ## 0.2.33 — 2026-10-03
 
 ### Added
+- **profiles:** one concept for a setup, reachable from the header (`4953441`)
 - **ui:** say what a control is doing while it does it (`68184fd`)
 
 ### Fixed
+- **i18n:** read a key map that contains a placeholder (`2af44e5`)
 - **media:** stop the transport buttons freezing the window (`364fd8b`)
 - **rgb:** notice a device leaving instead of three polls later (`dbad8ec`)
 
-_2 internal._
+_3 internal._
 
 ## 0.2.32 — 2026-10-03
 
