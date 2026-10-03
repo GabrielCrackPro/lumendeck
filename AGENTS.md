@@ -173,7 +173,9 @@ add one there instead of inlining.
 
 **Design tokens.** Radius comes from the scale in `index.css`
 (`--radius-sm` through `--radius-3xl`). Do not hardcode pixel radii. Icon sizes
-are `h-3/h-4/h-5/h-6`.
+are `h-3/h-4/h-5/h-6`. Colour comes from `shared/palette.ts`, which `index.css`
+is generated from — never write a hex colour in a component. `docs/design.md`
+is the reference for all of it.
 
 ## Commits
 
@@ -254,4 +256,5 @@ scripts/                verification, changelog, icons, versions
 ```
 
 Further reading: `docs/architecture.md` for how the pieces fit,
-`docs/development.md` for step-by-step recipes.
+`docs/development.md` for step-by-step recipes, `docs/design.md` for the tokens
+and primitives the UI is built from.
