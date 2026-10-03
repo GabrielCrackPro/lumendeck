@@ -283,7 +283,7 @@ pub fn validate(accel: &str) -> Result<(), String> {
 }
 
 /// Run the action behind a pressed combo.
-fn dispatch(app: &tauri::AppHandle, action: &str) {
+fn dispatch(app: &tauri::AppHandle, action: &'static str) {
     // Blink before the action runs, and regardless of whether it then has
     // anything to act on: the whole point is to confirm the key registered,
     // and "nothing is playing" is still a response the user pressed a key for.
@@ -295,14 +295,25 @@ fn dispatch(app: &tauri::AppHandle, action: &str) {
     crate::rgb::wake_if_sleeping();
     crate::rgb::request_hotkey_blink();
 
+    // Media transport blocks until the target player answers its `Try*Async`,
+    // so it goes to the blocking pool rather than stalling the shortcut
+    // callback (and, on the dashboard's key path, the UI thread behind it).
+    // The result is reported from the worker for the same reason.
+    if let Some(verb) = media_transport_action(action) {
+        let app = app.clone();
+        let name = action;
+        let _ = tauri::async_runtime::spawn(async move {
+            let result = crate::media_session::transport_async(verb.to_string()).await;
+            report_result(&app, name, result);
+        });
+        return;
+    }
+
     let result: Result<(), String> = match action {
         "toggleDashboard" => {
             crate::tray::toggle_dashboard(app);
             Ok(())
         }
-        "playPause" => crate::media_session::transport("toggle"),
-        "nextTrack" => crate::media_session::transport("next"),
-        "prevTrack" => crate::media_session::transport("previous"),
         "toggleMute" => crate::volume::toggle_mute().map(|_| ()),
         "volumeUp" => nudge_volume(VOLUME_STEP),
         "volumeDown" => nudge_volume(-VOLUME_STEP),
@@ -322,6 +333,20 @@ fn dispatch(app: &tauri::AppHandle, action: &str) {
         ),
         other => Err(format!("unknown hotkey action: {other}")),
     };
+    report_result(app, action, result);
+}
+
+/// The SMTC transport verb behind a media hotkey, if this action is one.
+fn media_transport_action(action: &str) -> Option<&'static str> {
+    match action {
+        "playPause" => Some("toggle"),
+        "nextTrack" => Some("next"),
+        "prevTrack" => Some("previous"),
+        _ => None,
+    }
+}
+
+fn report_result(app: &tauri::AppHandle, action: &str, result: Result<(), String>) {
     match result {
         Ok(()) => log::debug!("hotkey: {action}"),
         // "Nothing to act on" is expected when the user presses a media key
@@ -418,6 +443,17 @@ mod tests {
         for accel in ["", "   ", "Ctrl+", "Ctrl+Nonsense", "Ctrl+A+B"] {
             assert!(validate(accel).is_err(), "{accel:?} must not validate");
         }
+    }
+
+    #[test]
+    fn media_actions_map_to_smtc_verbs() {
+        assert_eq!(media_transport_action("playPause"), Some("toggle"));
+        assert_eq!(media_transport_action("nextTrack"), Some("next"));
+        assert_eq!(media_transport_action("prevTrack"), Some("previous"));
+        // Everything else stays on the synchronous path; a stray Some here
+        // would send an unknown verb to SMTC and silently do nothing.
+        assert_eq!(media_transport_action("toggleDashboard"), None);
+        assert_eq!(media_transport_action("volumeUp"), None);
     }
 
     #[test]

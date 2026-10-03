@@ -681,6 +681,46 @@ pub fn seek(position_sec: f64) -> Result<(), String> {
         })
 }
 
+// ---------- off-thread entry points ----------
+
+// The four operations above all end in a `wait_op` park, which can last as long
+// as the target player takes to answer a `Try*Async` request. Run from the main
+// thread that is a visible freeze, so IPC and hotkey callers go through these
+// instead: the blocking half moves to the async runtime's blocking pool, where
+// a slow player delays nothing but its own reply.
+//
+// `init_apartment` is called inside each blocking function, so whichever thread
+// the pool hands us gets its own COM apartment before touching WinRT. That is
+// the same shape as the poller, which has always read SMTC off the main thread
+// on its own MTA thread, so nothing here depends on the caller's apartment.
+
+/// Same as [`transport`], on a worker thread. The error string is preserved;
+/// a panic in the closure surfaces as a task failure rather than a silent hang.
+pub async fn transport_async(action: String) -> Result<(), String> {
+    join(tauri::async_runtime::spawn_blocking(move || transport(&action))).await
+}
+
+/// Same as [`seek`], on a worker thread.
+pub async fn seek_async(position_sec: f64) -> Result<(), String> {
+    join(tauri::async_runtime::spawn_blocking(move || seek(position_sec))).await
+}
+
+/// Same as [`set_shuffle`], on a worker thread.
+pub async fn set_shuffle_async(active: bool) -> Result<(), String> {
+    join(tauri::async_runtime::spawn_blocking(move || set_shuffle(active))).await
+}
+
+/// Same as [`cycle_repeat`], on a worker thread.
+pub async fn cycle_repeat_async(current: Option<u8>) -> Result<(), String> {
+    join(tauri::async_runtime::spawn_blocking(move || cycle_repeat(current))).await
+}
+
+async fn join(
+    handle: tauri::async_runtime::JoinHandle<Result<(), String>>,
+) -> Result<(), String> {
+    handle.await.unwrap_or_else(|e| Err(format!("media session task failed: {e}")))
+}
+
 // ---------- WinRT async helpers ----------
 
 // The `windows_future::Async::join` helper trait is private to that crate, so

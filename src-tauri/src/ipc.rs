@@ -2032,29 +2032,37 @@ fn nanoid_like() -> String {
 
 // ---------- Media session (SMTC) ----------
 
+// These are async for one reason: every SMTC call parks the calling thread
+// on a WinRT completion callback (`media_session::wait_op`), and the target
+// player answers whenever it answers. As sync commands they ran on Tauri's
+// main thread, so each press of a transport button froze the window long
+// enough for Windows to swap in its busy cursor. The blocking work moves to
+// the runtime's blocking pool, which is what `media_session`'s `*_async`
+// wrappers are for.
+
 /// Fire a transport action (play/pause/next/previous) at whatever the OS
 /// media session is currently playing — Spotify, a browser, any SMTC client.
 #[tauri::command]
-pub fn media_transport(action: String) -> Result<(), String> {
-    crate::media_session::transport(&action)
+pub async fn media_transport(action: String) -> Result<(), String> {
+    crate::media_session::transport_async(action).await
 }
 
 /// Seek the current SMTC session to the given position (seconds).
 #[tauri::command]
-pub fn media_seek(position_sec: f64) -> Result<(), String> {
-    crate::media_session::seek(position_sec)
+pub async fn media_seek(position_sec: f64) -> Result<(), String> {
+    crate::media_session::seek_async(position_sec).await
 }
 
 /// Toggle shuffle on the current SMTC session.
 #[tauri::command]
-pub fn media_shuffle(active: bool) -> Result<(), String> {
-    crate::media_session::set_shuffle(active)
+pub async fn media_shuffle(active: bool) -> Result<(), String> {
+    crate::media_session::set_shuffle_async(active).await
 }
 
 /// Cycle repeat mode (off -> track -> list -> off) on the current session.
 #[tauri::command]
-pub fn media_repeat(current: Option<u8>) -> Result<(), String> {
-    crate::media_session::cycle_repeat(current)
+pub async fn media_repeat(current: Option<u8>) -> Result<(), String> {
+    crate::media_session::cycle_repeat_async(current).await
 }
 
 /// System master volume (0..100) + mute state, for the player card.
