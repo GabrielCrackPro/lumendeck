@@ -86,8 +86,17 @@ const TUPLE_KEY_SLOT = /\[\s*"[a-z][\w-]*"\s*,\s*"([a-z][\w-]*(?:\.[\w{}-]+)+)"/
 // the literal is an object value, not a `label:` field and not inside `t()`.
 // Without this rule every key in the map reads as unused, which trains you to
 // ignore the unused report exactly when the map is at its largest.
+// The body runs to a `}` that starts a line, not to the first `}` of any kind.
+//
+// It used to be `([^}]*)`, which cannot tell a brace inside a string from the
+// brace that ends the map. A key like `"overview.up-late-{name}"` therefore
+// truncated the capture at the `{name}` and the rest of the map was never read
+// -- so every key after it reported as unused, and the fix for that (adding the
+// keys to the catalog) made the report worse rather than better. Requiring the
+// closing brace to begin its own line is what distinguishes the two: a
+// placeholder is always mid-line.
 const EXPLICIT_KEY_MAP =
-  /\b[A-Z][A-Z0-9_]*(?:_LABEL|_LABELS|_KEY|_KEYS)\b[^=]{0,120}=\s*\{([^}]*)\}/g;
+  /\b[A-Z][A-Z0-9_]*(?:_LABEL|_LABELS|_KEY|_KEYS)\b[^=]{0,120}=\s*\{([\s\S]*?)^\s*\}/gm;
 
 // Every source file, not a hand-listed few — see the copy-leak scan below for
 // why an enumerated list silently rots.
