@@ -7,6 +7,7 @@ and it lands under that release's heading.
 ## 0.2.35 — 2026-10-04
 
 ### Added
+- **dashboard:** system card, update cadence, gallery shuffle and bounded device lists (`0e0c614`)
 - **transfer:** move a setup between machines, media included (`72c7e2d`)
 
 _2 internal._
