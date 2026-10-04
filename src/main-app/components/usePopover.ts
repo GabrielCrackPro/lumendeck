@@ -46,7 +46,16 @@ export function useAnchoredPopover() {
   useEffect(() => {
     if (!shown) return;
     const onDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) close();
+      // Both the trigger and the panel count as "inside".
+      //
+      // The panel is portalled to `document.body`, so `rootRef.contains` is false
+      // for every click on an option -- testing the root alone would treat the
+      // first mousedown of a click as a dismissal and close the menu under the
+      // pointer before `onPick` could run.
+      const target = e.target as Node;
+      const inRoot = rootRef.current?.contains(target) ?? false;
+      const inPanel = panelRef.current?.contains(target) ?? false;
+      if (!inRoot && !inPanel) close();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;

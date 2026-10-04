@@ -42,6 +42,18 @@ pub fn get_config() -> Config {
     crate::config_store::get()
 }
 
+/// CPU and memory pressure for the dashboard's header strip.
+///
+/// A read of the sampler's last published snapshot, never a fresh measurement:
+/// `sysinfo` reports CPU load as the difference between two refreshes, so
+/// measuring here would mean blocking the IPC call for the sampling interval
+/// and returning a number averaged over a window the caller did not ask for.
+/// Inherently cheap and infallible, so it has no `Result`.
+#[tauri::command]
+pub fn perf_snapshot() -> crate::perf::PerfSnapshot {
+    crate::perf::latest()
+}
+
 #[tauri::command]
 pub fn set_config(app: AppHandle, cfg: Config) -> Result<Config, String> {
     // `stickers` and `gallery` are backend-managed collections (dedicated

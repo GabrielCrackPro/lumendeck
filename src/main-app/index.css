@@ -58,6 +58,35 @@
      actually reaches, where grids add columns instead of stretching. */
   --breakpoint-3xl: 120rem; /* 1920px */
   --breakpoint-4xl: 160rem; /* 2560px */
+
+  /* ---------- motion ----------
+     The one scale the app was missing. Radius and colour each had a scale and
+     a rule about where they live; motion had neither, so all twenty-odd
+     animations carried a hand-picked duration -- 0.12s, 0.16s, 0.18s, 0.24s,
+     0.45s -- and six different easings. Every one of them was a reasonable
+     individual choice and none of them agreed with any other, which is the
+     condition under which an interface feels "almost right" and nobody can say
+     why. Naming them makes the feel a decision instead of an accumulation.
+
+     Durations, by what the motion is doing:
+       instant  state that only confirms a press
+       fast     hover and press feedback
+       base     an element entering or leaving
+       slow     something large travelling into place
+       slower   decoration, where the eye is not waiting on it
+
+     Easings:
+       standard    the default; accelerates out, decelerates in
+       emphasized  overshoots, for something that should feel physical
+       exit        accelerates away, for something being dismissed           */
+  --motion-instant: 90ms;
+  --motion-fast: 160ms;
+  --motion-base: 220ms;
+  --motion-slow: 320ms;
+  --motion-slower: 460ms;
+  --ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-emphasized: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
 }
 
 /* ---------- base ---------- */
@@ -117,7 +146,7 @@ body {
     linear-gradient(to bottom, rgb(var(--glow) / 0.035) 1px, transparent 1px) 0 0 / 100% 56px,
     linear-gradient(to right, rgb(var(--glow) / 0.03) 1px, transparent 1px) 0 0 / 56px 100%,
     var(--bg);
-  transition: background 0.6s ease;
+  transition: background var(--motion-slow) ease;
 }
 :root:not(.dark) .aura {
   background:
@@ -148,10 +177,31 @@ body {
   background: var(--panel);
   box-shadow: var(--shadow);
   backdrop-filter: blur(14px);
-  transition: border-color 0.25s ease;
+  transition: border-color var(--motion-base) ease;
 }
 .glass:hover {
   border-color: var(--line-strong);
+}
+
+/* The lift, on cards only.
+   Every card on every screen, so this is the app's most-exercised transition --
+   and the reason it is NOT on `.glass` above: that class is also the app header,
+   the loading skeletons, the onboarding panel and the modal bodies, and none of
+   those should shift when a mouse passes over them. `Card` adds `card-surface`
+   and only a card gets this. */
+.card-surface {
+  transition:
+    border-color var(--motion-base) var(--ease-standard),
+    box-shadow var(--motion-base) var(--ease-standard),
+    transform var(--motion-base) var(--ease-standard);
+}
+.card-surface:hover {
+  transform: translateY(-1px);
+  /* A second, offset shadow rather than a bigger blur: the offset is what reads
+     as elevation, and blur alone looks like the card going out of focus. */
+  box-shadow:
+    var(--shadow),
+    0 10px 24px -12px rgb(0 0 0 / 0.5);
 }
 
 /* ---------- utilities ----------
@@ -191,6 +241,52 @@ body {
     border-color: rgb(var(--glow) / 0.5);
     color: rgb(var(--glow));
   }
+}
+
+/* Keyboard focus affordance, the counterpart to `hover-glow`.
+
+   The primitives had each grown their own focus treatment: `Btn` had none and
+   fell back to the browser's default ring, `ICON_BTN` drew a 2px glow at 0.5,
+   `SwitchBtn` the same at 0.6 with an offset, and the overlay buttons a white
+   ring because they sit on artwork. Tabbing through a tab bar moved through
+   four different focus styles, which reads as four different apps.
+
+   One utility, so a new control inherits the house style by naming it instead
+   of inventing a ring. The offset is what separates the ring from the control's
+   own border; without it a 1px-bordered chip reads as having a 3px border on
+   focus. `--focus-offset` defaults to the panel it normally sits on and is
+   overridden for controls drawn over a surface of another colour. */
+@utility focus-glow {
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--focus-offset, var(--panel-sunken)),
+      0 0 0 4px rgb(var(--glow) / 0.55);
+  }
+}
+
+/* The shared tooltip, replacing the browser's own.
+
+   Deliberately quieter than a system tooltip: it sits over the app's own
+   chrome, so a solid black bubble would read as a modal. The glow tint marks
+   it as belonging to the accent-coloured controls it usually describes. */
+.tip {
+  position: fixed;
+  z-index: 200;
+  max-width: 20rem;
+  pointer-events: none;
+  border-radius: var(--radius-md);
+  border: 1px solid rgb(var(--glow) / 0.28);
+  background: color-mix(in srgb, var(--panel-strong) 94%, transparent);
+  padding: 0.25rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: normal;
+  box-shadow: 0 12px 30px -12px rgb(0 0 0 / 0.75);
+  backdrop-filter: blur(10px);
+  animation: tipIn var(--motion-fast) var(--ease-standard) both;
 }
 
 /* Callout note: glow-tinted inline explanation box (pairs with InfoNote). */
@@ -261,10 +357,14 @@ input[type="range"]::-webkit-slider-runnable-track {
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
+  /* Centres the 16px thumb on the 3px track: (3 - 16) / 2. */
   margin-top: -6.5px;
   height: 16px;
   width: 16px;
-  border-radius: 4px;
+  /* The scale's `sm`, not a literal 4px. A hardcoded radius here is why the
+     thumb looked unlike everything around it: every other 16px control in the
+     app rounds to a token, and 4px is not on the scale at all. */
+  border-radius: var(--radius-sm);
   /* `--text`, not `--accent-lift`. `accent-lift` is in the palette's
      CODE_ONLY_TOKENS: it exists for the JavaScript accent-readability maths
      and is never emitted as a CSS declaration, so `var(--accent-lift)` here
@@ -274,12 +374,30 @@ input[type="range"]::-webkit-slider-thumb {
      unresolved custom property makes a control *invisible* rather than
      merely wrong, which is the worst way for this to fail. */
   background: var(--text, #ecedef);
-  border: 2px solid rgb(var(--glow));
+  /* A 1px ring rather than the 2px it wore before. At 2px it ate a quarter of
+     the thumb on each side, which read as a hollow outlined box rather than a
+     handle, and it doubled up with the glow underneath the track. */
+  border: 1px solid rgb(var(--glow));
   box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.6);
-  transition: transform 0.15s ease;
+  transition:
+    transform var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard);
 }
 input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.12);
+  box-shadow: 0 2px 10px -2px rgba(0, 0, 0, 0.7);
+}
+/* Keyboard focus, which `appearance: none` had erased entirely: Chromium
+   draws no default ring on a range input whose appearance is removed, so
+   tabbing through a settings page moved an invisible highlight. The ring is a
+   box-shadow rather than an outline so it follows the thumb's radius. */
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 3px var(--panel-sunken),
+    0 0 0 5px rgb(var(--glow) / 0.7);
+}
+input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.06);
 }
 input[type="range"]::-moz-range-track {
   height: 3px;
@@ -294,9 +412,14 @@ input[type="range"]::-moz-range-progress {
 input[type="range"]::-moz-range-thumb {
   height: 16px;
   width: 16px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--text, #ecedef);
-  border: 2px solid rgb(var(--glow));
+  border: 1px solid rgb(var(--glow));
+}
+input[type="range"]:focus-visible::-moz-range-thumb {
+  box-shadow:
+    0 0 0 3px var(--panel-sunken),
+    0 0 0 5px rgb(var(--glow) / 0.7);
 }
 
 /* number input: hide spinners for cleanliness on compact readouts */
@@ -415,17 +538,17 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 .step-enter-forward {
-  animation: lstepForward 0.26s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: lstepForward var(--motion-base) var(--ease-standard) both;
 }
 .step-enter-back {
-  animation: lstepBack 0.26s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: lstepBack var(--motion-base) var(--ease-standard) both;
 }
 
 .page-enter {
-  animation: lpage 0.38s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: lpage var(--motion-slow) var(--ease-standard) both;
 }
 .page-enter-header {
-  animation: lpageHeader 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: lpageHeader var(--motion-base) var(--ease-standard) both;
 }
 
 @keyframes switchBurst {
@@ -441,7 +564,7 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .switch-ripple {
-  animation: switchBurst 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  animation: switchBurst var(--motion-slow) var(--ease-standard) both;
   pointer-events: none;
 }
 .switch-btn:active .switch-ripple {
@@ -453,7 +576,7 @@ input[type="color"]::-webkit-color-swatch {
   100% { transform: translateX(400%); }
 }
 .saving-bar {
-  animation: saveSweep 0.9s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: saveSweep var(--motion-slower) cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 /* staggered reveal for card grids */
@@ -473,7 +596,7 @@ input[type="color"]::-webkit-color-swatch {
  * what stops a card flashing before its turn.
  */
 .stagger > * {
-  animation: lfade 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  animation: lfade var(--motion-slower) var(--ease-standard) backwards;
 }
 .stagger > *:nth-child(1) { animation-delay: 0.02s; }
 .stagger > *:nth-child(2) { animation-delay: 0.06s; }
@@ -502,11 +625,10 @@ input[type="color"]::-webkit-color-swatch {
      lift, and a hover that takes 450ms to answer reads as lag rather than
      motion. box-shadow and border-color are listed so overriding the Tailwind
      `transition-all` does not cost the rest of the tile its hover. */
-  transition:
-    opacity 0.4s cubic-bezier(0.2, 0.7, 0.2, 1),
-    transform 0.28s cubic-bezier(0.2, 0.7, 0.2, 1),
-    box-shadow 0.28s ease,
-    border-color 0.28s ease;
+  transition: opacity var(--motion-base) cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform var(--motion-base) cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow var(--motion-base) ease,
+    border-color var(--motion-base) ease;
 }
 
 @keyframes starPop {
@@ -524,7 +646,7 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .star-pop {
-  animation: starPop 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: starPop var(--motion-slower) var(--ease-standard) both;
 }
 
 /* The live pill and the rotation badge mount when an entry goes live, so the
@@ -540,7 +662,7 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .live-pop {
-  animation: livePop 0.4s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+  animation: livePop var(--motion-base) var(--ease-emphasized) both;
 }
 
 /* A collection chip while a tile is in flight. Slow on purpose: this runs for
@@ -555,7 +677,7 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .drop-armed {
-  animation: dropArm 1.5s ease-in-out infinite;
+  animation: dropArm var(--motion-slower) ease-in-out infinite;
 }
 
 /* ---------- command palette ---------- */
@@ -595,16 +717,16 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .pal-overlay {
-  animation: palOverlay 0.18s ease-out both;
+  animation: palOverlay var(--motion-fast) ease-out both;
 }
 .pal-panel {
-  animation: palPanel 0.24s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: palPanel var(--motion-base) var(--ease-standard) both;
 }
 .pal-swap {
-  animation: palSwap 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: palSwap var(--motion-base) var(--ease-standard) both;
 }
 .pal-row {
-  animation: palRow 0.2s ease-out both;
+  animation: palRow var(--motion-base) ease-out both;
 }
 
 /* ---------- vault drawer ----------
@@ -630,10 +752,10 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .drawer-scrim {
-  animation: drawerScrim 0.16s ease-out both;
+  animation: drawerScrim var(--motion-fast) ease-out both;
 }
 .drawer-panel {
-  animation: drawerSlide 0.24s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: drawerSlide var(--motion-base) var(--ease-standard) both;
 }
 
 /* ---------- anchored popovers ----------
@@ -665,11 +787,11 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .menu-pop {
-  animation: menuPop 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: menuPop var(--motion-fast) var(--ease-standard) both;
   will-change: opacity, transform;
 }
 .menu-pop-out {
-  animation: menuPopOut 0.12s ease-in both;
+  animation: menuPopOut var(--motion-instant) var(--ease-exit) both;
   will-change: opacity, transform;
 }
 
@@ -707,21 +829,20 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .modal-scrim {
-  animation: modalFade 0.18s ease-out both;
+  animation: modalFade var(--motion-fast) ease-out both;
 }
 .modal-panel {
-  animation: modalIn 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: modalIn var(--motion-base) var(--ease-standard) both;
   will-change: opacity, transform;
 }
 .modal-row {
-  animation: modalRow 0.14s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: modalRow var(--motion-fast) var(--ease-standard) both;
 }
 
 /* selection ring: transitions instead of an instant class swap */
 .pal-cmd {
-  transition:
-    background-color 0.12s ease,
-    color 0.12s ease,
+  transition: background-color var(--motion-instant) ease,
+    color var(--motion-instant) ease,
     transform 0.1s ease;
 }
 .pal-cmd:active {
@@ -749,11 +870,86 @@ input[type="color"]::-webkit-color-swatch {
     transform: translateX(0);
   }
 }.track-swap {
-  animation: trackSwap 0.9s ease-out;
+  animation: trackSwap var(--motion-slower) ease-out;
+}
+
+/* The newest segment of a system chart, arriving once a second.
+
+   A slide rather than a drawn-on stroke: the path carries
+   `vector-effect: non-scaling-stroke`, which puts its dash pattern in device
+   pixels, so a reveal animated with `stroke-dashoffset` needs a dash as long
+   as the segment is *on screen* -- a length that depends on the card's width
+   and is not knowable here. Measured in a browser: a dash far larger than the
+   path hides and shows it correctly, but animating the offset then crosses the
+   gap boundary in one step, so the segment pops rather than extends. Opacity
+   and a short nudge cannot disagree with how the stroke is computed. */
+@keyframes tipIn {
+  /* Fade and lift rather than scale: the tooltip is anchored to a control and
+     growing from a point would visibly detach from it. */
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes chartTail {
+  from {
+    opacity: 0;
+    transform: translateX(1.5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.chart-tail {
+  animation: chartTail var(--motion-slow) var(--ease-standard) both;
+}
+
+/* ---------- collapsible detail ----------
+   An expand/collapse that grows to its content's height without measuring
+   anything.
+
+   `max-height` is the usual trick and it cannot be done correctly here: the
+   panel's height depends on the number of zones the device reports, so any
+   fixed ceiling is either a pop for a two-zone device or a wait for a
+   twelve-zone one, and picking a big enough number makes the animation crawl.
+
+   `grid-template-rows: 0fr -> 1fr` interpolates to the content's real height
+   because the row track is sized by the child inside it, and the child's
+   `min-height: 0` is what lets the track collapse to nothing instead of being
+   floored by the content. The child clips while it collapses; the fade is a
+   separate transition on the same wrapper so the two can disagree about
+   timing without either one fighting the other. */
+.disclose {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--motion-base) var(--ease-standard),
+    opacity var(--motion-fast) var(--ease-standard);
+  opacity: 1;
+}
+.disclose[data-open="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.disclose > .disclose-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The chevron, on the panel's own duration rather than a literal, so it lands
+   at the same moment the panel does instead of trailing it. */
+.disclose-chevron {
+  transition: transform var(--motion-base) var(--ease-standard);
 }
 
 .track-slide {
-  animation: trackSlide 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: trackSlide var(--motion-slower) var(--ease-emphasized);
 }
 
 @keyframes transportPulse {
@@ -794,16 +990,34 @@ input[type="color"]::-webkit-color-swatch {
 
 /* Play/pause: re-keying the glyph replays the swap. */
 .player-icon-swap {
-  animation: iconSwap 0.28s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  animation: iconSwap var(--motion-base) var(--ease-emphasized) both;
 }
 
 /* Active toggle (shuffle on, repeat on, ...) pops its glyph on flip. */
 .player-toggle-pop {
-  animation: togglePop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: togglePop var(--motion-base) var(--ease-emphasized) both;
 }
 
 .transport-pulse {
-  animation: transportPulse 0.6s ease-out both;
+  animation: transportPulse var(--motion-slow) ease-out both;
+}
+
+/*
+ * Animated icon normalisation.
+ *
+ * `@animateicons/react` wraps every glyph in a `<div class="inline-flex">` and
+ * puts the caller's `className` on the wrapper, while the inner `<svg>` keeps a
+ * fixed `width`/`height` attribute. So `className="h-4 w-4"` produced a 16px
+ * box holding a 24px glyph, which overflowed onto whatever sat beside it.
+ *
+ * `max-*` rather than `width: 100%` because the wrapper is shrink-to-fit: an
+ * SVG with an intrinsic size from its attributes resolves it without a
+ * circular dependency, whereas `100%` would. `:where()` keeps this at element
+ * specificity so any Tailwind sizing utility on the icon still wins.
+ */
+:where(.ai) > svg {
+  max-width: 100%;
+  max-height: 100%;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -830,6 +1044,8 @@ input[type="color"]::-webkit-color-swatch {
   .modal-row,
   .track-swap,
   .track-slide,
+  .chart-tail,
+  .tip,
   .transport-pulse,
   .player-icon-swap,
   .player-toggle-pop,
@@ -843,6 +1059,21 @@ input[type="color"]::-webkit-color-swatch {
      invisible. */
   .tile-reveal {
     opacity: 1;
+    transform: none;
+  }
+  /* The disclose collapses instantly rather than not at all. The wildcard above
+     already zeroes the transition duration, but the collapsed *state* has to be
+     released too or the panel stays visible for anyone who lands here with
+     `prefers-reduced-motion` set. */
+  .disclose,
+  .disclose-chevron {
+    transition: none !important;
+  }
+  /* The wildcard collapses durations, which stops the card lifting *smoothly*.
+     It does not stop the lift: `translateY(-1px)` on hover still applies, just
+     instantly, which is still movement to someone who asked for none. The
+     border-colour change above is fine to keep -- it has no displacement. */
+  .card-surface:hover {
     transform: none;
   }
 }

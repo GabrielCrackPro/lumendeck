@@ -477,6 +477,35 @@ mod tests {
     }
 
     #[test]
+    fn update_check_interval_defaults_to_an_hour_for_older_configs() {
+        // A config written before this field exists must land on the same cadence
+        // a fresh install gets, not on zero. Zero is what serde substitutes for a
+        // missing integer, and the dashboard reads a non-positive value as "use
+        // the default" only because that fallback was written deliberately — so
+        // the two halves of that decision are asserted here rather than trusted.
+        let json = serde_json::json!({
+            "version": crate::config::CONFIG_VERSION,
+            "general": {"autostart": true}
+        });
+        let cfg = parse_and_migrate(&json.to_string()).unwrap();
+        assert_eq!(cfg.general.update_check_minutes, 60);
+        assert_eq!(
+            crate::config::Config::default().general.update_check_minutes,
+            60,
+            "first_run_defaults tests only that the two agree; this is the value"
+        );
+        // And it has to be a value the dashboard will actually use rather than
+        // clamp away, which is the whole point of the setting existing. Zero is
+        // now a real choice -- it turns the recurring check off -- so the range
+        // starts there rather than at the fastest interval.
+        assert!(
+            cfg.general.update_check_minutes == 0
+                || (cfg.general.update_check_minutes >= 15
+                    && cfg.general.update_check_minutes <= 1440)
+        );
+    }
+
+    #[test]
     fn color_hex_readout_stays_on_for_older_configs() {
         // The hex readout existed before this setting did. An older config must
         // keep seeing it, or upgrading the app quietly removes something the

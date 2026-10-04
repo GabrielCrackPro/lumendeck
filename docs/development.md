@@ -12,11 +12,13 @@ hard rules live in [`AGENTS.md`](../AGENTS.md); how the pieces fit is in
 [adding user-facing copy](#adding-user-facing-copy) ·
 [a colour or LED appearance change](#adding-a-colour-or-led-appearance-change)
 
-**Reference** — [testing](#testing) · [logging](#logging)
+**Reference** — [testing](#testing) · [logging](#logging) ·
+[sending the user somewhere](#sending-the-user-somewhere)
 
 **Shipping** — [committing](#committing) · [releasing](#releasing)
 
-**When it goes wrong** — [troubleshooting](#troubleshooting)
+**When it goes wrong** — [troubleshooting](#troubleshooting) ·
+[F12 does nothing](#f12-does-nothing)
 
 ## Before you start
 
@@ -41,6 +43,9 @@ pnpm app:build      # NSIS installer in src-tauri/target/release/bundle/
 `pnpm dev` alone serves the dashboard webview in a browser, but the app dies at
 the splash there: `getCurrentWindow()` needs the Tauri IPC host. There is no way
 around this short of adding a mock harness.
+
+Devtools are off in every build, so F12 and Ctrl+Shift+I do nothing — see
+[F12 does nothing](#f12-does-nothing).
 
 ## Adding a setting
 
@@ -214,6 +219,111 @@ Signing needs `TAURI_SIGNING_PRIVATE_KEY` (and
 Without them `pnpm app:build` still produces the `.exe` and the installer, then
 exits non-zero at the updater step — expected locally, not a failure to chase.
 
+### How a running app learns about a release
+
+The release body that `generate-changelog.mjs --release-notes` writes is read by
+two different readers, so its shape is load-bearing:
+
+- the toast, via `releaseDigest`, which reduces it to a headline and per-section
+  counts;
+- `WhatsNewCard` on the settings tab, from the bundled `src/shared/changelog.ts`.
+
+The toast used to print that body verbatim, so an update card read
+`## 0.2.34 — 2026-10-04 ### Added - **transfer:** ... (72c7e2d)`. It now shows one
+sentence and a link to the changelog, which navigates in-app rather than opening
+a browser: the notes for a release are bundled in the build you are about to
+leave. Anything that changes how an entry is formatted has to keep
+`releaseDigest` parsing it — that parser is not a general markdown parser on
+purpose, so a new shape shows up as stray punctuation in a notification.
+
+Checks run three ways: once at startup, again whenever the window becomes
+visible, and then on the interval in `general.updateCheckMinutes` for a session
+that never loses focus. Only the timer follows the setting. Coming back to the
+window always checks, because that is a person asking by alt-tabbing back rather
+than a poll firing, and the manual Check for updates button always checks for the
+same reason. Repeating all this is free of nagging because `shouldAnnounce`
+ignores a version already shown — without that guard an update left uninstalled
+would stack a fresh sticky card every hour for as long as the machine stayed up.
+
+**Manual only** (`updateCheckMinutes` of 0) turns off all three automatic
+triggers, visibility included. Keeping the visibility trigger would have made
+the option a lie: returning to the window checks more often than any interval in
+the list, so an app set to "manual only" would still have been asking for a new
+version several times an hour. The button remains, which is the whole promise.
+
+Zero was safe to claim for that meaning because the field is `serde(default)`:
+a config predating the setting deserializes to the default hour, never to zero,
+and the control that wrote it never went below 15. `recheckMsFor` returns
+`null` rather than 0 for it, because `setInterval(fn, 0)` fires as fast as the
+event loop allows.
+
+The slider is bounded by `MIN_CHECK_MINUTES` and `MAX_CHECK_MINUTES` in
+`updater.ts`, and `recheckMsFor` clamps to the same pair, because a config file
+is editable JSON: a hand-edited `1` would otherwise mean sixty requests an hour
+against the release endpoint. A missing, zero or nonsensical value falls back to
+`DEFAULT_CHECK_MINUTES` rather than to the floor — zero is what serde
+substitutes for a config predating the field, and reading that as "as often as
+allowed" would quietly retime every existing user. The default is mirrored by
+`default_update_check_minutes` in `config.rs` and pinned by a test on each side.
+
+Do not wire this to `rgb.minUpdateMs`. That is the interval between LED writes,
+surfaced in the RGB tab under the label "Min update interval" — close enough in
+wording to be confidently mistaken for this setting, which is exactly how a
+reviewer should expect to be wrong about it.
+
+Dev builds never check, in either
+direction: `import.meta.env.DEV` gates the watcher and `announceUpdate` as well,
+so a future call site cannot reintroduce the nag by accident.
+
+The manual **Check for updates** button passes `repeat` and is deliberately
+exempt. It is the one caller that is a user asking rather than a poll firing, and
+deduplicating it would mean pressing the button after an automatic notice does
+nothing at all, with no toast to explain the silence. Do not tidy that flag away
+without checking the call site in `GeneralTab.tsx`.
+
+### What the last check did
+
+The interval control is not a blind dropdown: the row under it reports the last
+check's outcome and when it ran, from `updateCheck` in the store.
+
+The record is written inside `checkForAppUpdate`, not at each call site, for two
+reasons. It is the only point both the recurring timer and the manual button pass
+through, so a caller cannot forget to record. And a failure has to land in the
+same record as a success: it used to end in `.catch(() => {})`, which is correct
+for a check nobody asked for and wrong for one that fails every hour -- a
+permanently broken endpoint was indistinguishable from never having checked at
+all, and the two have opposite fixes.
+
+The Spanish wording for a failed check says the server could not be reached
+rather than that the check failed, for the same reason.
+
+None of this has been observed in a running app; it is verified by reading it and
+by the tests beside it. `pnpm app:dev` disables updates by design, so exercising
+the toast means a packaged build.
+
+## Sending the user somewhere
+
+`navigateTo(tab, anchor?)` in the store is the seam for any module that needs to
+move the user: an update toast, a tray item, an error handler. The active tab
+lives in `Shell`'s own state, so nothing outside it can switch tabs directly.
+
+Anchors are declared in `TAB_ANCHORS` and marked on a card with
+`<Card anchor="...">`. Two tests read the tab sources and fail if the registry and
+the markup disagree in either direction, so a typo is a failing check rather than
+a scroll that quietly goes nowhere.
+
+Marking a card is enough; nothing else is needed at the call site beyond the
+name. The Shell retries across frames because every tab is `lazy()`, bounded by
+`ANCHOR_FRAMES`, and an anchor the tab does not declare is dropped while the tab
+switch still happens.
+
+There is a second, older mechanism on the settings tab: `anchorId()` in
+`GeneralTab`, a `SECTIONS` list, and scroll tracking that keeps the settings
+sidebar in step with the scroll position. Those are intra-tab and they feed that
+sidebar, so they are not in `TAB_ANCHORS` and cannot be reached from outside. Use
+`navigateTo` to cross tabs, and the settings `anchor()` helper to move within
+settings — a third system would be two answers to one question.
+
 ## Troubleshooting
 
 **The dashboard is blank.** It will not run in a plain browser; `getCurrentWindow`
@@ -240,3 +350,23 @@ transition. See [`AGENTS.md`](../AGENTS.md#never-let-unchanged-state-reach-the-l
 **Something looks wrong in the UI.** It very well is. This is the known blind
 spot: nothing renders the app outside the Tauri shell, so visual regressions are
 found by looking, after the fact. Budget for it.
+
+## F12 does nothing
+
+That is deliberate, not a broken build. Every webview is created with
+`.devtools(false)` (see `devtools_allowed` in `src-tauri/src/window_utils.rs`),
+and with no inspector attached those two keys have nothing to show.
+
+The keys cannot be caught from the frontend. F12 and Ctrl+Shift+I are
+host-level accelerators: WebView2 consumes them before the page is handed a key
+event, so a `keydown` listener never sees them and `preventDefault()` would be
+theatre. Disabling the inspector is the only thing that works.
+
+To inspect a dev build, return `true` from `devtools_allowed` and put it back
+before you commit — a test asserts it is false, so a forgotten change fails
+`cargo test` rather than shipping.
+
+A release build was already covered without this, incidentally: Tauri's
+`devtools` cargo feature is not enabled in `Cargo.toml`, and a release webview
+needs it before it can expose an inspector at all. Stating it per window means
+adding that feature later cannot quietly hand every user a devtools window.

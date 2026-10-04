@@ -1,5 +1,6 @@
 import { useStore } from "../store";
 import { AppMark, AppWordmark } from "./ui";
+import type { Glyph } from "./icons";
 import {
   IconBulb,
   IconGear,
@@ -18,7 +19,7 @@ export interface NavDef {
   id: TabId;
   label: string;
   blurb: string;
-  icon: React.FC<React.SVGProps<SVGSVGElement>>;
+  icon: Glyph;
   /** Ctrl+N — the shortcuts overlay's rows come from here, not from index. */
   hotkey: number;
 }
@@ -40,6 +41,86 @@ export const SETTINGS_TAB: NavDef = {
   icon: IconGear,
   hotkey: 5,
 };
+
+/**
+ * Every tab the dashboard can show, settings last.
+ *
+ * TABS alone is not the whole set, which is the trap: SETTINGS_TAB is kept out
+ * of it so the rail can render it after a hairline. Anything asking "is this a
+ * tab?" -- the update toast's navigation guard, above all -- has to look here.
+ */
+export const ALL_TABS: NavDef[] = [...TABS, SETTINGS_TAB];
+
+/**
+ * Whether a string names a tab, as a type guard.
+ *
+ * The store holds the nav request as a plain string because a module-level
+ * toast cannot reach Shell's local state, so something has to narrow it before
+ * it becomes the rendered pane. Without this, an unknown id blanks the
+ * dashboard with no error anywhere.
+ */
+export function isTabId(id: string): id is TabId {
+  return ALL_TABS.some((tab) => tab.id === id);
+}
+
+/**
+ * The anchors each tab publishes, so a module with no reference to any tab
+ * component can still name one.
+ *
+ * Declared rather than inferred from the markup because a typo is otherwise
+ * invisible: `navigateTo("rgb", "devicez")` would switch tab and quietly scroll
+ * nowhere, which looks exactly like the feature not working. The list is the
+ * contract, and the test that reads it is what makes adding an anchor a
+ * deliberate act.
+ */
+export const TAB_ANCHORS: Record<TabId, readonly string[]> = {
+  overview: [],
+  rgb: ["devices", "automation", "lighting-mode"],
+  // The gallery, its toolbar and grid together, is one card on the wallpaper
+  // tab -- there is no gallery tab.
+  wallpaper: ["vault"],
+  stickers: [],
+  general: [],
+};
+
+/**
+ * How many frames the Shell will wait for a pane to render before giving up on
+ * an anchor.
+ *
+ * Every tab is `lazy()`, so a switch renders a Suspense skeleton first. Sixty
+ * frames is about a second: long enough for a chunk that has been fetched once
+ * before, short enough that an anchor which does not exist does not leave a frame
+ * loop running behind an open window.
+ */
+export const ANCHOR_FRAMES = 60;
+
+/** Every anchor on the app, as `tab/anchor`. Stable enough to log. */
+export const ALL_ANCHORS: readonly string[] = ALL_TABS.flatMap((tab) =>
+  TAB_ANCHORS[tab.id].map((a) => `${tab.id}/${a}`),
+);
+
+/**
+ * Whether `anchor` is something this tab actually has.
+ *
+ * A tab switch with an anchor that does not exist is still worth doing — landing
+ * on the right screen beats staying put — but the scroll is dropped rather than
+ * attempted, so nothing appears to hang.
+ */
+export function isAnchorFor(tab: TabId, anchor: string): boolean {
+  return TAB_ANCHORS[tab].includes(anchor);
+}
+
+/**
+ * The selector that finds an anchor element.
+ *
+ * Quotes the value because the attribute is interpolated: an unquoted
+ * `[data-anchor=a b]` is a syntax error that throws inside `querySelector`, and
+ * an id with a quote in it would otherwise select something else entirely. The
+ * registry keeps ids to slugs, so this is belt and braces rather than the guard.
+ */
+export function anchorSelector(anchor: string): string {
+  return `[data-anchor="${anchor.replace(/["\\]/g, "\\$&")}"]`;
+}
 
 type EngineState = {
   tone: "off" | "offline" | "idle" | "live";
@@ -135,7 +216,7 @@ function NavItem({
   return (
     <button
       onClick={onClick}
-      title={title}
+      data-tip={title}
       aria-label={t(item.label)}
       aria-current={active ? "page" : undefined}
       className={`group relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg py-2 text-left transition-colors duration-150 ${
@@ -178,7 +259,7 @@ function SearchButton({
   return (
     <button
       onClick={onClick}
-      title={t("nav.search-commands-ctrl-k")}
+      data-tip={t("nav.search-commands-ctrl-k")}
       aria-label={t("nav.search-commands")}
       className="flex h-8 w-full items-center gap-2 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] px-2.5 text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text-dim)]"
     >
@@ -195,7 +276,7 @@ function SearchButton({
           collapsed ? "opacity-0" : "opacity-100"
         }`}
       >
-        CTRL K
+        {t("nav.ctrl-k")}
       </kbd>
     </button>
   );
@@ -228,16 +309,22 @@ function RailFooter({
           tooltip and the click-through to Lighting carry the meaning. */}
       <button
         onClick={onOpenLighting}
-        title={t(engine.detail)}
+        data-tip={t(engine.detail)}
         aria-label={t(engine.label)}
         className="flex h-7 min-w-[22px] flex-1 items-center justify-start rounded-md pl-1 transition-colors hover:bg-[var(--panel-strong)]"
       >
         <span className={`h-2 w-2 shrink-0 rounded-full ${ENGINE_DOT[engine.tone]}`} />
       </button>
-      {/* Collapsed there is no room for a third control; "?" still opens it. */}
+      {/* Collapsed there is no room for a third control; "?" still opens it.
+
+          The tip is dropped rather than faded with the rest. A `w-0` button is
+          not a zero-width hit area — the glyph keeps its own width, measured
+          16px — so a tooltip stayed reachable and anchored itself over the empty
+          rail, naming a control the pointer was not on. `undefined` removes the
+          attribute, and the delegated handler's `closest` then finds nothing. */}
       <button
         onClick={onShortcuts}
-        title={t("nav.keyboard-shortcuts")}
+        data-tip={collapsed ? undefined : t("nav.keyboard-shortcuts")}
         aria-label={t("nav.keyboard-shortcuts-2")}
         aria-hidden={collapsed}
         tabIndex={collapsed ? -1 : 0}
@@ -249,7 +336,11 @@ function RailFooter({
       </button>
       <button
         onClick={onToggleCollapsed}
-        title={t(collapsed ? "nav.expand-sidebar-shortcut" : "nav.collapse-sidebar-shortcut")}
+        data-tip={t(
+          collapsed
+            ? "nav.expand-sidebar-shortcut"
+            : "nav.collapse-sidebar-shortcut",
+        )}
         aria-label={t(collapsed ? "nav.expand-sidebar" : "nav.collapse-sidebar")}
         aria-expanded={!collapsed}
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
@@ -283,7 +374,7 @@ export default function Sidebar({
   // Settings is not one of the things you customize — it is the app itself,
   // so one hairline separates it. Three uppercase headings to introduce five
   // rows was the loudest thing in a rail this small.
-  const rows = [TABS[0]!, ...TABS.slice(1), SETTINGS_TAB];
+  const rows = ALL_TABS;
   return (
     <nav
       aria-label={t("nav.sections")}
@@ -315,7 +406,18 @@ export default function Sidebar({
 
       <div className="flex flex-col gap-0.5 px-2 py-2">
         {rows.map((item, i) => (
-          <div key={item.id} className={i === 4 ? "mt-2 border-t border-[var(--line)] pt-2" : ""}>
+          // Named, not `i === 4`. The index happened to be right while there
+            // were four tabs and settings last, and would have quietly drawn the
+            // hairline under the wrong row the moment either changed — a
+            // decorative bug with no error and nothing to grep for.
+            <div
+              key={item.id}
+              className={
+                item.id === SETTINGS_TAB.id
+                  ? "mt-2 border-t border-[var(--line)] pt-2"
+                  : ""
+              }
+            >
             <NavItem
               item={item}
               index={i}
@@ -341,16 +443,24 @@ export default function Sidebar({
   );
 }
 
-/** Rows for the "?" sheet, kept beside the numbers that produce them. */
+/**
+ * Rows for the "?" sheet and the Overview card, kept beside the numbers that
+ * produce them.
+ *
+ * `what` is a catalog key rather than copy, because the Overview card renders
+ * the same list: English literals here would put an untranslated "Command
+ * palette" on the dashboard for every user whose machine is Spanish. The
+ * tab rows already resolved `t()` for exactly this reason.
+ */
 export function shortcutRows(): { keys: string[]; what: string }[] {
   return [
-    { keys: ["Ctrl", "K"], what: "Command palette" },
+    { keys: ["Ctrl", "K"], what: t("common.command-palette") },
     ...[...TABS, SETTINGS_TAB].map((tab) => ({
       keys: ["Ctrl", String(tab.hotkey)],
       what: t(tab.label),
     })),
-    { keys: ["Ctrl", "B"], what: "Collapse / expand sidebar" },
-    { keys: ["?"], what: "This list" },
-    { keys: ["Esc"], what: "Close / go back" },
+    { keys: ["Ctrl", "B"], what: t("common.collapse-sidebar") },
+    { keys: ["?"], what: t("common.shortcut-list") },
+    { keys: ["Esc"], what: t("common.close-or-go-back") },
   ];
 }

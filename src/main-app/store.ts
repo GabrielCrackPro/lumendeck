@@ -20,6 +20,21 @@ import { pruneDeviceColors } from "./deviceColors";
 import { baselineArrivals, markArrivals, type ArrivalMarks } from "./hotplug";
 import { truncateError } from "./utilities";
 import type { AvailableUpdate } from "./updater";
+import type { UpdateCheckRecord } from "./components/updateCheck";
+
+/**
+ * A request to move the user somewhere: a tab, and optionally an anchor within
+ * it. Held in the store because the tab itself lives in `Shell`.
+ *
+ * `tab` is a plain string rather than `TabId` on purpose — a module-level toast
+ * must not import the Sidebar to name a screen. The Shell narrows it before it
+ * renders anything.
+ */
+export interface NavRequest {
+  tab: string;
+  /** Where within the tab, as declared in `TAB_ANCHORS`. */
+  anchor?: string;
+}
 
 export interface Toast {
   id: number;
@@ -41,6 +56,14 @@ export interface Toast {
   count?: number;
   /** Optional single action — "Undo" on deletes, "Install" on an update. */
   action?: { label: string; run: () => void; disabled?: boolean };
+  /**
+   * Secondary text link, below the action.
+   *
+   * Separate from `action` because an update toast needs two distinct
+   * intentions: install now, or read what changed first. One button cannot
+   * offer both, and a toast has no room for two equal-weight buttons.
+   */
+  link?: { label: string; run: () => void };
 }
 
 interface Store {
@@ -80,6 +103,28 @@ interface Store {
    */
   hotkeyFailures: HotkeyError[];
   updateAvailable: AvailableUpdate | null;
+  /**
+   * A tab to switch to, and optionally a place within it, set by anything
+   * outside the Shell.
+   *
+   * The tab lives in `Shell`'s own `useState`, because it is the one piece of
+   * navigation state no store consumer needs. That leaves an update toast, which
+   * is raised from a module-level function with no access to the setter, unable
+   * to send the user to the changelog. This is the seam.
+   *
+   * The anchor is what makes it usable from more than one place: "open the
+   * changelog" is a tab, but "show the vault" or "take them to the lighting
+   * mode" is a tab plus a spot in it. Both halves are optional in the sense that
+   * a tab on its own is the common case.
+   *
+   * Held as a plain object rather than two fields because a request must not be
+   * able to apply its tab and then lose its anchor across a render -- the Shell
+   * reads both in one go and clears once.
+   *
+   * Cleared by the Shell as it applies it, so the same request cannot re-fire
+   * on the next render.
+   */
+  navRequest: NavRequest | null;
   loaded: boolean;
   /** True while a config save is in flight (optimistic UI already applied). */
   saving: boolean;
@@ -103,13 +148,31 @@ interface Store {
   setWallpaperPaused: (p: boolean) => void;
   setHotkeyFailures: (failures: HotkeyError[]) => void;
   setUpdateAvailable: (update: AvailableUpdate | null) => void;
+  /**
+   * The last update check that ran, or null when none ever has.
+   *
+   * Separate from `updateAvailable`, which answers "is there something to
+   * install" and is null both when there is not and when nothing has been
+   * checked. This one answers "has the app looked, and what did it find" --
+   * the difference between an interval that is working and one that is quietly
+   * failing.
+   */
+  updateCheck: UpdateCheckRecord | null;
+  setUpdateCheck: (record: UpdateCheckRecord | null) => void;
+  /**
+   * Ask the Shell to switch tab, and optionally scroll to an anchor within it.
+   * Read `navRequest` for the reason.
+   */
+  navigateTo: (tab: string, anchor?: string) => void;
+  /** Called by the Shell once it has applied a request. */
+  clearNavRequest: () => void;
   /** Transient notifications (auto-dismiss in Shell). */
   toasts: Toast[];
   toast: (
     tone: Toast["tone"],
     msg: string,
     opts?: Partial<
-      Pick<Toast, "action" | "title" | "progress" | "sticky" | "key">
+      Pick<Toast, "action" | "link" | "title" | "progress" | "sticky" | "key">
     >,
   ) => void;
   /** Patch an existing toast in place (progress ticks, disabling its action). */
@@ -162,6 +225,8 @@ export const useStore = create<Store>((set, get) => ({
   wallpaperPaused: false,
   hotkeyFailures: [],
   updateAvailable: null,
+  updateCheck: null,
+  navRequest: null,
   loaded: false,
   saving: false,
   loadError: null,
@@ -329,6 +394,13 @@ export const useStore = create<Store>((set, get) => ({
   setWallpaperPaused: (wallpaperPaused) => set({ wallpaperPaused }),
   setHotkeyFailures: (hotkeyFailures) => set({ hotkeyFailures }),
   setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),
+  setUpdateCheck: (updateCheck) => set({ updateCheck }),
+  navigateTo: (tab, anchor) =>
+    // A fresh object every call rather than mutating, so two requests for the
+    // same tab are two renders: repeating "go to the vault" has to scroll again
+    // even though the tab is already active.
+    set({ navRequest: { tab, anchor } }),
+  clearNavRequest: () => set({ navRequest: null }),
 }));
 
 /** Subscribe to backend events; returns a cleanup fn. */

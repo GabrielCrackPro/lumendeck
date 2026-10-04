@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { useAnchoredPanel } from "../dropdownAnchor";
 import { GalleryCard } from "./GalleryCard";
 import { DENSITY_CLASS, type GalleryDensity } from "./GalleryToolbar";
 import type { Unhealthy } from "./vaultHealth";
@@ -118,6 +120,15 @@ export function GalleryGrid({
   /** The menu's anchor, so a click outside can dismiss it without a document-wide
    *  handler firing on the opening click itself. */
   const collectionMenuRoot = useRef<HTMLDivElement | null>(null);
+  const collectionTrigger = useRef<HTMLButtonElement | null>(null);
+
+  // Portalled and measured like the select dropdowns: this bar sits inside a
+  // scrolling grid, so an absolutely positioned menu was clipped by the
+  // scroller as soon as the list was taller than the row.
+  const collectionAnchor = useAnchoredPanel(
+    collectionTrigger,
+    collectionMenu && collectionOptions.length > 0,
+  );
 
   // The menu previously had no way out except picking a collection: clicking
   // anywhere else left it hanging open over the grid, and Escape did nothing.
@@ -125,7 +136,13 @@ export function GalleryGrid({
   useEffect(() => {
     if (!collectionMenu) return;
     const away = (e: MouseEvent) => {
-      if (!collectionMenuRoot.current?.contains(e.target as Node)) setCollectionMenu(false);
+      // Both the trigger and the panel count as inside. The panel is portalled
+      // to `document.body`, so testing the root alone would treat the first
+      // mousedown of a click on a collection as a dismissal.
+      const target = e.target as Node;
+      const inRoot = collectionMenuRoot.current?.contains(target) ?? false;
+      const inPanel = collectionAnchor.panelRef.current?.contains(target) ?? false;
+      if (!inRoot && !inPanel) setCollectionMenu(false);
     };
     const esc = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setCollectionMenu(false);
     document.addEventListener("mousedown", away);
@@ -320,6 +337,7 @@ export function GalleryGrid({
 
           <div className="relative" ref={collectionMenuRoot}>
             <button
+              ref={collectionTrigger}
               disabled={collectionOptions.length === 0}
               onClick={() => setCollectionMenu((v) => !v)}
               aria-haspopup="menu"
@@ -336,7 +354,13 @@ export function GalleryGrid({
               <span className={SEL_BTN_LABEL}>{t("gallery.file-the-selection")}</span>
             </button>
             {collectionMenu && collectionOptions.length > 0 && (
-              <div className="page-enter absolute left-0 top-10 z-20 max-h-56 w-52 overflow-y-auto rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] py-1 shadow-[var(--shadow)]">
+              createPortal(
+                <div
+                  ref={collectionAnchor.panelRef}
+                  style={collectionAnchor.style}
+                  role="menu"
+                  className="page-enter z-[120] w-52 max-h-56 overflow-y-auto overscroll-contain rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] py-1 shadow-[var(--shadow)]"
+                >
                 {collectionOptions.map((c) => (
                   <button
                     key={c.id}
@@ -352,7 +376,9 @@ export function GalleryGrid({
                     </span>
                   </button>
                 ))}
-              </div>
+                </div>,
+                document.body,
+              )
             )}
           </div>
 

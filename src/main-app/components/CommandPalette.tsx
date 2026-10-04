@@ -15,6 +15,7 @@ import {
   IconSticker,
   IconGear,
   IconPause,
+  IconPin,
   IconPlay,
   IconMonitor,
   IconWave,
@@ -24,8 +25,9 @@ import {
   IconSliders,
   IconTrash,
 } from "./icons";
-import type { SVGProps } from "react";
+import type { Glyph } from "./icons";
 import { t, useLocale } from "../i18n";
+import { staggerDelay } from "./motion";
 
 const PINNED_KEY = "palette-pinned"; // string[] of command ids
 const RECENTS_KEY = "palette-recents"; // string[] of command ids, newest first
@@ -46,14 +48,12 @@ function writeIdList(key: string, ids: string[]) {
   } catch {}
 }
 
-type IconCmp = React.FC<SVGProps<SVGSVGElement>>;
-
 interface Command {
   id: string;
   label: string;
   /** Short category shown on the right, e.g. "wallpaper" / "rgb". */
   group: string;
-  icon: IconCmp;
+  icon: Glyph;
   keywords?: string;
   /** Optional thumbnail URL — rendered instead of the icon when present. */
   thumb?: string | null;
@@ -75,25 +75,6 @@ const GROUP_ORDER: [string, string][] = [
 ];
 const groupLabel = (g: string) => t(GROUP_ORDER.find(([id]) => id === g)?.[1] ?? g);
 
-function IconPin({ filled, ...props }: { filled: boolean } & SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      width={12}
-      height={12}
-      viewBox="0 0 24 24"
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <path d="M12 17v5" />
-      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z" />
-    </svg>
-  );
-}
-
 function fuzzyScore(query: string, text: string): number {
   if (!query) return 1;
   const q = query.toLowerCase();
@@ -113,7 +94,7 @@ function fuzzyScore(query: string, text: string): number {
   return hits > 0 ? 10 : 0;
 }
 
-const NAV_TABS: [string, string, IconCmp][] = [
+const NAV_TABS: [string, string, Glyph][] = [
   ["overview", "palette.go-overview", IconZap],
   ["rgb", "palette.go-lighting", IconBulb],
   ["wallpaper", "palette.go-wallpaper", IconImage],
@@ -122,7 +103,7 @@ const NAV_TABS: [string, string, IconCmp][] = [
 ];
 
 // Same keys the lighting card uses, so the palette never drifts from it.
-const RGB_MODES: [string, string, IconCmp][] = [
+const RGB_MODES: [string, string, Glyph][] = [
   ["static", "lighting.static", IconSliders],
   ["cycle", "lighting.color-cycle", IconWave],
   ["wave", "lighting.wave", IconWave],
@@ -597,7 +578,9 @@ export default function CommandPalette({
                     ? "bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]"
                     : "text-[var(--text-dim)]"
                 }`}
-                style={{ animationDelay: `${Math.min(row.i, 10) * 14}ms` }}
+                // Shared with the wallpaper lists, which used a different step
+                // and no cap at all.
+                style={{ animationDelay: `${staggerDelay(row.i)}ms` }}
               >
                 {/* left selection bar (slides in with the row's glow bg) */}
                 <span
@@ -615,7 +598,7 @@ export default function CommandPalette({
                   />
                 ) : (
                   (() => {
-                    const Icon: IconCmp = row.r.c.icon;
+                    const Icon: Glyph = row.r.c.icon;
                     return (
                       <Icon
                         className={`h-4 w-4 shrink-0 transition-opacity ${row.i === sel ? "" : "opacity-70"}`}

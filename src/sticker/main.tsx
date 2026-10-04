@@ -6,8 +6,14 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { EVENTS } from "@shared/constants";
+import { installContextMenuSuppression } from "@shared/contextMenu";
 import type { StickerDef } from "@shared/types";
 import "../runtime.css";
+
+// A property of the webview rather than of a component: a sticker is a
+// transparent overlay showing media, and Reload or View source on it describes
+// nothing about the picture.
+installContextMenuSuppression();
 
 function stickerIdFromLabel(): string {
   // window.__TAURI_INTERNALS__ exposes the label; fallback to parsing.

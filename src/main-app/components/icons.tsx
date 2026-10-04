@@ -1,7 +1,408 @@
-// Line-icon set (stroke-based, inherits currentColor). No emoji anywhere.
-import type { ReactNode, SVGProps } from "react";
+// Icon set: animated glyphs from `@animateicons/react` (MIT), plus the handful
+// of marks that are ours because they encode app data rather than meaning.
+//
+// Why a mix rather than a wholesale swap: three components here are lookups,
+// not pictures. `IconDevice` maps an OpenRGB `DeviceType` string onto a
+// glyph, `IconMediaApp` matches a media session's appId, and `IconSelectAll`
+// has three states. No icon library has those, and replacing them with
+// look-alikes would lose the part that matters — which hardware, which player,
+// which selection state.
+//
+// The library renders `<div class="inline-flex"><svg/></div>` and puts the
+// caller's `className` on the wrapper while the SVG keeps fixed width/height
+// attributes. `anim()` below adds the `ai` marker class that the rule in
+// `index.css` keys on, so a classed icon shrinks to the box it was given
+// instead of overflowing it.
+
+import { useEffect, useRef } from "react";
+import type {
+  ForwardRefExoticComponent,
+  HTMLAttributes,
+  ReactNode,
+  RefAttributes,
+  RefObject,
+  SVGProps,
+} from "react";
+
+import type { IconHandle } from "@animateicons/react";
+
+import { SearchIcon } from "@animateicons/react/lucide/search-icon";
+import { PaletteIcon } from "@animateicons/react/lucide/palette-icon";
+import { ImageIcon } from "@animateicons/react/lucide/image-icon";
+import { ShapesIcon } from "@animateicons/react/lucide/shapes-icon";
+import { SettingsIcon } from "@animateicons/react/lucide/settings-icon";
+import { MonitorIcon } from "@animateicons/react/lucide/monitor-icon";
+import { PlayIcon } from "@animateicons/react/lucide/play-icon";
+import { PauseIcon } from "@animateicons/react/lucide/pause-icon";
+import { RefreshCwIcon } from "@animateicons/react/lucide/refresh-cw-icon";
+import { PlusIcon } from "@animateicons/react/lucide/plus-icon";
+import { TrashIcon } from "@animateicons/react/lucide/trash-icon";
+import { ClipboardIcon } from "@animateicons/react/lucide/clipboard-icon";
+import { LayersIcon } from "@animateicons/react/lucide/layers-icon";
+import { SparklesIcon } from "@animateicons/react/lucide/sparkles-icon";
+import { ZapIcon } from "@animateicons/react/lucide/zap-icon";
+import { StarIcon } from "@animateicons/react/lucide/star-icon";
+import { SunIcon } from "@animateicons/react/lucide/sun-icon";
+import { MoonIcon } from "@animateicons/react/lucide/moon-icon";
+import { FolderIcon } from "@animateicons/react/lucide/folder-icon";
+import { GlobeIcon } from "@animateicons/react/lucide/globe-icon";
+import { AudioWaveformIcon } from "@animateicons/react/lucide/audio-waveform-icon";
+import { Volume1Icon } from "@animateicons/react/lucide/volume-1-icon";
+import { Volume2Icon } from "@animateicons/react/lucide/volume-2-icon";
+import { VolumeXIcon } from "@animateicons/react/lucide/volume-x-icon";
+import { LightbulbIcon } from "@animateicons/react/lucide/lightbulb-icon";
+import { SlidersHorizontalIcon } from "@animateicons/react/lucide/sliders-horizontal-icon";
+import { KeyboardIcon } from "@animateicons/react/lucide/keyboard-icon";
+import { ChevronLeftIcon } from "@animateicons/react/lucide/chevron-left-icon";
+import { ChevronRightIcon } from "@animateicons/react/lucide/chevron-right-icon";
+import { ChevronDownIcon } from "@animateicons/react/lucide/chevron-down-icon";
+import { PencilIcon } from "@animateicons/react/lucide/pencil-icon";
+import { ShuffleIcon } from "@animateicons/react/lucide/shuffle-icon";
+import { RepeatIcon } from "@animateicons/react/lucide/repeat-icon";
+import { CheckIcon } from "@animateicons/react/lucide/check-icon";
+import { XIcon } from "@animateicons/react/lucide/x-icon";
+import { UserIcon } from "@animateicons/react/lucide/user-icon";
+import { ArrowUpDownIcon } from "@animateicons/react/lucide/arrow-up-down-icon";
+import { LayoutGridIcon } from "@animateicons/react/lucide/layout-grid-icon";
+import { TriangleAlertIcon } from "@animateicons/react/lucide/triangle-alert-icon";
+import { InfoIcon } from "@animateicons/react/lucide/info-icon";
+import { DownloadIcon } from "@animateicons/react/lucide/download-icon";
+import { UploadIcon } from "@animateicons/react/lucide/upload-icon";
+import { CopyIcon } from "@animateicons/react/lucide/copy-icon";
+import { TerminalIcon } from "@animateicons/react/lucide/terminal-icon";
+import { HistoryIcon } from "@animateicons/react/lucide/history-icon";
+import { PipetteIcon } from "@animateicons/react/lucide/pipette-icon";
+import { EyeIcon } from "@animateicons/react/lucide/eye-icon";
+import { EyeOffIcon } from "@animateicons/react/lucide/eye-off-icon";
+import { LoaderCircleIcon } from "@animateicons/react/lucide/loader-circle-icon";
+import { PinIcon } from "@animateicons/react/lucide/pin-icon";
+import { PanelLeftCloseIcon } from "@animateicons/react/lucide/panel-left-close-icon";
+import { PanelLeftOpenIcon } from "@animateicons/react/lucide/panel-left-open-icon";
+// Only the glyphs not already wrapped above. Keyboard, lightbulb, monitor and
+// volume-2 all have exported wrappers in this file already, and re-wrapping
+// them here would give the same library icon two different component types.
+import { MouseIcon } from "@animateicons/react/lucide/mouse-icon";
+import { HeadphonesIcon } from "@animateicons/react/lucide/headphones-icon";
+import { GamepadIcon } from "@animateicons/react/lucide/gamepad-icon";
+import { MemoryStickIcon } from "@animateicons/react/lucide/memory-stick-icon";
+import { HardDriveIcon } from "@animateicons/react/lucide/hard-drive-icon";
+import { ScanLineIcon } from "@animateicons/react/lucide/scan-line-icon";
+import { BoxIcon } from "@animateicons/react/lucide/box-icon";
 
 type P = SVGProps<SVGSVGElement>;
+
+/**
+ * What a caller may pass to a library-backed icon.
+ *
+ * Deliberately the library's own prop type rather than `SVGProps`: the wrapper
+ * is a `<div>`, so `fill`, `stroke`, `strokeWidth` and friends land on a
+ * non-SVG element and are dropped on the floor. Typing them out means a call
+ * site that needs them says so and gets an error, rather than rendering an
+ * icon that silently ignores half its own styling.
+ */
+export type IconProps = HTMLAttributes<HTMLDivElement> & {
+  /** Pixels on the inner `<svg>`. Defaults to 18, the hand-drawn set's size. */
+  size?: number;
+  /** Seconds for one animation cycle. */
+  duration?: number;
+  /** Off for the icons that should hold still even on hover. */
+  isAnimated?: boolean;
+};
+
+/**
+ * Any icon exported from this module, whichever family it belongs to.
+ *
+ * Use this wherever a table of icons is built rather than a hand-written `svg`,
+ * which rejects half the set: the hand-drawn ones take `SVGProps`, the
+ * library-backed ones take div props. Tables that render an icon at a fixed
+ * size only ever pass `className`, so the shared shape is that much.
+ */
+export type Glyph = React.FC<{ className?: string }>;
+
+/**
+ * Fills the glyph's own subpaths rather than the shapes inside them.
+ *
+ * `fill` and `stroke` are inherited presentation properties, so a class on the
+ * animated `<g>` (or the bare `<path>`, on icons the library does not group)
+ * beats the `fill="none"` attribute on the `<svg>` above it. That is the only
+ * route to a filled glyph now that `fill` on our own props goes to the wrapper
+ * `<div>` and is discarded.
+ */
+const FILLED = "[&>svg>*]:fill-current";
+
+/**
+ * The class every library icon carries: our marker first, then the caller's.
+ *
+ * `ai` has to be in there for the sizing rule in `index.css`, so it is prepended
+ * rather than merged over. Empty parts are dropped so an icon with no class of
+ * its own does not render a stray double space in the DOM.
+ *
+ * Idempotent in the marker, because the wrappers below (`IconPin`, `IconSpinner`)
+ * build a class through this and hand the result to `anim()`, which calls it
+ * again. The library joins class names rather than merging them, so without the
+ * dedupe those icons ship `class="... ai ai ..."` -- harmless to CSS, wrong in
+ * every assertion that reads the class, and a hint that the merge is not being
+ * reasoned about.
+ */
+function aiClass(...parts: (string | false | undefined)[]): string {
+  const tokens = parts
+    .filter(Boolean)
+    .flatMap((p) => (p as string).split(/\s+/))
+    .filter((t) => t.length > 0 && t !== "ai");
+  return ["ai", ...tokens].join(" ");
+}
+
+/**
+ * Whether the OS has asked for reduced motion.
+ *
+ * The `prefers-reduced-motion` block in `index.css` can only neutralise CSS
+ * animations, and this library drives its motion from JavaScript -- it calls
+ * `useAnimation().start()` on mouse enter, writing a transform onto the inner
+ * `<g>`. A user who has switched motion off in Windows would otherwise get 46
+ * icons that keep moving with no way to stop them, and no CSS rule in the
+ * project can intercept that.
+ *
+ * A prop, not a context: there is one answer for the whole app, it is already
+ * in `window`, and a hook per icon would mean 46 subscriptions to a value that
+ * changes once per session. Read at mount rather than watched, since flipping
+ * the setting mid-session has never re-rendered anything else in the app.
+ */
+export function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+/**
+ * Whether a given icon should animate.
+ *
+ * Split out from the component because the decision is the whole of the
+ * behaviour and nothing else is: the library keeps `isAnimated` off the DOM and
+ * uses it imperatively on hover, so the only way to check this from a test is
+ * to ask the function that makes the call. `override` is a caller's explicit
+ * choice and outranks the OS setting.
+ */
+export function iconAnimates(
+  override: boolean | undefined,
+  reduced: boolean,
+): boolean {
+  return override ?? !reduced;
+}
+
+/**
+ * What counts as "the content this icon belongs to" for hover purposes.
+ *
+ * The rule the app wants is "animate when the thing you would click animates",
+ * because an icon that only moves when the pointer is precisely on the glyph is
+ * noise — by the time you are on it you have already decided to click. So the
+ * trigger is the nearest ancestor that is itself interactive, not the icon.
+ *
+ * `label` and `summary` are here because they are clickable by association with
+ * no handler of their own; the rest are the elements that carry a click.
+ */
+export const HOVER_ROOT =
+  'button, a[href], [role="button"], [role="tab"], [role="menuitem"], ' +
+  '[role="option"], [role="switch"], [role="checkbox"], label, summary, ' +
+  "[data-hover-root]";
+
+/**
+ * The element whose hover should drive an icon, or null if it has no such ancestor.
+ *
+ * Split out from the effect because it is the whole decision, and the effect
+ * cannot be tested here: this suite runs with no DOM, so `closest()` never runs
+ * and no listener ever attaches. What can be checked is which question gets
+ * asked of the DOM, which is what decides whether the right element is found.
+ *
+ * Takes the element rather than reaching for one, so a test can pass a stand-in
+ * that records the selector instead of a real node.
+ */
+export function hoverRootFor(node: {
+  closest: (selector: string) => unknown;
+} | null): Element | null {
+  if (!node) return null;
+  return (node.closest(HOVER_ROOT) as Element | null) ?? null;
+}
+
+/**
+ * Animate an icon when its surrounding content is hovered.
+ *
+ * The library offers `useIconHover` for this, and its `{ref, triggerProps}` is
+ * the documented route — but `triggerProps` has to be spread onto the container
+ * by the caller, which means editing every button, row and menu item that owns
+ * an icon. Instead this binds the trigger to the nearest interactive ancestor
+ * itself, so the existing call sites keep working and get the behaviour.
+ *
+ * Attaching a ref is what makes this possible: the icon only self-triggers from
+ * its own `onMouseEnter` when no ref is set (it forwards to ours when one is),
+ * so a ref plus explicit `startAnimation` calls replace the built-in hover
+ * entirely rather than competing with it.
+ *
+ * Listeners are native rather than React's, because `mouseenter` does not bubble
+ * and React would only ever see the icon's own. Rebound on every commit so a
+ * card that re-parents its icon — a list row reused for a different device —
+ * does not keep triggering the row it used to live in.
+ */
+function useHoverRoot(
+  handleRef: RefObject<IconHandle | null>,
+  enabled: boolean,
+) {
+  const iconRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handle = handleRef.current;
+    if (!enabled || !handle) return;
+    const root = hoverRootFor(iconRef.current);
+    if (!root) return;
+    const start = () => handle.startAnimation();
+    const stop = () => handle.stopAnimation();
+    root.addEventListener("mouseenter", start);
+    root.addEventListener("mouseleave", stop);
+    return () => {
+      root.removeEventListener("mouseenter", start);
+      root.removeEventListener("mouseleave", stop);
+    };
+  });
+  return iconRef;
+}
+
+/**
+ * A library icon as `anim()` receives it.
+ *
+ * The library's icons are `forwardRef` components exposing `IconHandle`, and
+ * that ref is the whole basis of the container-hover behaviour below. Typing the
+ * parameter as a plain `ComponentType` would quietly drop `ref` from the props,
+ * which is how the first attempt at this failed to typecheck.
+ */
+type LibraryIcon = ForwardRefExoticComponent<
+  IconProps & RefAttributes<IconHandle>
+>;
+
+/**
+ * Adapt a library icon to this app's call sites.
+ *
+ * `size` defaults to 18 to match the hand-drawn set's default, so an icon with
+ * no sizing class renders at the size the rest of the UI assumes rather than at
+ * the library's own 24.
+ *
+ * `isAnimated` is defaulted to the user's motion preference rather than left on,
+ * because the library's own default is `true` and nothing here would stop it.
+ * A caller that explicitly passes `false` still wins.
+ */
+function anim(C: LibraryIcon, name: string) {
+  const Out = (props: IconProps) => {
+    const {
+      className,
+      size = 18,
+      isAnimated: animOverride,
+      ...rest
+    } = props;
+    const isAnimated = iconAnimates(animOverride, prefersReducedMotion());
+    const handleRef = useRef<IconHandle>(null);
+    const iconRef = useHoverRoot(handleRef, isAnimated);
+    return (
+      <span ref={iconRef} className="contents">
+        <C
+          ref={handleRef}
+          size={size}
+          isAnimated={isAnimated}
+          className={aiClass(className)}
+          {...rest}
+        />
+      </span>
+    );
+  };
+  Out.displayName = name;
+  return Out;
+}
+
+export const IconSearch = anim(SearchIcon, "IconSearch");
+export const IconPalette = anim(PaletteIcon, "IconPalette");
+export const IconImage = anim(ImageIcon, "IconImage");
+export const IconSticker = anim(ShapesIcon, "IconSticker");
+export const IconSettings = anim(SettingsIcon, "IconSettings");
+export const IconGear = anim(SettingsIcon, "IconGear");
+export const IconMonitor = anim(MonitorIcon, "IconMonitor");
+export const IconPlay = anim(PlayIcon, "IconPlay");
+export const IconPause = anim(PauseIcon, "IconPause");
+export const IconRefresh = anim(RefreshCwIcon, "IconRefresh");
+export const IconPlus = anim(PlusIcon, "IconPlus");
+export const IconTrash = anim(TrashIcon, "IconTrash");
+export const IconClipboard = anim(ClipboardIcon, "IconClipboard");
+export const IconLayers = anim(LayersIcon, "IconLayers");
+export const IconSparkle = anim(SparklesIcon, "IconSparkle");
+export const IconZap = anim(ZapIcon, "IconZap");
+/**
+ * Favourite toggle.
+ *
+ * The library's star is outline-only and this has to read as filled when set,
+ * so the two states are one component rather than two glyphs: a card showing
+ * both would let the reader wonder which one the star means.
+ */
+export function IconStar({
+  filled,
+  className,
+  size = 18,
+  isAnimated: animOverride,
+  ...props
+}: IconProps & { filled?: boolean }) {
+  const isAnimated = iconAnimates(animOverride, prefersReducedMotion());
+  const handleRef = useRef<IconHandle>(null);
+  const iconRef = useHoverRoot(handleRef, isAnimated);
+  return (
+    <span ref={iconRef} className="contents">
+      <StarIcon
+        ref={handleRef}
+        size={size}
+        isAnimated={isAnimated}
+        className={aiClass(filled && FILLED, className)}
+        {...props}
+      />
+    </span>
+  );
+}
+export const IconSun = anim(SunIcon, "IconSun");
+export const IconMoon = anim(MoonIcon, "IconMoon");
+export const IconFolder = anim(FolderIcon, "IconFolder");
+export const IconGlobe = anim(GlobeIcon, "IconGlobe");
+export const IconWave = anim(AudioWaveformIcon, "IconWave");
+
+// Volume, in the three states the system control actually distinguishes. They
+// replace a pair of hand-drawn speaker paths pasted into the volume button, which
+// is the one thing AGENTS.md rules out: an icon lives here so it inherits the
+// sizing rules, the currentColor and the hover behaviour with everything else.
+export const IconVolumeOff = anim(VolumeXIcon, "IconVolumeOff");
+export const IconVolumeLow = anim(Volume1Icon, "IconVolumeLow");
+export const IconVolumeHigh = anim(Volume2Icon, "IconVolumeHigh");
+export const IconBulb = anim(LightbulbIcon, "IconBulb");
+export const IconSliders = anim(SlidersHorizontalIcon, "IconSliders");
+export const IconKeyboard = anim(KeyboardIcon, "IconKeyboard");
+export const IconNext = anim(ChevronRightIcon, "IconNext");
+export const IconPrevious = anim(ChevronLeftIcon, "IconPrevious");
+export const IconChevronRight = anim(ChevronRightIcon, "IconChevronRight");
+export const IconChevronDown = anim(ChevronDownIcon, "IconChevronDown");
+export const IconPencil = anim(PencilIcon, "IconPencil");
+export const IconShuffle = anim(ShuffleIcon, "IconShuffle");
+export const IconRepeat = anim(RepeatIcon, "IconRepeat");
+export const IconCheck = anim(CheckIcon, "IconCheck");
+export const IconClose = anim(XIcon, "IconClose");
+export const IconUser = anim(UserIcon, "IconUser");
+export const IconSort = anim(ArrowUpDownIcon, "IconSort");
+export const IconGrid = anim(LayoutGridIcon, "IconGrid");
+export const IconAlert = anim(TriangleAlertIcon, "IconAlert");
+export const IconInfo = anim(InfoIcon, "IconInfo");
+export const IconDownload = anim(DownloadIcon, "IconDownload");
+export const IconUpload = anim(UploadIcon, "IconUpload");
+export const IconCopy = anim(CopyIcon, "IconCopy");
+export const IconTerminal = anim(TerminalIcon, "IconTerminal");
+export const IconHistory = anim(HistoryIcon, "IconHistory");
+export const IconPipette = anim(PipetteIcon, "IconPipette");
+export const IconEye = anim(EyeIcon, "IconEye");
+export const IconEyeOff = anim(EyeOffIcon, "IconEyeOff");
+
+// ---------------------------------------------------------------------------
+// Ours, because these encode app data rather than a generic noun.
+// ---------------------------------------------------------------------------
 
 const base = (props: P) => ({
   width: 18,
@@ -15,304 +416,48 @@ const base = (props: P) => ({
   ...props,
 });
 
-export const IconSearch = (props: P) => (
-  <svg {...base(props)}>
-    <circle cx="11" cy="11" r="6.5" />
-    <path d="m20 20-3.8-3.8" />
-  </svg>
-);
+/**
+ * Loading arc, for work that is already in flight.
+ *
+ * The one icon that must *not* use the hover trigger: it appears because
+ * something is pending, so it spins on its own and on no input at all. It is
+ * also the one place a library loader is not an improvement -- `animate-spin` is
+ * CSS, which the `prefers-reduced-motion` block can switch off, whereas the
+ * library's loader is JS-driven and would keep turning. So the glyph comes from
+ * the library and the motion stays ours.
+ */
+const SpinnerBase = anim(LoaderCircleIcon, "IconSpinner");
 
-export const IconPalette = (props: P) => (
-  <svg {...base(props)}>
-    <circle cx="12" cy="12" r="9" />
-    <circle cx="8.5" cy="10" r="1.2" fill="currentColor" stroke="none" />
-    <circle cx="12" cy="7.5" r="1.2" fill="currentColor" stroke="none" />
-    <circle cx="15.5" cy="10" r="1.2" fill="currentColor" stroke="none" />
-    <path d="M12 21a3.5 3.5 0 0 1 0-7h1.5a2.5 2.5 0 0 0 0-5" />
-  </svg>
-);
-
-export const IconImage = (props: P) => (
-  <svg {...base(props)}>
-    <rect x="3" y="4" width="18" height="16" rx="2.5" />
-    <circle cx="9" cy="10" r="1.6" />
-    <path d="M3.5 17.5 9 12.5l4 3.5 3.5-3 4 4" />
-  </svg>
-);
-
-export const IconSticker = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M13.5 3H7a2.5 2.5 0 0 0-2.5 2.5v13A2.5 2.5 0 0 0 7 21h7.2a2.5 2.5 0 0 0 1.8-.8l3-3.2a2.5 2.5 0 0 0 .7-1.7V5.5A2.5 2.5 0 0 0 17.2 3z" />
-    <path d="M15 21v-4.2a1.8 1.8 0 0 1 1.8-1.8H20" />
-  </svg>
-);
-
-export const IconSettings = (props: P) => (
-  <svg {...base(props)}>
-    <circle cx="12" cy="12" r="3.2" />
-    <path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V20a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H4a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.08A1.7 1.7 0 0 0 11.1 4.6V4.5a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.08a1.7 1.7 0 0 0 1.56 1.03H22a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51.94z" />
-  </svg>
-);
-
-export const IconMonitor = (props: P) => (
-  <svg {...base(props)}>
-    <rect x="3" y="4" width="18" height="12.5" rx="2" />
-    <path d="M9 20.5h6M12 16.5v4" />
-  </svg>
-);
-
-export const IconPlay = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M7 5.5v13l11-6.5z" />
-  </svg>
-);
-
-export const IconRefresh = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M20 11.5A8 8 0 1 0 18.4 17" />
-    <path d="M20 5.5v6h-6" />
-  </svg>
-);
-
-export const IconPlus = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M12 5v14M5 12h14" />
-  </svg>
-);
-
-export const IconTrash = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4l.8-12" />
-  </svg>
-);
-
-export const IconClipboard = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M9 4.5h6M9.5 3h5A1.5 1.5 0 0 1 16 4.5V6H8V4.5A1.5 1.5 0 0 1 9.5 3Z" />
-    <path d="M8 6H6.5A1.5 1.5 0 0 0 5 7.5v11A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-11A1.5 1.5 0 0 0 17.5 6H16" />
-  </svg>
-);
-
-export const IconLayers = (props: P) => (
-  <svg {...base(props)}>
-    <path d="m12 3 9 5-9 5-9-5z" />
-    <path d="m4.5 12.7 7.5 4.2 7.5-4.2M4.5 16.7l7.5 4.2 7.5-4.2" />
-  </svg>
-);
-
-export const IconSparkle = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M12 3.5 13.8 9 19 10.8 13.8 12.6 12 18l-1.8-5.4L5 10.8 10.2 9z" />
-    <path d="M18.5 15.5l.7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7z" />
-  </svg>
-);
-
-export const IconZap = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M13 2.5 4.5 13.5H11l-1 8 8.5-11H12z" />
-  </svg>
-);
-/** Star, for favourites. `filled` rather than a second icon so the two
- *  states cannot drift apart in shape. */
-export const IconStar = ({ filled, ...props }: P & { filled?: boolean }) => (
-  <svg {...base({ ...props, fill: filled ? "currentColor" : "none" })}>
-    <path d="m12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z" />
-  </svg>
-);
-
-
-export const IconSun = (props: P) => (
-  <svg {...base(props)}>
-    <circle cx="12" cy="12" r="4" />
-    <path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4" />
-  </svg>
-);
-
-export const IconMoon = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" />
-  </svg>
-);
-
-export const IconFolder = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M3.5 7A2.5 2.5 0 0 1 6 4.5h3.2a2 2 0 0 1 1.6.8l1 1.4a2 2 0 0 0 1.6.8H18A2.5 2.5 0 0 1 20.5 10v7A2.5 2.5 0 0 1 18 19.5H6A2.5 2.5 0 0 1 3.5 17z" />
-  </svg>
-);
-
-export const IconGlobe = (props: P) => (
-  <svg {...base(props)}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="M3 12h18M12 3a14.5 14.5 0 0 1 0 18 14.5 14.5 0 0 1 0-18z" />
-  </svg>
-);
-
-export const IconWave = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M3 12c1.5 0 1.5-3 3-3s1.5 6 3 6 1.5-9 3-9 1.5 9 3 9 1.5-6 3-6 1.5 3 3 3" />
-  </svg>
-);
-
-export const IconBulb = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M9 18h6M10 21h4" />
-    <path d="M12 3a6 6 0 0 1 3.5 10.9c-.6.5-.9 1.2-.9 2.1a2.6 2.6 0 0 1-5.2 0c0-.9-.3-1.6-.9-2.1A6 6 0 0 1 12 3z" />
-    <path d="M9.5 13c.7-1 1.4-1.8 2.5-2.6 1.1.8 1.8 1.6 2.5 2.6" />
-  </svg>
-);
-
-export const IconSliders = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M4 7h6M14 7h6M4 17h10M18 17h2" />
-    <circle cx="12" cy="7" r="2.2" />
-    <circle cx="16" cy="17" r="2.2" />
-  </svg>
-);
-
-export const IconKeyboard = (props: P) => (
-  <svg {...base(props)}>
-    <rect x="2.5" y="6" width="19" height="12" rx="2.5" />
-    <path d="M6 9.5h.01M9.5 9.5h.01M13 9.5h.01M16.5 9.5h.01M6 13h.01M9.5 13h.01M13 13h.01M16.5 13h.01" />
-    <path d="M8 15.8h8" />
-  </svg>
-);
-
-export const IconPause = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M8.5 6v12M15.5 6v12" />
-  </svg>
-);
-
-export const IconNext = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M6 6l8 6-8 6zM17 6v12" />
-  </svg>
-);
-
-export const IconPrevious = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M18 6l-8 6 8 6zM7 6v12" />
-  </svg>
-);
-
-export const IconZones = (props: P) => (
-  <svg {...base(props)}>
-    <rect x="4" y="4" width="16" height="16" rx="2.5" />
-    <path d="M4 10h6M10 10v4M10 14H4M12 4v6M12 4h8M14 10m2 4v6M13 14v6" />
-  </svg>
-);
-
-export const IconPencil = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3Z" />
-    <path d="M13.5 6.5l3 3" />
-  </svg>
-);
-
-export const IconGear = (props: P) => (
-  <svg {...base(props)}>
-    {/* proper cog: toothed ring around the hub (Feather "settings" shape) */}
-    <circle cx="12" cy="12" r="3" />
-    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-  </svg>
-);
-
-export const IconRailCollapse = (props: P) => (
-  <svg {...base(props)}>
-    <rect x="3" y="4" width="18" height="16" rx="2.5" />
-    <path d="M9 4v16M13.5 12h5M16.5 9.5 19 12l-2.5 2.5" />
-  </svg>
-);
-
-// Busy arc for a control that is waiting on work. Not a static icon, but it is
-// drawn as one -- same stroke language, same currentColor inheritance -- so it
-// drops into a button without restyling it. The dash gap is what makes it read
-// as rotating; a full circle would just sit there.
-export const IconSpinner = (props: P) => (
-  // Class is merged after `base`, not passed into it: `base` spreads props
-  // last, so a caller className ("h-4 w-4") would replace the spin outright.
-  <svg {...base(props)} className={`animate-spin ${props.className ?? ""}`}>
-    <circle cx="12" cy="12" r="8.5" strokeDasharray="30 23" />
-  </svg>
-);
-
-export const IconShuffle = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M16 4h4v4M20 4l-6.5 6.5M4 20 9 15M16 20h4v-4M14.5 14.5 20 20M4 4l5 5" />
-  </svg>
-);
-
-export const IconRepeat = (props: P) => (
-  <svg {...base(props)}>
-    <path d="m17 2 4 4-4 4" />
-    <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
-    <path d="m7 22-4-4 4-4" />
-    <path d="M21 13v1a4 4 0 0 1-4 4H3" />
-  </svg>
-);
-
-export const IconChevronDown = (props: P) => (
-  <svg {...base(props)}>
-    <path d="m6 9 6 6 6-6" />
-  </svg>
-);
-
-export const IconChevronRight = (props: P) => (
-  <svg {...base(props)}>
-    <path d="m9 6 6 6-6 6" />
-  </svg>
-);
-
-export const IconCheck = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M5 13l4 4L19 7" />
-  </svg>
-);
-
-/** Toast tones: a check, a warning triangle, a plain info dot. */
-/** Dismiss: clear a selection, close a menu. The one unambiguous "cancel". */
-export const IconClose = (props: P) => (
-  <svg {...base(props)}>
-    <path d="m6 6 12 12M18 6 6 18" />
-  </svg>
-);
-
-/** A person: the profile avatar's empty state. A head-and-shoulders outline
- *  rather than the stacked-layers mark, which said "collection" where this
- *  needs to say "you". */
-export const IconUser = (props: P) => (
-  <svg {...base(props)}>
-    <circle cx="12" cy="8" r="3.5" />
-    <path d="M5 20a7 7 0 0 1 14 0" />
-  </svg>
-);
-
-/** Sort: a descending arrow over a baseline, rather than sliders, which the
- *  filter button already uses. */
-export const IconSort = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M4 7h11M4 12h8M4 17h5" />
-    <path d="M19 8v9M16.5 14.5 19 17l2.5-2.5" />
-  </svg>
-);
-
-/** Tile size: a 2x2 block that reads as "how big are the tiles". */
-export const IconGrid = (props: P) => (
-  <svg {...base(props)}>
-    <rect x="4" y="4" width="7" height="7" rx="1.5" />
-    <rect x="13" y="4" width="7" height="7" rx="1.5" />
-    <rect x="4" y="13" width="7" height="7" rx="1.5" />
-    <rect x="13" y="13" width="7" height="7" rx="1.5" />
-  </svg>
+export const IconSpinner = ({ className, ...props }: IconProps) => (
+  <SpinnerBase
+    {...props}
+    // The library's own hover animation would compete with the CSS spin, so it
+    // is off: this icon's motion is the CSS one, and only that one.
+    isAnimated={false}
+    className={aiClass("animate-spin", className)}
+  />
 );
 
 /**
- * Select all: two tiles, one carrying the mark.
+ * Pinned item: the filled state is what distinguishes it, so it is two marks.
  *
- * Deliberately not a single box. The toolbar's select-all sits directly above a
- * grid whose every tile shows a checkbox on hover, and a lone square there read
- * as one of those tiles drawn twice. Two squares say "all of them" in a way one
- * square never can, and the mark moves with the tri-state.
+ * Filled through the `FILLED` class rather than a `fill` prop, because that prop
+ * now lands on the wrapper div and is discarded.
+ */
+export function IconPin({
+  filled,
+  className,
+  ...props
+}: IconProps & { filled?: boolean }) {
+  return <PinBase {...props} className={aiClass(filled && FILLED, className)} />;
+}
+
+/**
+ * Bulk selection: none, some, or all.
+ *
+ * Three states rather than two glyphs, because "some selected" is the state a
+ * list is in most of the time and showing an empty box for it would read as
+ * nothing being selected at all.
  */
 export function IconSelectAll({ state, ...props }: { state: "none" | "some" | "all" } & P) {
   return (
@@ -325,232 +470,158 @@ export function IconSelectAll({ state, ...props }: { state: "none" | "some" | "a
   );
 }
 
-export const IconAlert = (props: P) => (
+/** Light-strip zones: the shape is a wall being painted, not a generic grid. */
+export const IconZones = (props: P) => (
   <svg {...base(props)}>
-    <path d="M12 4.5 21 19.5H3L12 4.5Z" />
-    <path d="M12 10v4" />
-    <path d="M12 17h.01" />
+    <rect x="2.5" y="4.5" width="19" height="8" rx="2" />
+    <rect x="2.5" y="14.5" width="11" height="5" rx="1.8" />
+    <rect x="15.5" y="14.5" width="6" height="5" rx="1.8" />
   </svg>
 );
 
-export const IconInfo = (props: P) => (
-  <svg {...base(props)}>
-    <circle cx="12" cy="12" r="8.5" />
-    <path d="M12 11.5v5" />
-    <path d="M12 8h.01" />
-  </svg>
-);
+/** Pinned item's glyph, wrapped once so `IconPin` can layer the fill class on. */
+const PinBase = anim(PinIcon, "IconPin");
 
-export const IconDownload = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M12 4v10" />
-    <path d="m8 11 4 4 4-4" />
-    <path d="M5 19h14" />
-  </svg>
-);
+/**
+ * Sidebar collapse: the arrow has to point the way the rail is about to go.
+ *
+ * The library ships both directions rather than one glyph plus a rotation, which
+ * reads better than flipping a chevron about its own centre -- a rotated
+ * collapse arrow points the right way but its panel edge ends up on the wrong
+ * side. The caller's `rotate-180` is still honoured and still rotates, so the
+ * button keeps animating the way it did.
+ */
+const RailCollapseClosed = anim(PanelLeftCloseIcon, "IconRailCollapseClosed");
+const RailCollapseOpen = anim(PanelLeftOpenIcon, "IconRailCollapseOpen");
 
-export const IconUpload = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M12 20V10" />
-    <path d="m8 13 4-4 4 4" />
-    <path d="M5 5h14" />
-  </svg>
-);
+export const IconRailCollapse = ({ className }: P) =>
+  className?.includes("rotate-180") ? (
+    <RailCollapseOpen className={className} />
+  ) : (
+    <RailCollapseClosed className={className} />
+  );
 
-export const IconCopy = (props: P) => (
-  <svg {...base(props)}>
-    <rect x="9" y="9" width="11" height="11" rx="2.2" />
-    <path d="M15 6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15" />
-  </svg>
-);
+/**
+ * RGB devices, keyed by the OpenRGB `DeviceType` the driver reports.
+ *
+ * Thirteen distinct hardware classes, each with its own mark: a keyboard and a
+ * mouse are both "a lit thing on a desk" but a user with both on their bench
+ * needs to tell them apart at a glance. This said "fourteen" for a long time,
+ * which was inherited from the original hand-drawn map and was never checked —
+ * `deviceKind` returns thirteen names and always has.
+ *
+ * Split in two on purpose. Kinds the icon library ships go through `anim`, so
+ * they animate on hover like every other glyph in the app — these hand-drawn
+ * SVGs are static by construction, and a device row is one of the most hovered
+ * surfaces in the window. The rest keep their own marks, because the library has
+ * no equivalent and a wrong-but-animated glyph is worse than a right-and-still
+ * one: there is no `circuit-board` or `fan` in Lucide, and drawing a GPU as a
+ * hard drive because that one exists would be actively misleading on the
+ * hardware this app exists to talk about.
+ */
+const DEVICE_ANIMATED: Record<string, (props: IconProps) => ReactNode> = {
+  keyboard: IconKeyboard,
+  mouse: anim(MouseIcon, "IconDeviceMouse"),
+  headset: anim(HeadphonesIcon, "IconDeviceHeadset"),
+  light: IconBulb,
+  gamepad: anim(GamepadIcon, "IconDeviceGamepad"),
+  dram: anim(MemoryStickIcon, "IconDeviceDram"),
+  gpu: anim(HardDriveIcon, "IconDeviceGpu"),
+  speaker: IconVolumeHigh,
+  mousemat: IconMonitor,
+  strip: anim(ScanLineIcon, "IconDeviceStrip"),
+  other: anim(BoxIcon, "IconDeviceOther"),
+};
 
-export const IconTerminal = (props: P) => (
-  <svg {...base(props)}>
-    <rect x="3" y="4" width="18" height="16" rx="2.5" />
-    <path d="m7 10 2.5 2.5L7 15" />
-    <path d="M13 15h4" />
-  </svg>
-);
-
-export const IconHistory = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M4 11a8.5 8.5 0 1 1 1.6 5.6" />
-    <path d="M4 6v5h5" />
-    <path d="M12 8v4.5l3 1.8" />
-  </svg>
-);
-
-export const IconPipette = (props: P) => (
-  <svg {...base(props)}>
-    <path d="m11 11 6.5-6.5a2.1 2.1 0 0 1 3 3L14 14" />
-    <path d="m12.5 8.5 3 3" />
-    <path d="M11 11 5.5 16.5c-.6.6-.9 1.3-1 2.1l-.2 1.6c-.05.4.25.7.65.65l1.6-.2c.8-.1 1.5-.4 2.1-1L14 14" />
-  </svg>
-);
-
-/** Per-device-type hardware icon, chosen from the OpenRGB type string. */
+/**
+ * Kinds with no library equivalent, drawn here.
+ *
+ * `motherboard` and `fan` are the two: Lucide has no circuit board and no fan,
+ * and `wind` is a weather glyph rather than a cooler. Both are common on the
+ * machines this app targets, so they keep the marks they had.
+ */
 const DEVICE_ICONS: Record<string, ReactNode> = {
-  keyboard: (
-    <>
-      <rect x="2.5" y="6" width="19" height="12" rx="2.5" />
-      <path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M6 14.5h12" />
-    </>
-  ),
-  mouse: (
-    <>
-      <rect x="7" y="3" width="10" height="18" rx="5" />
-      <path d="M12 3v6" />
-    </>
-  ),
-  mousemat: (
-    <>
-      <rect x="2.5" y="8" width="19" height="9" rx="2" />
-      <path d="M6 12.5h12" />
-    </>
-  ),
-  headset: (
-    <>
-      <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
-      <rect x="3" y="14" width="4.5" height="6" rx="1.6" />
-      <rect x="16.5" y="14" width="4.5" height="6" rx="1.6" />
-    </>
-  ),
   motherboard: (
     <>
-      <rect x="4" y="4" width="16" height="16" rx="2" />
-      <path d="M8 4v6h5M16 20v-5h-4M9 17h3" />
-    </>
-  ),
-  gpu: (
-    <>
-      <rect x="3" y="7" width="17" height="10" rx="2" />
-      <path d="M20 10h2v5h-2M7 17v3M12 17v3M7 11h6" />
-    </>
-  ),
-  dram: (
-    <>
-      <rect x="6" y="5" width="12" height="14" rx="1.5" />
-      <path d="M9 8h6M9 11h6M9 14h6M8 19v2M12 19v2M16 19v2" />
-    </>
-  ),
-  strip: (
-    <>
-      <path d="M3 12h18M6 12V8m4 4V8m4 4V8m4 4V8M6 16v-1m4 1v-1m4 1v-1m4 1v-1" />
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <rect x="7" y="7" width="7" height="7" rx="1" />
+      <path d="M16.5 7v3M16.5 13v4M7 17h3M13 17h4" />
     </>
   ),
   fan: (
     <>
       <circle cx="12" cy="12" r="2.2" />
-      <path d="M12 9.8C12 6 10 4.5 7.5 5c-.4 3 1.6 5 4.5 4.8Zm2.2 2.2c3.8 0 5.3-2 4.8-4.5-3-.4-5 1.6-4.8 4.5Zm-2.2 2.2c0 3.8 2 5.3 4.5 4.8.4-3-1.6-5-4.5-4.8Zm-2.2-2.2C6 12 4.5 14 5 16.5c3 .4 5-1.6 4.8-4.5Z" />
-    </>
-  ),
-  keypad: (
-    <>
-      <rect x="4" y="3" width="16" height="18" rx="2" />
-      <path d="M8 7h.01M12 7h.01M16 7h.01M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01" />
-    </>
-  ),
-  // Added after checking the SDK's DeviceType rather than the shapes already
-  // here: Gamepad, Light and Speaker are all real enum variants and all three
-  // were falling through to the generic box, so a game controller and a desk
-  // lamp were drawn the same as each other and as an unrecognised device.
-  gamepad: (
-    <>
-      <path d="M7.5 8h9a4.5 4.5 0 0 1 4.4 3.7l1 5A2.6 2.6 0 0 1 17 18.5l-1.4-2.2H8.4L7 18.5a2.6 2.6 0 0 1-4.9-1.8l1-5A4.5 4.5 0 0 1 7.5 8Z" />
-      <path d="M8 11.5v2.5M6.8 12.8h2.5M15.5 12h.01M17.8 13.6h.01" />
-    </>
-  ),
-  // Deliberately the same shape as `IconBulb`: the SDK has both "Light" and
-  // "Headset" lighting, and a lamp card should be the bulb the rest of the
-  // interface already uses for the idea of a lamp.
-  light: (
-    <>
-      <path d="M9 18h6M10 21h4" />
-      <path d="M12 3a6 6 0 0 1 3.5 10.9c-.6.5-.9 1.2-.9 2.1a2.6 2.6 0 0 1-5.2 0c0-.9-.3-1.6-.9-2.1A6 6 0 0 1 12 3z" />
-      <path d="M9.5 13c.7-1 1.4-1.8 2.5-2.6 1.1.8 1.8 1.6 2.5 2.6" />
-    </>
-  ),
-  speaker: (
-    <>
-      <rect x="5" y="2.5" width="14" height="19" rx="2" />
-      <circle cx="12" cy="14.5" r="3.2" />
-      <circle cx="12" cy="7.5" r="1.4" />
+      <path d="M12 9.8c0-3 1-5.3 3.2-5.3 1.6 0 2.6 1.2 2.6 2.8 0 2-1.6 3-3.6 4.1M14.2 12c3 0 5.3 1 5.3 3.2 0 1.6-1.2 2.6-2.8 2.6-2 0-3-1.6-4.1-3.6M12 14.2c0 3-1 5.3-3.2 5.3-1.6 0-2.6-1.2-2.6-2.8 0-2 1.6-3 3.6-4.1M9.8 12c-3 0-5.3-1-5.3-3.2 0-1.6 1.2-2.6 2.8-2.6 2 0 3 1.6 4.1 3.6" />
     </>
   ),
 };
 
 /**
- * Every kind `IconDevice` can actually draw, read off the map itself.
+ * Every kind `IconDevice` can actually draw, read off the maps themselves.
  *
- * Exported so the pairing with `deviceKind` can be tested without a copy of
- * the key list: a kind added there without a glyph here renders the generic
- * box silently, and a test that listed the kinds by hand would simply be
- * updated alongside the mistake.
+ * Both sources, not just one: an animated kind is drawn by the library and a
+ * hand-drawn kind by `DEVICE_ICONS`, and a kind missing from either would fall
+ * through to the generic box.
  */
-export const DEVICE_KINDS = Object.keys(DEVICE_ICONS);
+export const DEVICE_KINDS = [
+  ...new Set([...Object.keys(DEVICE_ANIMATED), ...Object.keys(DEVICE_ICONS)]),
+];
+
+/** Device kinds drawn from the animated library, for the icon tests to pin. */
+export const ANIMATED_DEVICE_KINDS = Object.keys(DEVICE_ANIMATED);
 
 /**
- * Which kind of thing a device is, from its OpenRGB type name.
+ * Which glyph an OpenRGB device-type string earns.
  *
- * Exported because the glyph is not the only thing that has to know: the device
- * card labels the same device with a human-readable type, and it has to reach
- * the same conclusion the icon did, or the icon and the label can disagree
- * about what a thing is.
- *
- * Returns "other" for anything unrecognised, which is a drawing instruction
- * rather than a word — callers that need a name must supply their own fallback.
+ * Matches the SDK's `DeviceType` names rather than describing hardware: the
+ * driver is the only thing that knows what a "DRAM" entry is, and a rule keyed
+ * on its spelling cannot drift from it.
  */
 export function deviceKind(type: string): string {
   const t = type.toLowerCase();
-  return (
-    (t.includes("keyboard") && "keyboard") ||
-    (t.includes("mouse") && !t.includes("mat") && !t.includes("pad") && "mouse") ||
-    (t.includes("mouse") && "mousemat") ||
-    (t.includes("headset") || t.includes("headphone") || t.includes("audio") ? "headset" : false) ||
-    (t.includes("motherboard") || t.includes("mainboard") ? "motherboard" : false) ||
-    (t.includes("gpu") || t.includes("graphic") || t.includes("video") ? "gpu" : false) ||
-    (t.includes("dram") || t.includes("memory") ? "dram" : false) ||
-    (t.includes("strip") || t.includes("led") || t.includes("ambient") ? "strip" : false) ||
-    (t.includes("fan") || t.includes("cooler") || t.includes("cooling") ? "fan" : false) ||
-    (t.includes("keypad") ? "keypad" : false) ||
-    // The SDK's own `Gamepad`, `Light` and `Speaker`. These have to be named
-    // explicitly: "gamepad" is not a "keypad", "light" is not an "led" strip
-    // and "speaker" is not a "headset", so the substring rules above cannot
-    // reach them and each was rendering as the generic box.
-    (t.includes("gamepad") ? "gamepad" : false) ||
-    (t.includes("light") ? "light" : false) ||
-    (t.includes("speaker") ? "speaker" : false) ||
-    "other"
-  );
+  // A mouse pad is a large lit surface, not a pointing device, so "mat" and
+  // "pad" are excluded before the mouse rule runs.
+  if (/(motherboard|mainboard)/.test(t)) return "motherboard";
+  if (/dram|ram|memory/.test(t)) return "dram";
+  if (/(gpu|vga|graphics)/.test(t)) return "gpu";
+  if (/(cooler|fan)/.test(t)) return "fan";
+  if (/(ledstrip|strip|led)/.test(t)) return "strip";
+  if (/keyboard/.test(t)) return "keyboard";
+  if (/mousemat|mousepad/.test(t)) return "mousemat";
+  if (/mouse/.test(t)) return "mouse";
+  if (/headsetstand/.test(t)) return "headset";
+  if (/headset|headphone/.test(t)) return "headset";
+  if (/gamepad|controller/.test(t)) return "gamepad";
+  if (/(^light$|lamp|bulb)/.test(t)) return "light";
+  if (/speaker/.test(t)) return "speaker";
+  return "other";
 }
 
-export function IconDevice({ type, ...props }: { type: string } & P) {
-  const glyph = DEVICE_ICONS[deviceKind(type)] ?? (
+/**
+ * One RGB device, drawn as whatever kind of hardware it is.
+ *
+ * Takes `IconProps` rather than the hand-drawn set's `P`, because most kinds now
+ * resolve to a library component. The wrapper eats SVG-only props like `fill`
+ * and `stroke`, so widening this to the raw SVG type would let a call site pass
+ * one and watch it be dropped on a `<div>` — the reason `IconProps` exists.
+ */
+export function IconDevice({
+  type,
+  ...props
+}: { type: string } & IconProps) {
+  const kind = deviceKind(type);
+  const Animated = DEVICE_ANIMATED[kind];
+  // `className` reaches the inner `<svg>` through `anim`, which is what sizes
+  // the glyph at the call site; the hand-drawn branch below reads it via `base`.
+  if (Animated) return <Animated {...props} />;
+  const glyph = DEVICE_ICONS[kind] ?? (
     <>
-      <rect x="4" y="4" width="16" height="16" rx="3" />
-      <circle cx="12" cy="12" r="3.5" />
+      <rect x="3" y="5" width="18" height="14" rx="2.5" />
+      <path d="M3 10h18" />
     </>
   );
-  return <svg {...base(props)}>{glyph}</svg>;
+  return <svg {...base(props as P)}>{glyph}</svg>;
 }
-
-/** Lit device / included in the light show. */
-export const IconEye = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" />
-    <circle cx="12" cy="12" r="2.6" />
-  </svg>
-);
-
-/** Muted device — same shape, struck through, so the pair reads as one toggle. */
-export const IconEyeOff = (props: P) => (
-  <svg {...base(props)}>
-    <path d="M4.2 5.6C3 7 2 9 2 9s3.5 6 9.5 6c1.6 0 3-.4 4.2-1M20 9s-.7 1.2-1.9 2.4" />
-    <path d="M9.6 6.2A8.7 8.7 0 0 1 12 6c6 0 9.5 6 9.5 6a15 15 0 0 1-2.6 3.2" />
-    <path d="M3.5 3.5l17 17" />
-    <path d="M9.9 10a2.6 2.6 0 0 0 3.6 3.7" />
-  </svg>
-);
 
 /**
  * Media-player brand glyphs (line style, stroke-inherited) used when the OS
@@ -583,4 +654,4 @@ export function IconMediaApp({ app, ...props }: { app: string } & P) {
     </>
   );
   return <svg {...base(props)}>{glyph}</svg>;
-}
+}

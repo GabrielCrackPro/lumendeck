@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@animateicons/react':
+        specifier: 0.11.0
+        version: 0.11.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@fontsource/jetbrains-mono':
         specifier: ^5.3.0
         version: 5.3.0
@@ -74,6 +77,13 @@ importers:
         version: 3.2.7(jiti@2.7.0)(lightningcss@1.32.0)
 
 packages:
+
+  '@animateicons/react@0.11.0':
+    resolution: {integrity: sha512-0lKey//ZaLcSQ/abI+LnE8kfI0i7r913S56jaugq/jfRzDNTWRxcgWbh7QzjJZcX+EIBRLFdqYoJ0GlUYbr6iw==}
+    engines: {node: '>=18.17.0'}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
+      react-dom: ^18.0.0 || ^19.0.0
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -1185,6 +1195,11 @@ packages:
         optional: true
 
 snapshots:
+
+  '@animateicons/react@0.11.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@babel/code-frame@7.29.7':
     dependencies:

@@ -1,9 +1,15 @@
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
+import { installContextMenuSuppression } from "@shared/contextMenu";
 import App from "./App";
 import { useStore } from "./store";
 import { readableOnTheme } from "./accent";
 import "./index.css";
+
+// Before React mounts, and outside the render tree on purpose: this is a
+// property of the webview rather than of a component, so nothing below should
+// have to know it exists or be able to opt out of it.
+installContextMenuSuppression();
 
 // Paint the real accent before React mounts. The CSS default for --glow is a
 // hardcoded blue, and the in-app seeding (Shell's useGlow) only runs after the

@@ -216,6 +216,12 @@ export interface GeneralConfig {
   hotkeyBlinkMs: number;
   /** Colour of that blink. */
   hotkeyBlinkColor: [number, number, number];
+  /**
+   * How often a running dashboard checks for a release, in minutes. Governs the
+   * recurring timer only: returning to the window always checks, and the
+   * manual Check for updates button is a question rather than a poll.
+   */
+  updateCheckMinutes: number;
 }
 
 /**
@@ -365,6 +371,8 @@ export interface LumenConfig {
   rgb: RgbConfig;
   stickers: StickerDef[];
   gallery: GalleryEntry[];
+  /** Walk the vault in random order instead of display order. */
+  galleryShuffle: boolean;
   collections: WallpaperCollection[];
   playlists: WallpaperPlaylist[];
   scenes: SceneProfile[];
@@ -543,3 +551,23 @@ export type DevInfo = {
    */
   reportHeader: string;
 };
+
+/**
+ * CPU and memory pressure, mirroring `perf::PerfSnapshot`.
+ *
+ * Every measurement is optional because "not measured yet" and "measured as
+ * zero" are different states. The CPU figure in particular is absent on the
+ * sampler's first tick, because `sysinfo` reports load as the difference
+ * between two refreshes and has nothing to compare on the first pass --
+ * rendering that as 0% would claim an idle machine before reading one.
+ */
+export interface PerfSnapshot {
+  /** System-wide CPU load, 0..100. */
+  cpuPercent: number | null;
+  /** Physical memory in use, in bytes. */
+  memUsedBytes: number | null;
+  /** Physical memory installed, in bytes. */
+  memTotalBytes: number | null;
+  /** How long ago the sampler published, in milliseconds. */
+  ageMs: number | null;
+}

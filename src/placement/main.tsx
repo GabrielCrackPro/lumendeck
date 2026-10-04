@@ -8,12 +8,18 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { EVENTS } from "@shared/constants";
+import { installContextMenuSuppression } from "@shared/contextMenu";
 import {
   STICKER_DEFAULT_W,
   STICKER_MAX_SIZE,
   STICKER_MIN_SIZE,
 } from "@shared/tokens";
 import "../runtime.css";
+
+// A property of the webview rather than of a component. The overlay is a
+// transient veil with three buttons on it, so a browser menu opening over it
+// reads as the app having lost track of a click it did receive.
+installContextMenuSuppression();
 
 interface MonitorInfo {
   device: string;

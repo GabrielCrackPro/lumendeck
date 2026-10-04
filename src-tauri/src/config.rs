@@ -276,6 +276,26 @@ pub struct GeneralConfig {
     /// wallpaper accent; a hue can vanish into a room lit that colour.
     #[serde(default = "default_hotkey_blink_color")]
     pub hotkey_blink_color: [u8; 3],
+    /// How often a running dashboard looks for a new release, in minutes.
+    ///
+    /// Zero means no automatic checking at all: the dashboard then waits for the
+    /// user to press Check for updates, and stops checking on a timer *and* on
+    /// the window returning. Leaving the visibility trigger running would have
+    /// made "manual" a lie, since alt-tabbing back checks more often than any
+    /// interval here.
+    ///
+    /// It does not govern the manual Check for updates button, which is a
+    /// question and not a poll.
+    ///
+    /// Hours by default, which is what a signed latest.json deserves: a few
+    /// kilobytes, but still a round trip on someone's connection. A user who
+    /// wants release-day notifications sooner can lower it; the dashboard
+    /// clamps the value to something a server would thank us for.
+    ///
+    /// Safe for zero to mean "off" because this is `serde(default)`: a config
+    /// written before the field existed becomes the default hour, never a zero.
+    #[serde(default = "default_update_check_minutes")]
+    pub update_check_minutes: u32,
 }
 
 /// One configurable system-wide shortcut.
@@ -388,6 +408,7 @@ impl Default for GeneralConfig {
             hotkeys_enabled: true,
             hotkey_blink_ms: default_hotkey_blink_ms(),
             hotkey_blink_color: default_hotkey_blink_color(),
+            update_check_minutes: default_update_check_minutes(),
         }
     }
 }
@@ -617,6 +638,11 @@ pub struct RgbConfig {
 /// dashboard is closed.
 fn default_hotkey_blink_ms() -> u64 {
     450
+}
+
+/// How often a running dashboard checks for a release. See the field's doc.
+fn default_update_check_minutes() -> u32 {
+    60
 }
 
 /// Blink colour for a fresh install. Also the fallback for a config saved
@@ -992,6 +1018,11 @@ pub struct Config {
     pub rgb: RgbConfig,
     pub stickers: Vec<StickerDef>,
     pub gallery: Vec<GalleryEntry>,
+    /// Walk the vault in random order instead of display order.
+    ///
+    /// False is what every existing config resolves to, so upgrading does not
+    /// change how the next-wallpaper key behaves for anyone already using it.
+    pub gallery_shuffle: bool,
     pub collections: Vec<WallpaperCollection>,
     pub playlists: Vec<WallpaperPlaylist>,
     /// Scene profiles: full-look snapshots (wallpaper + RGB + per-monitor
@@ -1010,6 +1041,7 @@ impl Default for Config {
             rgb: RgbConfig::default(),
             stickers: Vec::new(),
             gallery: Vec::new(),
+            gallery_shuffle: false,
             collections: Vec::new(),
             playlists: Vec::new(),
             scenes: Vec::new(),
@@ -1364,6 +1396,32 @@ mod playlist_tests {
         let old = serde_json::json!({ "version": 1, "general": { "theme": "dark" } });
         let cfg: Config = serde_json::from_value(old).expect("pre-system config must parse");
         assert_eq!(cfg.general.theme, ThemeMode::Dark);
+    }
+
+    #[test]
+    fn a_chosen_update_interval_is_kept_through_a_roundtrip() {
+        let mut cfg = Config::default();
+        cfg.general.update_check_minutes = 30;
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: Config = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.general.update_check_minutes, 30);
+    }
+
+    #[test]
+    fn the_update_interval_is_stored_under_the_name_the_dashboard_sends() {
+        // `GeneralConfig` is `rename_all = "camelCase"`, so the JSON key is
+        // `updateCheckMinutes` -- which is what `GeneralTab`'s dropdown writes and
+        // what the hand-maintained TypeScript interface calls the field. Nothing
+        // in the compiler connects those three: a rename on either side would
+        // leave the control saving a key the backend drops, and the interval
+        // would silently stay at the default forever.
+        let cfg = Config::default();
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(
+            json.contains("\"updateCheckMinutes\""),
+            "expected the camelCase key, got: {json}"
+        );
+        assert!(!json.contains("update_check_minutes"));
     }
 
     #[test]

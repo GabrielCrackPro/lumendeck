@@ -303,16 +303,34 @@ decoration.
 
 | group | duration | curve |
 | --- | --- | --- |
-| Control state (hover, press, colour) | 150ms | the component's own `transition` |
-| Icon swap | 280ms | `cubic-bezier(0.34, 1.4, 0.64, 1)` |
-| Toggle pop | 320ms | `cubic-bezier(0.34, 1.56, 0.64, 1)` — the overshoot is the message |
-| Page and card entrance | 300–450ms | `cubic-bezier(0.2, 0.7, 0.2, 1)`, staggered by index |
-| Transport ripple | 600ms | ease-out, staggered across the row |
+| Control state (hover, press, colour) | `--motion-fast` / `--motion-base` | `--ease-standard` |
+| Icon swap, toggle pop | `--motion-base` | `--ease-emphasized` — the overshoot is the message |
+| Page and card entrance | `--motion-slow` / `--motion-slower` | `--ease-standard`, staggered by index |
+| Transport ripple | `--motion-slow` | ease-out, staggered across the row |
+| Dismissal (menu closing) | `--motion-instant` | `--ease-exit` |
+
+The durations and curves are **tokens in `index.css`**, not numbers typed at each
+site. That is the whole point of this section: the app once had twenty-odd
+animations carrying a hand-picked duration each — 0.12s, 0.16s, 0.18s, 0.24s,
+0.45s — and six ad-hoc easings. Every one was a reasonable individual choice and
+none agreed with any other, which is the condition under which an interface feels
+almost right and nobody can say why. Retuning the app's feel is now editing five
+numbers in one place.
 
 Two rules follow from that table. Entrances are deliberately *slower* than
 state changes — arriving is a bigger event than turning a colour. And toggles
 overshoot while nothing else does, because a toggle is the one control whose
 whole job is to say "that changed".
+
+List entrances share one stagger, `staggerDelay` in `components/motion.ts`, so
+rows in different places arrive at the same speed. It was four inline
+expressions with three different steps and two different caps before that.
+
+Cards are the one surface that lifts on hover, and they are marked up for it:
+`Card` adds `card-surface` alongside `glass`, and the lift keys on that. It is
+deliberately not on `.glass`, which is also the app header, the loading
+skeletons, the onboarding panel and the modal bodies — none of which should shift
+when a mouse passes over them.
 
 Transitions are declared on the component, not in a utility class per use, so
 that "how fast does a button press" has one answer. The only infinite animation
@@ -329,31 +347,141 @@ turns the named animations off entirely. Two consequences worth knowing:
 - Any animation that sets an end state needs that state released in the
   reduced-motion block, or the element stays invisible. This is why
   `.tile-reveal` sets `opacity: 1` there and not just `animation: none`.
+- Collapsing a duration is not the same as removing a movement. A hover that
+  translates a card still translates it, just instantly, so `.card-surface:hover`
+  drops its `transform` there and keeps only the border-colour change, which has
+  no displacement.
 
 ---
 
 ## Icons
 
 `components/icons.tsx`. Line-based, stroke-based, inheriting `currentColor`.
+Most of the set is [`@animateicons/react`](https://animateicons.in/) (MIT, a
+Lucide derivative), which animates each glyph on hover. The rest is drawn
+here, and the split is deliberate.
 
-```tsx
-const base = (props: P) => ({
-  width: 18, height: 18, viewBox: "0 0 24 24",
-  fill: "none", stroke: "currentColor",
-  strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round",
-  ...props,
-});
-```
+**Why some are ours.** `IconDevice` maps an OpenRGB `DeviceType` string onto one
+of fourteen glyphs, `IconMediaApp` matches a media session's appId, and
+`IconSelectAll` has three states. Those are lookups, not pictures — replacing them
+with look-alikes loses the part that matters, which hardware or which player.
+The library has no overlapping-boxes glyph, so there is nothing to map a
+three-state bulk selector onto. `IconZones` is unused and kept only because
+deleting it is out of scope for an icon swap.
+
+`IconSpinner` is a library glyph with the app's own `animate-spin` driving it.
+It means work is in flight rather than something to hover, and the motion has to
+stay CSS so the `prefers-reduced-motion` block can switch it off — a
+JS-driven loader would keep turning for a user who asked for none.
+
+**The wrapper div.** The library renders `<div class="inline-flex"><svg/></div>`
+and puts your `className` on the *div*, while the inner `<svg>` keeps fixed
+`width`/`height` attributes. Three consequences, each of which has bitten:
+
+- `className="h-4 w-4"` alone gives a 16px box holding a 24px glyph. Every icon
+  carries an `ai` marker class and `:where(.ai) > svg` in `index.css` caps the
+  glyph to the box. `:where()` keeps it at element specificity so a Tailwind
+  sizing utility still wins.
+- **Size a descendant, not a child.** `[&>svg]` matches nothing here; use
+  `[&_svg]`. This is the bug behind oversized card-header icons.
+- `fill`, `stroke`, `strokeWidth` and `d` land on the div and are discarded.
+  `IconProps` types them *out* so a call site gets a compile error instead of a
+  silently half-styled icon. To fill a glyph, use the `FILLED` class, which sets
+  `fill` on the svg's children — `fill` is inherited, so that beats the
+  `fill="none"` attribute above it.
 
 - **No emoji, anywhere.** Not in the UI, not in comments, not in docs. If it
-  needs to be a picture, it is a hand-drawn SVG in `icons.tsx`.
-- Sizes are `h-3` / `h-4` / `h-5` / `h-6`. The `width`/`height` attributes are
-  18 by default and CSS sizing overrides them.
+  needs to be a picture, it is an icon in `icons.tsx`.
+- Sizes are `h-3` / `h-4` / `h-5` / `h-6`. Both families default to 18px — the
+  library's own 24 is overridden in `anim()`, and the hand-drawn ones get it from
+  the `base()` helper. They are not otherwise identical: library glyphs draw at
+  `stroke-width: 2` and ours at 1.8, which is a visible difference if a set is
+  ever half-migrated.
 - An icon next to a text label is redundant when the label already says it.
   "Delete" with a trash can is fine; "Apply" with a monitor is not.
-- `IconSpinner` is the one animated glyph. It is drawn like the rest of them —
-  same stroke language, same `currentColor` — so it drops into any button
-  without restyling it.
+- **Motion is opt-out, not opt-in.** The library animates from JavaScript, which
+  the `prefers-reduced-motion` block in `index.css` cannot intercept — it only
+  neutralises CSS animations. `anim()` defaults `isAnimated` to the OS setting
+  for that reason, and `iconAnimates()` holds the decision so it is testable.
+
+## Anchored menus are portalled, not absolutely positioned
+
+Three panels render into `document.body` via a portal and are positioned from
+their trigger's viewport rect by `components/dropdownAnchor.ts`:
+
+| Panel | Where | Aligns |
+| --- | --- | --- |
+| `DropdownPanel` | select dropdowns, everywhere | left |
+| Collection menu | the gallery's selection bar | left |
+| Collection action menu | the per-collection chip in the toolbar strip | right |
+
+All three go through `useAnchoredPanel`, so the flip-above, edge-clamp and
+re-measure-on-scroll rules are stated once rather than three times.
+
+It used to be `position: absolute` inside the trigger's wrapper, which put it in
+two kinds of containment that no `z-index` can undo:
+
+- **Clipping.** Any ancestor with `overflow: hidden` cuts it. The keyboard
+  preview rounds its stage with one, so every device menu lost its bottom half.
+  A dropdown inside a scrolling list had the same failure one scroll away.
+- **Stacking.** It was trapped in the trigger's stacking context, so a sibling
+  surface with its own z-index painted over it regardless of how high the
+  panel's own value went.
+
+Portalling fixes both by escaping the subtree entirely. Two consequences worth
+knowing before editing it:
+
+- **Right alignment needs the measured width.** The chip menu hangs off its
+  trigger's right edge, so `placeDropdown` takes the panel's measured
+  `offsetWidth`. Before it is measured there is no width, so `panelStyle` omits
+  the property rather than pinning `0` and collapsing the panel.
+- **A portalled panel is outside its trigger's subtree, so every dismissal
+  handler has to test the panel as well as the trigger.** The select
+  dropdown's lives in `useAnchoredPopover`; the collection menu and the chip
+  menu each have their own document listener and need the same treatment. Miss
+  it and the first click on an option reads as an outside dismissal — the menu
+  closes under the pointer before its handler runs.
+- **`useAnchoredPopover`'s outside-click test must check the panel too.** It
+  tests `rootRef.contains(target)`, and a portalled panel is not inside that
+  root -- so without the `panelRef` check, the first mousedown of a click on an
+  option reads as a dismissal and the menu closes under the pointer.
+- **The panel is fixed, so it has to be re-measured.** It listens for `scroll`
+  (in capture phase, since the scroll that matters is often an inner list's)
+  and `resize` while open.
+
+`placeDropdown` is pure and tested: it flips above when below would not fit, caps
+the height to the room actually available (so the panel scrolls rather than
+running off the window), and clamps to the viewport edges. It prefers opening
+below on a tie, so the change is invisible where nothing was wrong.
+## Icon animation triggers on its container
+
+An icon animates when **the thing you would click** is hovered, not when the
+pointer is on the glyph. By the time you are on the icon you have already
+decided to click, so an icon that only moves there is noise.
+
+The library offers `useIconHover` for this and its `{ref, triggerProps}` is the
+documented route — but `triggerProps` has to be spread onto the container by the
+caller, which means editing every button, row and menu item that owns an icon.
+Instead, `useHoverRoot` binds the trigger to the nearest interactive ancestor
+itself, so existing call sites keep working and gain the behaviour.
+
+Two details make that possible:
+
+- **A ref is what disables the built-in hover.** The library's icons only
+  self-trigger from their own `onMouseEnter` when no ref is attached; with one,
+  they forward to the caller instead. So a ref plus explicit `startAnimation`
+  calls *replace* the built-in behaviour rather than competing with it.
+- **`mouseenter` does not bubble**, so the listeners are native and attached to
+  the ancestor rather than React handlers on the icon.
+
+Each icon renders inside a `<span class="contents">` to carry the ref used for
+the ancestor lookup. `display: contents` keeps it out of layout — a real wrapper
+would give every icon a box and reflow the flex rows around it.
+
+The ancestor is whatever `HOVER_ROOT` matches: `button`, `a[href]`, the ARIA
+widget roles, `label`, `summary`, or an explicit `[data-hover-root]`. Add to that
+list when a new container type should drive its icons; `hoverRootFor` is the pure
+half, separated so the decision is testable without a DOM.
 
 ---
 
@@ -406,7 +534,7 @@ src/shared/tokens.json           constants both runtimes read
 src/main-app/accent.ts           contrast maths that keeps --glow readable
 src/main-app/index.css           radius scale, fonts, breakpoints, keyframes, reduced motion
 src/main-app/components/ui.tsx   every primitive and token above
-src/main-app/components/icons.tsx the line-icon set
+src/main-app/components/icons.tsx the line-icon set (library + hand-drawn)
 src/main-app/pending.ts          the double-press guard
 src/main-app/components/player/mediaPending.ts   when a transport command counts as done
 docs/development.md              how to add a component, a colour, or a string

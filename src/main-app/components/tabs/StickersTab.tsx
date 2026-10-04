@@ -9,10 +9,13 @@ import { usePending } from "../../pending";
 import { truncateError, basename } from "../../utilities";
 import type { StickerDef, StickerFit } from "@shared/types";
 import { t } from "../../i18n";
+import { toMediaSrc } from "../mediaSrc";
 
 /** Live media strip for a sticker card: image/GIF or muted video. */
 function StickerPreview({ s }: { s: StickerDef }) {
-  const src = convertFileSrc(s.url, "media");
+  // `url` is already a served URL -- the backend normalises it at
+  // placement time -- so it must not be converted a second time.
+  const src = toMediaSrc(s.url, (path) => convertFileSrc(path, "media"));
   const isVideo = /\.(mp4|webm|mov|m4v|mkv)$/i.test(s.url);
   return (
     <div className="relative mb-4 h-24 w-full overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)]">

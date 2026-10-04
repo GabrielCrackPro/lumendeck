@@ -283,14 +283,29 @@ export function DeviceRow({
               type="button"
               onClick={() => setOpen((v) => !v)}
               aria-expanded={open}
+              aria-controls={`device-detail-${device.id}`}
               className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg py-1 text-left"
             >
               {/*
-                The glyph stays neutral. It used to be tinted with the live
-                colour, which made the row state its colour twice — once here
-                and once in the bar — and the bar is the honest one.
+                Accent-tinted, like every card header's glyph: the same
+                `rgb(var(--glow))` the rest of the dashboard uses for "this is
+                the app's own iconography" rather than "this is body text".
+
+                It used to be neutral, on the grounds that the live colour bar
+                beside it was the honest statement of what the device was doing.
+                That is still true and the bar is still there — but the glyph is
+                not restating the device's colour, it is the row's identity mark,
+                and leaving it grey made a device row the only icon in the window
+                that did not belong to the theme. Muted rows dim with everything
+                else rather than keeping full accent, so "off" still reads.
               */}
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)]">
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-[var(--panel)] transition-colors duration-200 ${
+                  muted
+                    ? "text-[var(--text-faint)]"
+                    : "text-[rgb(var(--glow))]"
+                }`}
+              >
                 <IconDevice type={device.typeName} className="h-4 w-4" />
               </span>
 
@@ -353,7 +368,7 @@ export function DeviceRow({
                   style={{ background: lights }}
                 />
                 <IconChevronDown
-                  className={`h-3.5 w-3.5 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${
+                  className={`disclose-chevron h-3.5 w-3.5 shrink-0 text-[var(--text-faint)] ${
                     open ? "rotate-180" : ""
                   }`}
                 />
@@ -384,82 +399,109 @@ export function DeviceRow({
         )}
       </div>
 
-      {open && (
-        <div className="px-3 pb-3">
-          {/*
-            Facts, not light. The collapsed row already shows what the device
-            is doing, and opening it to find more of the same picture is not
-            what the gesture is for — it is what the row is for when you want to
-            know what the thing actually is. The zone names in particular are
-            information this card has never shown, and they are what you need
-            when a lighting effect lands somewhere you did not expect.
-          */}
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-[var(--radius-md)] bg-[var(--bg)] p-3 sm:grid-cols-3">
-            <div className="min-w-0">
-              <dt className="kicker">{t("lighting.type")}</dt>
-              <dd className="mt-1 truncate text-sm text-[var(--text)] capitalize">
-                {type}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="kicker">{t("common.leds")}</dt>
-              <dd className="lednum mt-1 text-[15px] text-[var(--text)]">
-                {device.leds}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="kicker">{t("lighting.zone-names")}</dt>
-              <dd className="lednum mt-1 text-[15px] text-[var(--text)]">
-                {device.zones.length}
-              </dd>
-            </div>
-          </dl>
+      {/* Always mounted, so the collapse has something to animate back out of.
+          `inert` is what makes that safe: a panel hidden only by a clipped grid
+          track is still in the tab order and still holds a copy button and a
+          rename button, so a keyboard user tabbing through the list would land
+          on controls they cannot see. It also keeps the collapsed content out
+          of the accessibility tree, which `aria-hidden` on a focusable
+          subtree does not. */}
+      <div
+        className="disclose"
+        data-open={open}
+        inert={!open}
+        id={`device-detail-${device.id}`}
+      >
+        {/* `disclose-inner` is not decoration: the grid track can only collapse
+            to 0 because this child opts out of the automatic minimum size with
+            `min-height: 0` and clips itself. Without the class the track keeps
+            the content's full height and every collapsed row renders as a tall
+            empty box.
 
-          {device.zones.length > 0 && (
-            <div className="mt-2.5 flex flex-wrap gap-1.5">
-              {device.zones.map((zone) => (
-                <span
-                  key={zone}
-                  className="rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--panel)] px-1.5 py-0.5 text-[11px] text-[var(--text-dim)]"
-                >
-                  {zone}
-                </span>
-              ))}
-            </div>
-          )}
+            It must also carry no padding of its own. The track's 0fr resolves
+            to the child's *border-box* height, and padding is part of that box
+            under Tailwind's global `box-sizing: border-box` — so `pb-3` here
+            survives the collapse and leaves 12px of empty space under every
+            closed row, measured rather than assumed. The padding therefore
+            lives on a wrapper inside this one, where it is clipped away with
+            the rest of the content. */}
+        <div className="disclose-inner">
+          <div className="px-3 pb-3">
+            {/*
+              Facts, not light. The collapsed row already shows what the device
+              is doing, and opening it to find more of the same picture is not
+              what the gesture is for — it is what the row is for when you want to
+              know what the thing actually is. The zone names in particular are
+              information this card has never shown, and they are what you need
+              when a lighting effect lands somewhere you did not expect.
+            */}
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-[var(--radius-md)] bg-[var(--bg)] p-3 sm:grid-cols-3">
+              <div className="min-w-0">
+                <dt className="kicker">{t("lighting.type")}</dt>
+                <dd className="mt-1 truncate text-sm text-[var(--text)] capitalize">
+                  {type}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="kicker">{t("common.leds")}</dt>
+                <dd className="lednum mt-1 text-[15px] text-[var(--text)]">
+                  {device.leds}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="kicker">{t("lighting.zone-names")}</dt>
+                <dd className="lednum mt-1 text-[15px] text-[var(--text)]">
+                  {device.zones.length}
+                </dd>
+              </div>
+            </dl>
 
-          {/* The colour, and the rare actions that never earned a permanent
-              place on a list row. */}
-          <div className="mt-2.5 flex items-center gap-2">
-            {hex && !muted && (
-              <>
-                <span
-                  className="h-3.5 w-3.5 shrink-0 rounded-[var(--radius-sm)] border border-white/15"
-                  style={{ background: hex }}
-                />
-                {showHex && (
-                  <span className="truncate font-mono text-[11px] text-[var(--text-faint)] uppercase">
-                    {hex}
+            {device.zones.length > 0 && (
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {device.zones.map((zone) => (
+                  <span
+                    key={zone}
+                    className="rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--panel)] px-1.5 py-0.5 text-[11px] text-[var(--text-dim)]"
+                  >
+                    {zone}
                   </span>
-                )}
-                <CopyHexButton value={rgb!} className="h-5 w-5" />
-              </>
+                ))}
+              </div>
             )}
-            {aliased && <AliasHint onReset={() => onRename?.("")} />}
-            {onRename && (
-              <button
-                onClick={startRename}
-                title={t("lighting.rename-device", { name })}
-                aria-label={t("lighting.rename-device", { name })}
-                className="ml-auto flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-[11px] text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
-              >
-                <IconPencil className="h-3 w-3" />
-                {t("lighting.rename-device", { name })}
-              </button>
-            )}
+
+            {/* The colour, and the rare actions that never earned a permanent
+                place on a list row. */}
+            <div className="mt-2.5 flex items-center gap-2">
+              {hex && !muted && (
+                <>
+                  <span
+                    className="h-3.5 w-3.5 shrink-0 rounded-[var(--radius-sm)] border border-white/15"
+                    style={{ background: hex }}
+                  />
+                  {showHex && (
+                    <span className="truncate font-mono text-[11px] text-[var(--text-faint)] uppercase">
+                      {hex}
+                    </span>
+                  )}
+                  <CopyHexButton value={rgb!} className="h-5 w-5" />
+                </>
+              )}
+              {aliased && <AliasHint onReset={() => onRename?.("")} />}
+              {onRename && (
+                <button
+                  onClick={startRename}
+                  title={t("lighting.rename-device", { name })}
+                  aria-label={t("lighting.rename-device", { name })}
+                  className="ml-auto flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-[11px] text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
+                >
+                  <IconPencil className="h-3 w-3" />
+                  {t("lighting.rename-device", { name })}
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      )}
+      </div>
     </li>
   );
 }

@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore, bindEvents } from "./store";
 import { api } from "./ipc";
 import { useLocale, applyLocale, t } from "./i18n";
-import { checkForAppUpdate, announceUpdate } from "./updater";
+import { useUpdateWatcher } from "./updater";
 import Shell from "./components/Shell";
 import Onboarding from "./components/Onboarding";
 import { IconRefresh } from "./components/icons";
@@ -63,7 +63,7 @@ export default function App() {
       load: s.load,
     })),
   );
-  const updateCheckStarted = useRef(false);
+
   // Subscribing here is what makes a language change repaint the app: the
   // translator is a plain function that re-reads the locale on every call, so
   // this render is the signal that reaches every screen. Nothing below is
@@ -110,22 +110,11 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    // Dev builds must never ping the update endpoint: the packaged app's
-    // version is what releases are cut from, and a dev run would either
-    // match it (no-op) or nag about a release the dev tree already contains.
-    if (import.meta.env.DEV) return;
-    if (!loaded || !cfg?.general.onboarded || updateCheckStarted.current)
-      return;
-    updateCheckStarted.current = true;
-    checkForAppUpdate()
-      .then((update) => {
-        if (!update) return;
-        useStore.getState().setUpdateAvailable(update);
-        announceUpdate(update);
-      })
-      .catch((error) => console.debug("update check unavailable", error));
-  }, [loaded, cfg?.general.onboarded]);
+  // Watches for releases while the app is running, not only at startup: it
+  // checks once now, again whenever the window comes back, and then on the
+  // interval the user set. Without this, an app left open across a release
+  // stayed on the old build until the user happened to restart it.
+  useUpdateWatcher(loaded && !!cfg?.general.onboarded, cfg?.general.updateCheckMinutes);
 
   // Stage machine: advance as real readiness signals arrive.
   useEffect(() => {

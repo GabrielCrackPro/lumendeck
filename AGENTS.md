@@ -118,8 +118,14 @@ embed the parameter: `common.{n}-selected`, not `common.selected-count`.
 ### No emoji
 
 Anywhere. UI, comments, docs, commit messages. The icon set in
-`src/main-app/components/icons.tsx` is hand-drawn line icons, stroke-based,
-inheriting `currentColor`.
+`src/main-app/components/icons.tsx` is `@animateicons/react` (MIT, a Lucide
+derivative), stroke-based and inheriting `currentColor`, plus a few marks
+kept by hand because they encode app data rather than a generic noun.
+Adding an icon means adding one there — never a glyph of your own and never
+an emoji. Read the "Icons" section of `docs/design.md` first: the library
+wraps every glyph in a `<div>`, which constrains how icons may be sized and
+which props can be passed, and an icon animates when the container around it
+is hovered rather than when the pointer is on the glyph.
 
 ### Keep the four version files in sync
 

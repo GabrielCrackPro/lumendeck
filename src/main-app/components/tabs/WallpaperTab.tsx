@@ -1,3 +1,4 @@
+import { staggerDelay } from "../motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -881,6 +882,7 @@ export default function WallpaperTab() {
         save={save}
       />
         <Card
+          anchor="vault"
           title={t("common.vault")}
           right={
             <div className="flex items-center gap-3">
@@ -1349,7 +1351,7 @@ export default function WallpaperTab() {
                       if (src.id !== "url") setAddStep(null);
                       src.run();
                     }}
-                    style={{ animationDelay: `${i * 20}ms` }}
+                    style={{ animationDelay: `${staggerDelay(i)}ms` }}
                     className="modal-row flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left outline-none transition-colors hover:bg-[var(--panel-strong)] focus-visible:bg-[var(--panel-strong)]"
                   >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]">

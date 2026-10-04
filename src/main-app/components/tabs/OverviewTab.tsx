@@ -1,11 +1,23 @@
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useState, useRef, type CSSProperties, type ReactNode } from "react";
 import { useStore } from "../../store";
-import { Card, Chip, DisplaysCard, IconBox, RefreshBtn, ItemTitle, SwitchBtn, Segmented, ICON_BTN, ICON_BTN_IDLE, ICON_BTN_ACTIVE, ICON_BTN_PRIMARY, MINI_BTN, OVERLAY_ICON_BTN } from "../ui";
+import { Card, Chip, Btn, ComboCaps, DisplaysCard, IconBox, RefreshBtn, ItemTitle, SwitchBtn, Segmented, ICON_BTN, ICON_BTN_IDLE, ICON_BTN_ACTIVE, ICON_BTN_PRIMARY, MINI_BTN, OVERLAY_ICON_BTN } from "../ui";
+import { ConfigPickerModal } from "../ConfigPickerModal";
+import { useConfigPicker } from "../useConfigPicker";
+import { shortcutRows } from "../Sidebar";
+import {
+  visibleProfiles,
+  profileSummary,
+  condenseWindowShortcuts,
+  globalHotkeyState,
+} from "../overviewCards";
+import { toMediaSrc } from "../mediaSrc";
+import SystemCard from "../SystemCard";
 import { DeviceRow } from "../DeviceRow";
+import { deviceWindow, DEVICE_ROWS_COLLAPSED } from "../deviceList";
 import { fpsFromTimestamps, formatFps, pushTimestamp, FPS_WINDOW } from "../fpsMeter";
 import { versionLabel } from "../buildIdentity";
-import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause, IconNext, IconPrevious, IconWave, IconSun, IconZap, IconChevronRight, IconMediaApp, IconShuffle, IconRepeat, IconSpinner } from "../icons";
+import { IconBulb, IconImage, IconSticker, IconGlobe, IconLayers, IconPlay, IconPause, IconNext, IconPrevious, IconWave, IconSun, IconZap, IconChevronRight, IconChevronDown, IconMediaApp, IconShuffle, IconRepeat, IconSpinner, IconCheck, IconKeyboard, IconVolumeOff, IconVolumeLow, IconVolumeHigh } from "../icons";
 import { SHADERS, SHADER_ART, RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import type { Config, MediaInfo, RgbMode } from "@shared/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -15,11 +27,16 @@ import { usePending } from "../../pending";
 import { EqEngine } from "../../eq";
 import {
   formatDuration,
+  nextSeekAnchor,
   positionFromFraction,
   progressFraction,
+  sampleAgreesWithSeek,
+  seekTarget,
   skewedPosition,
+  type SeekKey,
 } from "../player/mediaTime";
 import { waitForChange, type MediaSnapshot, type TransportAction } from "../player/mediaPending";
+import { volumeGlyph, type VolumeGlyph } from "../player/volumeGlyph";
 import { t } from "../../i18n";
 
 /** Compact wallpaper thumb: video plays muted, image static, shader art. */
@@ -35,7 +52,7 @@ function WallpaperThumb({
   /** Borderless, full-bleed — for layering inside the MediaStage frame. */
   bare?: boolean;
 }) {
-  const mediaUrl = convertFileSrc(source, "media");
+  const mediaUrl = toMediaSrc(source, (path) => convertFileSrc(path, "media"));
   const videoRef = useRef<HTMLVideoElement | null>(null);
   // Perf: a playing <video> decodes every frame even while the app sits in
   // the tray (thumbnails don't get the browser's occlusion optimization for
@@ -98,8 +115,9 @@ function WallpaperThumb({
 }
 
 /**
- * Wraps the Now playing stage with a subtle audio-reactive glow, and drives
- * the equalizer beside the artwork from the same loop.
+ * Wraps the row holding the Now playing and Lighting Engine cards with a
+ * subtle audio-reactive glow, and drives the equalizer beside the artwork
+ * from the same loop.
  *
  * The rAF loop feeds the level stream into `EqEngine` and writes the result
  * straight to CSS custom properties on the DOM node — nothing up the tree
@@ -110,14 +128,16 @@ function WallpaperThumb({
  *    or a return from a hidden tab restarts it.
  *  - Frames carry real elapsed time, so the animation is identical on a 60Hz
  *    and a 240Hz display (see eq.ts).
+ *
+ * The properties are written to the row that holds *both* the Now playing and
+ * the Lighting Engine cards, because both read them. This used to be a wrapper
+ * component around the Now playing card alone, which quietly broke the engine
+ * card's halo: custom properties inherit downward, the engine card is a
+ * sibling rather than a descendant, and every `var(--al, 0)` in it fell back
+ * to its default. The glow looked like it worked because a constant faint
+ * shadow is indistinguishable from a very quiet one.
  */
-function AudioPulse({
-  children,
-  playing,
-}: {
-  children: ReactNode;
-  playing: boolean;
-}) {
+function useAudioVars(playing: boolean) {
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const engine = new EqEngine();
@@ -178,24 +198,19 @@ function AudioPulse({
       if (raf) cancelAnimationFrame(raf);
     };
   }, [playing]);
-  return (
-    <div
-      ref={ref}
-      className="relative"
-      style={
-        {
-          "--al": 0,
-          "--beat": 0,
-          "--eq0": 0,
-          "--eq1": 0,
-          "--eq2": 0,
-          "--eq3": 0,
-        } as CSSProperties
-      }
-    >
-      {children}
-    </div>
-  );
+  return {
+    ref,
+    // Seeded so the first paint reads a defined zero rather than leaning on the
+    // `var(--al, 0)` defaults scattered through the consumers.
+    style: {
+      "--al": 0,
+      "--beat": 0,
+      "--eq0": 0,
+      "--eq1": 0,
+      "--eq2": 0,
+      "--eq3": 0,
+    } as CSSProperties,
+  };
 }
 
 /**
@@ -221,7 +236,7 @@ function WallpaperStage({
       // `group/stage` rather than `group`: the hover target for the actions is
       // the whole picture, not the two buttons, or the pointer has to find a
       // 28px target before the buttons it is aiming at become visible. Named so
-      // it cannot be shadowed by an ancestor `group` — `AudioPulse` is one.
+      // it cannot be shadowed by an ancestor `group`.
       className="group/stage relative h-44 w-full overflow-hidden rounded-xl border border-[var(--line)] bg-black"
       style={{
         // Audio-reactive halo: volume widens and brightens a glow ring around
@@ -231,11 +246,35 @@ function WallpaperStage({
       }}
     >
       <WallpaperThumb kind={cfg.wallpaper.kind} source={cfg.wallpaper.source} paused={paused} bare />
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(0_0_0/0.3),transparent_35%)]" />
+      {/* The scrim exists to make the name chip legible against a bright frame, so
+          it shares the chip's reveal rather than darkening the top third of the
+          wallpaper permanently. Left always-on it was a cost with nothing to
+          show for it most of the time — and the top of a wallpaper is usually
+          the part the user picked. */}
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgb(0_0_0/0.3),transparent_35%)] opacity-0 transition-opacity duration-150 group-hover/stage:opacity-100 group-focus-within/stage:opacity-100" />
 
-      <div className="absolute left-3 top-3 flex max-w-[calc(100%-6.5rem)] items-center gap-2 rounded-lg bg-black/45 px-2.5 py-1.5 backdrop-blur-sm">
+      {/* The name, over the picture, in the app's own tooltip rather than the
+          browser's. It is `truncate`, so the tooltip is the only way to read a
+          long filename in full — and a native one is a grey system box on a
+          delay, on the one surface in the card where a mismatched tooltip is
+          most obvious. The chip itself stays a label: it is not a control, so
+          its hover state is not promising an action.
+
+          Hidden at rest, with the rest of the chrome. It was the only thing
+          permanently drawn over the picture, and a card whose headline is a
+          live wallpaper should show the wallpaper.
+
+          `group-focus-within/stage` rather than hover alone, and this is the
+          part that is easy to get wrong. The chip is not focusable, so a
+          keyboard user tabbing to Pause or Change would never see it — the name
+          would simply be gone for them. Revealing on focus anywhere in the
+          stage means Tab reaches the controls and the name comes with them. */}
+      <div className="absolute left-3 top-3 flex max-w-[calc(100%-6.5rem)] items-center gap-2 rounded-lg bg-black/45 px-2.5 py-1.5 opacity-0 backdrop-blur-sm transition-opacity duration-150 group-hover/stage:opacity-100 group-focus-within/stage:opacity-100">
         <IconImage className="h-4 w-4 shrink-0 text-white/75" />
-        <span className="truncate font-mono text-[10px] text-white/90" title={wallpaperName}>
+        <span
+          className="truncate font-mono text-[10px] text-white/90"
+          data-tip={wallpaperName}
+        >
           {wallpaperName}
         </span>
       </div>
@@ -270,7 +309,7 @@ function WallpaperStage({
         <button
           onClick={onTogglePause}
           aria-label={paused ? t("common.resume-wallpaper") : t("common.pause-wallpaper")}
-          title={paused ? t("common.resume-wallpaper") : t("common.pause-wallpaper")}
+          data-tip={paused ? t("common.resume-wallpaper") : t("common.pause-wallpaper")}
           className={`${OVERLAY_ICON_BTN} hover:!border-transparent hover:!bg-[rgb(var(--glow))] hover:!text-[#06121f]`}
         >
           {paused ? <IconPlay className="h-4 w-4" /> : <IconPause className="h-4 w-4" />}
@@ -278,7 +317,7 @@ function WallpaperStage({
         <button
           onClick={onChange}
           aria-label={t("common.change-wallpaper")}
-          title={t("common.change-wallpaper")}
+          data-tip={t("common.change-wallpaper")}
           className={OVERLAY_ICON_BTN}
         >
           {/* Not IconImage, which is the chip on the left of this same row:
@@ -344,7 +383,7 @@ function QuickSlider({
 
 /**
  * Inline equalizer bars. Each bar reads its own `--eq0..--eq3` variable,
- * which `AudioPulse` writes from the transient engine every frame. There is
+ * which the audio loop writes from the transient engine every frame. There is
  * deliberately no height transition here: the engine already smooths the
  * values, and a CSS transition layered on top would lag a frame behind every
  * write and blur the attack.
@@ -379,6 +418,18 @@ function EqBars({ playing }: { playing: boolean }) {
 const EQ_BAR_VARS = ["--eq0", "--eq1", "--eq2", "--eq3"] as const;
 
 /**
+ * The speaker glyph per volume state.
+ *
+ * A lookup rather than a ternary chain because the two states are chosen by a
+ * tested function elsewhere; this only says which icon draws which answer.
+ */
+const VOLUME_GLYPHS: Record<VolumeGlyph, typeof IconVolumeHigh> = {
+  off: IconVolumeOff,
+  low: IconVolumeLow,
+  high: IconVolumeHigh,
+};
+
+/**
  * Track identity for the media row. Keyed by title+artist, so a track change
  * remounts the block and replays the swap animation: the row flashes with the
  * accent while the new title slides in.
@@ -391,7 +442,13 @@ function TrackIdentity({
   beatScale: string;
 }) {
   return (
+    // `aria-live` on the title only: this block is re-keyed per track, so the
+    // swap is announced without touching the artist, the artwork or the
+    // equalizer, which would otherwise read as several separate changes.
     <div className="track-slide flex min-w-0 flex-1 items-center gap-3 rounded-lg">
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        {media.title}
+      </span>
       {/* Song image with the playing app's icon woven into the corner:
           the icon sits inset on the art with a ring that separates it from
           any artwork. Playing state reads from the EqBars next to the tile,
@@ -399,16 +456,19 @@ function TrackIdentity({
       <div
         className="relative shrink-0"
         style={{ transform: beatScale }}
-        title={media.appId}
+        data-tip={media.appId}
       >
         {media.art ? (
           <img
             src={media.art}
             alt=""
-            className="h-16 w-16 rounded-xl border border-[var(--line-strong)] object-cover shadow-[0_4px_14px_-6px_rgb(0_0_0/0.55)]"
+            /* 72 rather than 64: the art is the only image in the player, and
+               the player is the focal block under the stage, so the tile it
+               leads with should read at that size. */
+            className="h-[72px] w-[72px] rounded-[var(--radius-lg)] border border-[var(--line-strong)] object-cover shadow-[0_4px_14px_-6px_rgb(0_0_0/0.55)]"
           />
         ) : (
-          <div className="flex h-16 w-16 items-center justify-center rounded-xl border border-[var(--line-strong)] bg-[var(--panel-sunken)]">
+          <div className="flex h-[72px] w-[72px] items-center justify-center rounded-[var(--radius-lg)] border border-[var(--line-strong)] bg-[var(--panel)]">
             <IconWave className="h-6 w-6 text-[var(--text-faint)]" />
           </div>
         )}
@@ -431,18 +491,18 @@ function TrackIdentity({
       <EqBars playing={media.playing} />
       <div className="min-w-0">
         <div
-          className="truncate text-[14px] font-semibold leading-tight text-[var(--text)]"
-          title={`${media.title} — ${media.artist}`}
+          className="truncate text-[15px] font-semibold leading-tight text-[var(--text)]"
+          data-tip={`${media.title} — ${media.artist}`}
         >
           {media.title}
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[10.5px] text-[var(--text-faint)]">
+        <div className="mt-1 flex items-center gap-1.5 font-mono text-[11px] text-[var(--text-faint)]">
           <span className="truncate">
             {media.artist || t("overview.unknown-artist")}
           </span>
           <span
-            className="shrink-0 text-[10px] text-[var(--text-faint)]/70"
-            title={media.appId}
+            className="shrink-0 truncate text-[10.5px] text-[var(--text-faint)]/70"
+            data-tip={media.appId}
           >
             {media.album && `· ${media.album}`}
           </span>
@@ -462,6 +522,12 @@ function TrackIdentity({
  */
 function ProgressBar({ media }: { media: MediaInfo }) {
   const fillRef = useRef<HTMLSpanElement | null>(null);
+  // The thumb follows the fill's own painted position rather than the last
+  // sample. Both used to be positioned independently: the fill advanced every
+  // frame while the thumb sat on `media.positionSec`, which is a ~1 Hz sample
+  // and does not move between them -- so on hover the ball appeared at the
+  // playhead and then fell behind it, never reaching the end of the bar.
+  const thumbRef = useRef<HTMLSpanElement | null>(null);
   const timeRef = useRef<HTMLSpanElement | null>(null);
   const duration = media.durationSec;
   const trackKey = `${media.title}—${media.artist}`;
@@ -477,6 +543,21 @@ function ProgressBar({ media }: { media: MediaInfo }) {
     const f = (e.clientX - rect.left) / rect.width;
     return positionFromFraction(f, duration);
   };
+  // Where keyboard seeks are measured from.
+  //
+  // Not the sampled position: SMTC ticks at 1 Hz, so every press in a held-key
+  // burst would be computed from the same stale sample and the playhead would
+  // move one step however many times the key went down. The anchor advances as
+  // the presses land, and a fresh sample re-anchors it -- see `reanchor`.
+  const seekAnchor = useRef(0);
+  const reanchor = (pos: number) => {
+    seekAnchor.current = nextSeekAnchor(pos, duration);
+  };
+  // A seek we have sent but the player has not reported back yet.
+  const pendingSeek = useRef<{ pos: number; at: number } | null>(null);
+  // Paints outside the rAF, so a seek moves the bar on the press rather than
+  // up to a second later when the next sample lands.
+  const paintRef = useRef<((pos: number) => void) | null>(null);
   useEffect(() => {
     if (duration <= 0) return;
     let raf = 0;
@@ -489,15 +570,31 @@ function ProgressBar({ media }: { media: MediaInfo }) {
       media.playing,
       Date.now() - (media.positionUpdatedMs || Date.now()),
     );
+    // Each fresh sample is ground truth, so the keyboard anchor follows it --
+    // but only once it has caught up with a seek we just sent. The OS player
+    // applies the seek, not this app, so the next sample can still describe the
+    // position from before it; re-anchoring on that would pull the anchor back
+    // mid-burst and a held arrow key would stutter.
+    const pending = pendingSeek.current;
+    if (
+      sampleAgreesWithSeek(basePos, pending?.pos ?? null, Date.now() - (pending?.at ?? 0))
+    ) {
+      reanchor(basePos);
+    }
     const paint = (pos: number) => {
+      const fraction = progressFraction(pos, duration);
       if (fillRef.current) {
-        fillRef.current.style.transform = `scaleX(${progressFraction(pos, duration)})`;
+        fillRef.current.style.transform = `scaleX(${fraction})`;
+      }
+      if (thumbRef.current) {
+        thumbRef.current.style.left = `${fraction * 100}%`;
       }
       if (timeRef.current) {
         const next = formatDuration(pos);
         if (timeRef.current.textContent !== next) timeRef.current.textContent = next;
       }
     };
+    paintRef.current = paint;
     const tick = () => {
       const elapsed = media.playing ? (performance.now() - start) / 1000 : 0;
       paint(Math.min(duration, basePos + elapsed));
@@ -519,6 +616,11 @@ function ProgressBar({ media }: { media: MediaInfo }) {
       if (fillRef.current) {
         fillRef.current.style.transform = `scaleX(${duration > 0 ? pos / duration : 0})`;
       }
+      // Same owner as the fill: while the pointer is down the scrub decides,
+      // and leaving the thumb to the rAF would let the two disagree mid-drag.
+      if (thumbRef.current) {
+        thumbRef.current.style.left = `${duration > 0 ? (pos / duration) * 100 : 0}%`;
+      }
       if (timeRef.current) {
         const total = Math.floor(pos);
         timeRef.current.textContent = `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
@@ -527,13 +629,28 @@ function ProgressBar({ media }: { media: MediaInfo }) {
     const onUp = (e: PointerEvent) => {
       const pos = posFromEvent(e);
       setScrub(null);
+      // Same reasoning as the keyboard path: the release should already look
+      // like it landed, and the next sample should not yank the bar backwards.
+      pendingSeek.current = { pos, at: Date.now() };
+      reanchor(pos);
+      paintRef.current?.(pos);
       void api.mediaSeek(pos).catch(() => {});
     };
+    // A cancelled drag -- the window losing the pointer, a touch being taken
+    // over by a scroll -- never reaches `pointerup`. Without this the row stayed
+    // stuck in scrubbing for the rest of the session: the thumb pinned wherever
+    // it was left, the elapsed time tinted as though held, and the bar refusing
+    // to look like the track it is describing. Dropping the scrub lets the rAF
+    // repaint from ground truth, and seeks nothing, because the gesture was
+    // abandoned rather than completed.
+    const onCancel = () => setScrub(null);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrub != null, duration]);
@@ -542,7 +659,12 @@ function ProgressBar({ media }: { media: MediaInfo }) {
     <div className="flex min-w-0 flex-1 items-center gap-2.5">
       <span
         ref={timeRef}
-        className={`w-9 shrink-0 text-right font-mono text-[10px] tabular-nums ${
+        // w-11, not the w-9 it was: `formatDuration` emits "1:02:03" for an
+        // hour-long track -- the case that module's comment calls out by name --
+        // and seven monospace characters do not fit in thirty-six pixels. The
+        // column was clipping the leading hour of exactly the tracks most likely
+        // to be scrubbed through.
+        className={`w-11 shrink-0 text-right font-mono text-[10px] tabular-nums ${
           scrub != null ? "text-[rgb(var(--glow))]" : "text-[var(--text-faint)]"
         }`}
       >
@@ -555,35 +677,62 @@ function ProgressBar({ media }: { media: MediaInfo }) {
         aria-valuemin={0}
         aria-valuemax={Math.round(duration)}
         aria-valuenow={Math.round(scrub ?? media.positionSec)}
+        // Without this a screen reader announces the bare number of seconds --
+        // "742" -- where every other player in the OS announces "12:22 of
+        // 48:03". `aria-valuenow` stays for the range semantics.
+        aria-valuetext={`${formatDuration(scrub ?? media.positionSec)} / ${formatDuration(duration)}`}
         tabIndex={0}
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);
           setScrub(posFromEvent(e));
         }}
         onKeyDown={(e) => {
-          const step = duration * 0.02;
-          if (e.key === "ArrowRight") {
-            void api.mediaSeek(Math.min(duration, media.positionSec + step)).catch(() => {});
-          } else if (e.key === "ArrowLeft") {
-            void api.mediaSeek(Math.max(0, media.positionSec - step)).catch(() => {});
-          }
+          const key: SeekKey | null =
+            e.key === "ArrowRight"
+              ? "right"
+              : e.key === "ArrowLeft"
+                ? "left"
+                : e.key === "Home"
+                  ? "home"
+                  : e.key === "End"
+                    ? "end"
+                    : null;
+          if (!key) return;
+          // The bar scrolls the page sideways on an unmodified arrow press, which
+          // on a dashboard this size means the whole layout shifting under a
+          // keyboard user who cannot see why.
+          e.preventDefault();
+          const target = seekTarget(seekAnchor.current, duration, key);
+          reanchor(target);
+          // Record it before sending, and paint it now: waiting for the next
+          // sample left the bar where it was for up to a second, so the key read
+          // as unresponsive even though the seek had already been sent.
+          pendingSeek.current = { pos: target, at: Date.now() };
+          paintRef.current?.(target);
+          void api.mediaSeek(target).catch(() => {});
         }}
-        className="group relative h-1 min-w-0 flex-1 cursor-pointer rounded-full bg-[var(--line-strong)] transition-[height] hover:h-1.5"
+        // The focus ring is the reason this is not a bare div: it is focusable
+        // and answers the keyboard, so it has to show where the keyboard is.
+        // `focus-visible` keeps it off mouse presses, which already have the
+        // hover growth to show they landed.
+        className="group relative h-1 min-w-0 flex-1 cursor-pointer rounded-full bg-[var(--line-strong)] outline-none transition-[height] before:absolute before:-inset-y-3 before:inset-x-0 before:content-[''] hover:h-1.5 focus-visible:h-1.5 focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--panel)]"
       >
         <span
           ref={fillRef}
           className="absolute inset-0 origin-left rounded-full bg-[rgb(var(--glow))] shadow-[0_0_6px_rgb(var(--glow)/0.6)]"
           style={{ transform: "scaleX(0)" }}
         />
-        {/* thumb: hidden until hover or scrub */}
+        {/* Thumb: hidden until hover or scrub. Positioned by the same code that
+            paints the fill, so it always sits at the end of the bar it is
+            riding rather than at the last backend sample. */}
         <span
-          className={`absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow)/0.8)] transition-opacity ${
+          ref={thumbRef}
+          className={`absolute left-0 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow)/0.8)] transition-opacity ${
             scrub != null ? "opacity-100" : "opacity-0 group-hover:opacity-100"
           }`}
-          style={{ left: `${duration > 0 ? ((scrub ?? media.positionSec) / duration) * 100 : 0}%` }}
         />
       </span>
-      <span className="w-9 shrink-0 font-mono text-[10px] tabular-nums text-[var(--text-faint)]">
+      <span className="w-11 shrink-0 font-mono text-[10px] tabular-nums text-[var(--text-faint)]">
         {formatDuration(duration)}
       </span>
     </div>
@@ -649,7 +798,7 @@ function VolumeControl() {
   };
   if (shown == null) return null;
   return (
-    <div className="flex shrink-0 items-center gap-1.5" title={t("common.system-volume")}>
+    <div className="flex shrink-0 items-center gap-1.5" data-tip={t("common.system-volume")}>
       <button
         aria-label={t(muted ? "common.unmute" : "common.mute")}
         onClick={toggleMute}
@@ -662,16 +811,14 @@ function VolumeControl() {
       >
         {pending.has("mute") ? (
           <IconSpinner className="h-3.5 w-3.5" />
-        ) : muted || shown === 0 ? (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M11 5 6 9H3v6h3l5 4V5Z" />
-            <path d="m16 9 5 5m0-5-5 5" />
-          </svg>
         ) : (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M11 5 6 9H3v6h3l5 4V5Z" />
-            <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
-          </svg>
+          (() => {
+            const Glyph = VOLUME_GLYPHS[volumeGlyph(muted, shown)];
+            // h-3.5 rather than the hard-coded 14px the hand-drawn paths used:
+            // the icon library sizes from its container, and every sibling icon
+            // in this row is already on the h-3.5/h-4 scale.
+            return <Glyph className="h-3.5 w-3.5" />;
+          })()
         )}
       </button>
       <input
@@ -783,7 +930,7 @@ function TransportButtons({
       {shuffle !== undefined && (
         <button
           aria-label={t("common.toggle-shuffle")}
-          title={t(shuffleSupported ? "common.shuffle" : "common.shuffle-unavailable")}
+          data-tip={t(shuffleSupported ? "common.shuffle" : "common.shuffle-unavailable")}
           disabled={!shuffleSupported || inert("shuffle")}
           aria-busy={pending.has("shuffle")}
           onClick={() => void send("shuffle", () => api.mediaShuffle(!shuffle))}
@@ -829,7 +976,7 @@ function TransportButtons({
       {repeat !== undefined && (
         <button
           aria-label={t("common.cycle-repeat-mode")}
-          title={t(
+          data-tip={t(
             repeatSupported
               ? repeat === 1
                 ? "common.repeat-track"
@@ -1016,6 +1163,11 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
   // placeholder — Windows sometimes will not say — and it has to fall back to
   // the unnamed salutation rather than print a comma with nothing after it.
   const [accountName, setAccountName] = useState("");
+  // Whether the engine card is showing every device. Lived in the card until
+  // this: it is a property of how much room the user wants this card to take on
+  // the page, not of any one row, and it has to survive the row list changing
+  // underneath it when a device connects.
+  const [allDevices, setAllDevices] = useState(false);
   useEffect(() => {
     let disposed = false;
     void api
@@ -1032,6 +1184,8 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
   // can be in flight without blocking one another.
   const { pending, run } = usePending();
   const fps = useFps();
+  // Written onto the row holding both cards, because both read the variables.
+  const audio = useAudioVars(!!media?.playing);
 
   if (!cfg) return null;
 
@@ -1041,12 +1195,38 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
   const activeDevices = rgb.devices.filter((d) => !excluded.has(d.id));
   const ledActive = activeDevices.reduce((n, d) => n + d.leds, 0);
   const ledTotal = rgb.devices.reduce((n, d) => n + d.leds, 0);
+  // Which device rows the engine card renders this frame. See deviceList.ts for
+  // why the list is capped at all. Not named `window`: this file uses the
+  // global in a dozen places, and shadowing it inside one component is the kind
+  // of collision that typechecks and then misbehaves at runtime.
+  const deviceRows = deviceWindow(rgb.devices, allDevices);
   const isAnimatedMode = (ANIMATION_MODES as ReadonlySet<string>).has(cfg.rgb.mode);
   const paused = !cfg.general.wallpaperEnabled || wallpaperPaused;
   const idleOn = cfg.rgb.idleTimeoutSec > 0;
   const nightOn = !!cfg.rgb.nightStart && !!cfg.rgb.nightEnd;
   const playlistOn = (cfg.playlists ?? []).some((p) => p.enabled);
-  const scenes = cfg.scenes ?? [];
+  // The picker, not a second hand-rolled list: this card must agree with the
+  // header avatar about which profile is applied, and `useConfigPicker` is the
+  // one derivation of that. Applying from here goes through its `apply`, so
+  // the in-flight row and the failure toast behave as they do in Settings --
+  // and on success the row itself turns into the "Applied now" tick, which is
+  // why the old "profile applied" toast is no longer needed.
+  const picker = useConfigPicker();
+  // Truncation that keeps the applied profile in view; see `visibleProfiles`.
+  const profileList = visibleProfiles(picker.scenes, picker.activeId);
+  // This window's own keys, from the same table the "?" sheet renders, so the
+  // card cannot advertise a binding the overlay does not have. Folded, because
+  // five Ctrl+digit tab rows would push the global keys below the fold of a
+  // 5-column card.
+  const windowShortcuts = condenseWindowShortcuts(
+    shortcutRows(),
+    t("common.switch-tab"),
+  );
+  // The system-wide bindings, which the old card did not mention at all.
+  const globalKeys = globalHotkeyState(
+    cfg.general.hotkeys,
+    cfg.general.hotkeysEnabled ?? true,
+  );
   const wallpaperName =
     cfg.wallpaper.kind === "shader"
       ? (SHADERS.find((s) => s.id === cfg.wallpaper.source)?.label ?? cfg.wallpaper.source)
@@ -1153,7 +1333,24 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
         </div>
       </header>
       {/* ===== row 1: now playing + engine ===== */}
-      <div className="grid min-w-0 gap-5 xl:grid-cols-12">
+      <div
+        ref={audio.ref}
+        style={audio.style}
+        // `items-start`, and it is the whole fix for a card that changes height.
+        //
+        // A grid row is as tall as its tallest item and every other item is
+        // stretched to fill it, so opening a device row grew the engine card and
+        // dragged the Now playing card beside it to the same height — 73px of
+        // wallpaper and transport stretched across 478px of empty panel,
+        // measured. The stretch is invisible while the row's contents happen to
+        // be the same height, which is why it only ever showed up as "expanding
+        // moves the other thing".
+        //
+        // `start` and not `self-start` on the card: the cards are direct grid
+        // items, and setting it here means a future card in this row inherits
+        // the same independence rather than having to remember.
+        className="grid min-w-0 items-start gap-5 xl:grid-cols-12"
+      >
         {/* Now playing — spans 5. Wallpaper stage on top, media + transport
             below, wallpaper context strip last. */}
         <Card
@@ -1174,7 +1371,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             </Chip>
           }
         >
-          <AudioPulse playing={!!media?.playing}>
+          <>
             <WallpaperStage
               cfg={cfg}
               paused={paused}
@@ -1183,36 +1380,86 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               onChange={() => onNavigate("wallpaper")}
             />
 
-            {media ? (
-              <div
-                key={`${media.title}—${media.artist}`}
-                className="track-swap mt-3.5 flex min-w-0 items-center gap-3.5"
-              >
-                <TrackIdentity media={media} beatScale="scale(calc(1 + var(--beat, 0) * 0.045))" />
-                <TransportButtons
-                  playing={media.playing}
-                  trackKey={`${media.title}—${media.artist}`}
-                  shuffle={media.shuffle}
-                  repeat={media.repeat}
-                />
-              </div>
-            ) : (
-              <div className="mt-3.5 flex min-w-0 items-center gap-2 font-mono text-[10.5px] text-[var(--text-faint)]">
-                <IconWave className="h-4 w-4 shrink-0" />
-                {t("common.no-media-playing")}
-              </div>
-            )}
+            {/* The player, inside this card rather than boxed inside it.
 
-            {/* Progress line with system volume at the right end: the two
-                read as one "playback state" strip. Progress hides for
-                senders without a timeline; volume is always relevant. */}
-            <div className="mt-2.5 flex min-w-0 items-center gap-4">
-              {media && (
-                <ProgressBar key={`${media.title}—${media.artist}`} media={media} />
+                It was given a bordered, filled "console" of its own, which made
+                one card look like two: a small panel sitting inside a larger one,
+                with its own radius and its own border, competing with the card's
+                rather than joining it. The card is already titled "Now playing
+                and live wallpaper" -- it is one thing, and the player is part of
+                it.
+
+                So the chrome is gone and the grouping is carried by space and one
+                hairline instead. A timeline pinned to the card's bottom edge is
+                what finally makes it read as one surface: it spans the same width
+                as the stage above it, which is the alignment that says these
+                belong together. */}
+            <div className="mt-3">
+              {media ? (
+                /* Vertical, so the transport centres under the identity instead
+                   of trailing off to the right of it. The card is five columns
+                   of twelve; side by side, the buttons had nowhere to go.
+                   `track-swap` stays on the wrapper so the track-change flash
+                   still crosses both, which is what made it read as one event
+                   rather than a title changing behind some buttons. */
+                <div
+                  key={`${media.title}—${media.artist}`}
+                  className="track-swap flex min-w-0 flex-col gap-3"
+                >
+                  <TrackIdentity
+                    media={media}
+                    beatScale="scale(calc(1 + var(--beat, 0) * 0.045))"
+                  />
+                  <div className="flex items-center justify-center">
+                    <TransportButtons
+                      playing={media.playing}
+                      trackKey={`${media.title}—${media.artist}`}
+                      shuffle={media.shuffle}
+                      repeat={media.repeat}
+                    />
+                  </div>
+                </div>
+              ) : (
+                /* Centred and padded rather than left-aligned on an empty line,
+                   so the player keeps its height when nothing is playing
+                   instead of collapsing to a stray sentence under the stage. */
+                <div className="flex min-w-0 items-center justify-center gap-2 py-2 font-mono text-[10.5px] text-[var(--text-faint)]">
+                  <IconWave className="h-4 w-4 shrink-0" />
+                  {t("common.no-media-playing")}
+                </div>
               )}
-              <VolumeControl />
+
+              {/* The timeline gets the whole width. It is the one control here
+                  whose precision matters, and it previously gave up 72px to the
+                  volume slider sitting beside it. Hidden for senders with no
+                  duration. */}
+              {media && (
+                <div className="mt-3">
+                  <ProgressBar
+                    key={`${media.title}—${media.artist}`}
+                    media={media}
+                  />
+                </div>
+              )}
+
+              {/* System volume on its own line under a hairline, labelled on the
+                  left. It is the only control in here that is not about the
+                  track, and mixing it in with the playback row is what made that
+                  row unreadable.
+
+                  The label earns the width: right-aligned on its own it left a
+                  band of dead space to the left of the button, so the row read as
+                  an unfinished strip rather than a control. The string was
+                  already in the catalog as the button's tooltip, so naming it
+                  costs no new copy. */}
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-[var(--line)] pt-3">
+                <span className="truncate text-[11px] text-[var(--text-faint)]">
+                  {t("common.system-volume")}
+                </span>
+                <VolumeControl />
+              </div>
             </div>
-          </AudioPulse>
+          </>
         </Card>
 
         {/* Engine — spans 7. The device list is the hero: it carries the live
@@ -1267,8 +1514,9 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             }}
           >
             {rgb.devices.length > 0 ? (
-              <ul className="min-w-0 space-y-2">
-                {rgb.devices.map((d) => (
+              <>
+                <ul className="min-w-0 space-y-2">
+                {deviceRows.visible.map((d) => (
                   <DeviceRow
                     key={d.id}
                     device={d}
@@ -1294,6 +1542,42 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                   />
                 ))}
               </ul>
+                {/* The way out of the cap. Without it the six rows below are not
+                    a limit but a disappearance: a seventh device would be
+                    unmutable, unrenamable and invisible, which is the same
+                    unreachable-because-excluded trap the muted-device decision
+                    above exists to avoid. */}
+                {deviceRows.collapsible && (
+                  <button
+                    type="button"
+                    onClick={() => setAllDevices(true)}
+                    aria-expanded={false}
+                    className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-dashed border-[var(--line-strong)] py-1.5 text-[11px] text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.45)] hover:bg-[rgb(var(--glow)/0.07)] hover:text-[var(--text)]"
+                  >
+                    <IconChevronDown className="h-3 w-3 shrink-0" />
+                    {t("lighting.show-{n}-more-devices", {
+                      n: deviceRows.hidden,
+                    })}
+                  </button>
+                )}
+                {/* The way back. The list is not a one-way trip: a machine with
+                    twelve devices leaves a card three times taller than the one
+                    beside it, and the way to undo that should not be restarting
+                    the app. */}
+                {allDevices && rgb.devices.length > DEVICE_ROWS_COLLAPSED && (
+                  <button
+                    type="button"
+                    onClick={() => setAllDevices(false)}
+                    className="mt-2 flex w-full items-center justify-center gap-1.5 py-1 text-[11px] text-[var(--text-faint)] transition-colors hover:text-[var(--text)]"
+                  >
+                    {/* Up, because this collapses. `rotate-90` points down,
+                        which is what the expand button beside it uses — the
+                        two then disagree about which way the list goes. */}
+                    <IconChevronRight className="h-3 w-3 shrink-0 -rotate-90" />
+                    {t("lighting.show-fewer-devices")}
+                  </button>
+                )}
+              </>
             ) : (
               <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-[var(--line-strong)] py-8 text-[var(--text-faint)]">
                 <IconBulb className="h-5 w-5" />
@@ -1372,7 +1656,10 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
       </div>
 
       {/* ===== row 2: displays + stickers ===== */}
-      <div className="grid min-w-0 gap-5 xl:grid-cols-12">
+      {/* `items-start` for the same reason as the engine row above: these cards
+          have independent content, and a grid row otherwise makes the shorter
+          one grow to match the taller one. */}
+      <div className="grid min-w-0 items-start gap-5 xl:grid-cols-12">
         <div className="xl:col-span-7">
           <DisplaysCard compact />
         </div>
@@ -1451,74 +1738,181 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
         </div>
       </div>
 
-      {/* ===== row 3: scenes + shortcuts ===== */}
-      {scenes.length > 0 && (
-        <div className="grid min-w-0 gap-5 xl:grid-cols-12">
-          <Card title={t("common.profiles")} icon={<IconLayers />} className="xl:col-span-7" right={
-            <button
-              onClick={() => onNavigate("general")}
-              className={MINI_BTN}
-            >
-              {t("common.manage")}
-            </button>
-          }>
-            <div className="flex flex-wrap gap-2">
-              {scenes.slice(0, 6).map((s) => (
+      {/* ===== row 3: system =====
+          Its own full-width row rather than a column beside another card. Both
+          curves are unreadable at a third of the width -- the shape is the
+          whole point of the card, and a squashed sparkline shows only that
+          there was some activity, which the header's frame rate already said. */}
+      <SystemCard />
+
+      {/* ===== row 4: profiles + shortcuts =====
+          Not gated on there being any profiles: the shortcuts half describes
+          the keyboard, which exists whether or not anything has been captured
+          yet, and the old `scenes.length > 0` took both cards away together. */}
+      <div className="grid min-w-0 items-start gap-5 xl:grid-cols-12">
+        <Card
+          title={t("common.profiles")}
+          icon={<IconLayers />}
+          className="xl:col-span-7"
+          right={
+            picker.scenes.length > 0 ? (
+              <button onClick={() => onNavigate("general")} className={MINI_BTN}>
+                {t("common.manage")}
+              </button>
+            ) : undefined
+          }
+        >
+          {picker.scenes.length === 0 ? (
+            /* An empty state rather than a missing card. A card that only
+               exists once you have used it teaches nothing about the feature,
+               and this is the screen a new user lands on. */
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-[var(--line-strong)] px-6 py-8 text-center">
+              <IconLayers className="h-5 w-5 text-[var(--text-faint)]" />
+              <p className="max-w-sm text-xs leading-relaxed text-[var(--text-faint)]">
+                {t("common.no-profiles-yet-set-up-a-look-you-like-then-cap")}
+              </p>
+              <Btn size="sm" variant="primary" onClick={picker.openSave}>
+                {t("common.capture-current-look")}
+              </Btn>
+            </div>
+          ) : (
+            <>
+              <ul className="-m-1 space-y-0.5">
+                {profileList.shown.map((s) => {
+                  const isActive = s.id === picker.activeId;
+                  const isApplying = picker.applyingId === s.id;
+                  const sum = profileSummary(s);
+                  return (
+                    <li key={s.id}>
+                      {/* The whole row is the target, because applying a profile
+                          is the only thing a row does here and a card-sized
+                          target with no other controls inside it cannot
+                          misfire. Management lives in the picker, which is one
+                          click away and has room for it. */}
+                      <button
+                        onClick={() => picker.apply(s.id)}
+                        disabled={isActive || isApplying}
+                        aria-busy={isApplying || undefined}
+                        aria-current={isActive || undefined}
+                        className={`group flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-default ${
+                          isActive
+                            ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.1)]"
+                            : "border-transparent hover:border-[var(--line)] hover:bg-[var(--panel-strong)]"
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] font-semibold text-[var(--text)]">
+                            {s.name}
+                          </span>
+                          {/* What the profile holds. A bare list of names
+                              cannot tell "Work" from "Work, dimmed", and this
+                              is the row that decides which gets applied. */}
+                          <span className="mt-0.5 block truncate font-mono text-[10px] text-[var(--text-faint)]">
+                            {sum.stickers > 0
+                              ? `${sum.kind} · ${sum.mode} · ${t("common.{n}-stickers", {
+                                  n: sum.stickers,
+                                })}`
+                              : `${sum.kind} · ${sum.mode}`}
+                          </span>
+                        </span>
+                        {isApplying ? (
+                          <IconSpinner className="h-4 w-4 shrink-0 animate-spin text-[rgb(var(--glow))]" />
+                        ) : isActive ? (
+                          <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[rgb(var(--glow))]">
+                            <IconCheck className="h-3.5 w-3.5" />
+                            {t("common.profile-applied-now")}
+                          </span>
+                        ) : (
+                          /* Quiet rather than hidden until hover: this row is
+                             clickable, and a chevron that only appears under the
+                             mouse says nothing to anyone using the keyboard. */
+                          <IconChevronRight className="h-4 w-4 shrink-0 text-[var(--text-faint)] opacity-40 transition-opacity group-hover:opacity-100" />
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {profileList.hidden > 0 && (
                 <button
-                  key={s.id}
-                  onClick={() => {
-                    void run(
-                      `scene-${s.id}`,
-                      () => api.sceneApply(s.id),
-                      () => useStore.getState().toast("error", t("common.apply-failed")),
-                    ).then((ok) => {
-                      if (ok) {
-                        useStore
-                          .getState()
-                          .toast("ok", t("common.profile-applied", { name: s.name }));
-                      }
-                    });
-                  }}
-                  aria-busy={pending.has(`scene-${s.id}`) || undefined}
-                  className="group flex items-center gap-1.5 rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-1.5 text-xs font-semibold text-[var(--text-dim)] hover-glow active:scale-[0.97]"
+                  onClick={() => onNavigate("general")}
+                  className="mt-2.5 px-1 text-xs font-semibold text-[var(--text-faint)] transition-colors hover:text-[rgb(var(--glow))]"
                 >
-                  <IconLayers className="h-4 w-4 text-[var(--text-faint)] transition-colors group-hover:text-[rgb(var(--glow))]" />
-                  {s.name}
+                  {t("common.{n}-more-profiles", { n: profileList.hidden })}
                 </button>
-              ))}
-            </div>
-          </Card>
-          <Card title={t("common.shortcuts")} icon={<IconZap />} className="xl:col-span-5" right={
-            <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--text-faint)]">
-              {t("common.press")}
-            </span>
-          }>
-            <p className="mb-4 text-sm leading-relaxed text-[var(--text-dim)]">
-              {t("common.every-corner-of-the-app-is-one-keystroke-away-no")}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {[
-                t("common.ctrl-k-palette"),
-                t("common.ctrl-1-4-tabs"),
-                t("common.all-shortcuts"),
-              ].map((s) => (
-                <span
-                  key={s}
-                  className="rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-1.5 text-xs font-semibold text-[var(--text-dim)]"
-                >
-                  {s}
+              )}
+            </>
+          )}
+        </Card>
+
+        <Card
+          title={t("common.shortcuts")}
+          icon={<IconKeyboard />}
+          className="xl:col-span-5"
+        >
+          {/* Two lists because they are two different things: these keys only
+              work with this window focused, the ones below work from anywhere.
+              The old card listed three prose strings and said nothing about the
+              eleven global bindings the user had actually set. */}
+          <div className="kicker mb-1.5 text-[var(--text-faint)]">
+            {t("common.this-window")}
+          </div>
+          <ul className="mb-4">
+            {windowShortcuts.map((r) => (
+              <li
+                key={r.what}
+                className="flex items-center justify-between gap-4 border-b border-[var(--line)] py-1.5 last:border-b-0"
+              >
+                <span className="min-w-0 truncate text-[13px] text-[var(--text-dim)]">
+                  {r.what}
                 </span>
-              ))}
-            </div>
-            <button
-              onClick={() => window.dispatchEvent(new Event("lumendeck:open-shortcuts"))}
-              className="mt-4 rounded-lg border border-dashed border-[var(--line-strong)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-dim)] hover-glow"
-            >
-              {t("common.view-all-shortcuts")}
-            </button>
-          </Card>
-        </div>
-      )}
+                <ComboCaps keys={r.keys} />
+              </li>
+            ))}
+          </ul>
+
+          <div className="kicker mb-1.5 text-[var(--text-faint)]">
+            {t("common.anywhere-on-your-pc")}
+          </div>
+          {globalKeys.boundCount === 0 ? (
+            <p className="text-xs leading-relaxed text-[var(--text-faint)]">
+              {t("common.no-global-hotkeys-yet-set-them-up")}
+            </p>
+          ) : (
+            <>
+              <ul>
+                {globalKeys.bound.map((r) => (
+                  <li
+                    key={r.id}
+                    className="flex items-center justify-between gap-4 border-b border-[var(--line)] py-1.5 last:border-b-0"
+                  >
+                    <span className="min-w-0 truncate text-[13px] text-[var(--text-dim)]">
+                      {t(r.labelKey)}
+                    </span>
+                    <ComboCaps keys={r.caps} />
+                  </li>
+                ))}
+              </ul>
+              {/* The distinction the old card could not draw: stored bindings
+                  that the master switch has released are not unbound, and
+                  reporting them that way sends a user to rebind keys they
+                  already bound. */}
+              {globalKeys.dormant && (
+                <p className="mt-2.5 text-[11px] leading-relaxed text-amber-300/90">
+                  {t("common.keys-released-switch-off")}
+                </p>
+              )}
+            </>
+          )}
+
+          <button
+            onClick={() => window.dispatchEvent(new Event("lumendeck:open-shortcuts"))}
+            className={`${MINI_BTN} mt-3.5`}
+          >
+            {t("common.view-all-shortcuts")}
+          </button>
+        </Card>
+      </div>
 
       {/* jump links */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -1586,6 +1980,26 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
           </button>
         ))}
       </div>
+
+      {/* The empty-state "Capture current look" opens this, and applying a
+          profile from the card goes through the same hook, so the modal has
+          to live here rather than only in Settings. */}
+      {picker.open && (
+        <ConfigPickerModal
+          scenes={picker.scenes}
+          activeId={picker.activeId}
+          applyingId={picker.applyingId}
+          startIn={picker.startInSave ? "save" : "browse"}
+          onClose={picker.close}
+          onApply={picker.apply}
+          onSave={picker.save}
+          onRename={picker.rename}
+          onDelete={picker.remove}
+          onChooseLogo={picker.chooseLogo}
+          onClearLogo={(id) => picker.setLogo(id, null)}
+          canDelete={picker.canDelete}
+        />
+      )}
     </div>
   );
 }

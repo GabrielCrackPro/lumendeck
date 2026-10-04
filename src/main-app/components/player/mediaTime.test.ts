@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  SEEK_SETTLE_MS,
   formatDuration,
   positionFromFraction,
   progressFraction,
+  sampleAgreesWithSeek,
   skewedPosition,
 } from "./mediaTime";
 
@@ -108,3 +110,33 @@ describe("positionFromFraction", () => {
     expect(positionFromFraction(0.5, 0)).toBe(0);
   });
 });
+
+describe("sampleAgreesWithSeek", () => {
+  it("believes a sample when no seek is outstanding", () => {
+    expect(sampleAgreesWithSeek(42, null, 0)).toBe(true);
+  });
+
+  it("rejects a sample still carrying the pre-seek position", () => {
+    // The bug: seeking to 120 while the player still reports 30 would pull the
+    // anchor back, so a held arrow key stutters instead of running.
+    expect(sampleAgreesWithSeek(30, 120, 400)).toBe(false);
+  });
+
+  it("accepts a sample once it matches the seek", () => {
+    expect(sampleAgreesWithSeek(120, 120, 400)).toBe(true);
+    expect(sampleAgreesWithSeek(120.5, 120, 400)).toBe(true);
+  });
+
+  it("tolerates a sample a beat away from the seek", () => {
+    // SMTC samples at about 1 Hz and playback continues, so an exact match is
+    // not something to wait for.
+    expect(sampleAgreesWithSeek(121, 120, 400)).toBe(true);
+  });
+
+  it("stops shielding the seek once it has had time to settle", () => {
+    // A seek the player refused must snap the bar back to the truth rather
+    // than leave it showing a position that never happened.
+    expect(sampleAgreesWithSeek(30, 120, SEEK_SETTLE_MS)).toBe(true);
+    expect(sampleAgreesWithSeek(30, 120, SEEK_SETTLE_MS + 5000)).toBe(true);
+  });
+})

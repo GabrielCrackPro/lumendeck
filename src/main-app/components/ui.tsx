@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { useAnchoredPanel } from "./dropdownAnchor";
 import { useShallow } from "zustand/react/shallow";
+import type { Glyph } from "./icons";
 import { IconRefresh, IconMonitor, IconCheck, IconCopy, IconPipette, IconChevronDown, IconPencil, IconSearch, IconSpinner } from "./icons";
 import { useCopy } from "./useCopy";
 import { versionLabel } from "./buildIdentity";
@@ -12,6 +15,7 @@ import { SHADER_ART } from "@shared/constants";
 import type { ThemeMode } from "@shared/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { t } from "../i18n";
+import { Tooltip } from "./Tooltip";
 import { useAnchoredPopover } from "./usePopover";
 
 /**
@@ -76,7 +80,7 @@ export function DevBadge() {
   if (__APP_BUILD_MODE__ !== "dev") return null;
   return (
     <span
-      title={
+      data-tip={
         __APP_BUILD_ID__
           ? t("common.dev-badge-tooltip", { id: __APP_BUILD_ID__ })
           : t("common.development-build-local-changes-not-a-release")
@@ -164,6 +168,7 @@ export function Card({
   children,
   right,
   className,
+  anchor,
 }: {
   title: string;
   icon?: ReactNode;
@@ -171,6 +176,15 @@ export function Card({
   right?: ReactNode;
   /** Extra classes on the panel root, e.g. `xl:col-span-5` in a 12-col row. */
   className?: string;
+  /**
+   * Names this card as a navigation target, from `TAB_ANCHORS`.
+   *
+   * On the primitive rather than a wrapper div: a wrapper inside a grid or flex
+   * parent becomes a layout child of its own, and the card it wrapped stops
+   * spanning what the layout expects. The attribute is inert until something asks
+   * to navigate here.
+   */
+  anchor?: string;
 }) {
   return (
     /*
@@ -185,13 +199,20 @@ export function Card({
      * `--radius-xl` on `.glass`, so nothing is clipped and the header still
      * reads as the top of a rounded card.
      */
-    <section className={`glass ${className ?? ""}`}>
+    /* `card-surface` is what the hover lift in index.css keys on. `glass` on its
+       own is also the app header, the loading skeletons, the onboarding panel and
+       the modal bodies, none of which should move when a mouse passes over
+       them -- so the lift is scoped here rather than put on `.glass`. */
+    <section
+      className={`glass card-surface ${className ?? ""}`}
+      data-anchor={anchor}
+    >
       <header className="flex min-h-[42px] items-center justify-between gap-3 rounded-t-[var(--radius-xl)] border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4">
         {/* `min-w-0` + truncate: a long card title is a flex item like any
             other, and without a minimum of zero its nowrap text widens the
             header until the panel clips its own right edge. */}
         <h2 className="kicker flex min-w-0 items-center gap-2 truncate !text-[var(--text-dim)]">
-          {icon && <span className="text-[rgb(var(--glow))] [&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>}
+          {icon && <span className="text-[rgb(var(--glow))] [&_svg]:h-3.5 [&_svg]:w-3.5">{icon}</span>}
           {title}
         </h2>
         {right}
@@ -268,7 +289,7 @@ function SwitchTrack({
       // collapsed to zero content width plus its 1px borders: a 2px sliver. The
       // absolutely-positioned knob escaped it and painted outside the card, so
       // the switch read as a thin line beside a floating white dot.
-      className={`pointer-events-none relative block h-[20px] w-[34px] shrink-0 rounded-full border transition-all duration-200 ${
+      className={`pointer-events-none relative block h-[20px] w-[34px] shrink-0 rounded-full border transition-[background-color,border-color] duration-200 ${
         disabled
           ? checked
             ? "border-transparent bg-[rgb(var(--glow)/0.3)]"
@@ -290,7 +311,7 @@ function SwitchTrack({
         // using it made this knob fully transparent and the switch vanished.
         // The fallback keeps a future unresolved token from turning the
         // control invisible, which is the worst way for this to fail.
-        className={`absolute top-[2.5px] h-[14px] w-[14px] rounded-full bg-[var(--text,#ecedef)] shadow transition-all duration-200 ${
+        className={`absolute top-[2.5px] h-[14px] w-[14px] rounded-full bg-[var(--text)] shadow transition-[background-color,border-color,transform] duration-200 ${
           checked ? "left-[17px]" : "left-[2.5px]"
         } ${disabled ? "opacity-70" : ""}`}
       />
@@ -311,7 +332,7 @@ export function SwitchBtn({
   /** A setting with nothing to act on should not invite the click. */
   disabled?: boolean;
 }) {
-  return (
+  const sw = (
     <button
       // Without this the switch submits whatever form it happens to sit in,
       // which is not a decision a control should make on its own.
@@ -319,14 +340,14 @@ export function SwitchBtn({
       role="switch"
       aria-checked={checked}
       aria-label={title}
-      title={title}
       disabled={disabled}
       onClick={() => !disabled && onChange(!checked)}
-      className="switch-btn shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--panel-sunken)] disabled:cursor-not-allowed"
+      className="switch-btn shrink-0 rounded-full focus-glow disabled:cursor-not-allowed"
     >
       <SwitchTrack checked={checked} disabled={disabled} />
     </button>
   );
+  return title ? <Tooltip label={title}>{sw}</Tooltip> : sw;
 }
 
 /**
@@ -364,15 +385,14 @@ export function SwitchRow({
   disabled?: boolean;
   className?: string;
 }) {
-  return (
+  const sw = (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
-      title={title}
       disabled={disabled}
       onClick={() => !disabled && onChange(!checked)}
-      className={`switch-btn flex w-full min-w-0 items-center gap-3 rounded-[var(--radius-md)] py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.6)] disabled:cursor-not-allowed ${className}`}
+      className={`switch-btn flex w-full min-w-0 items-center gap-3 rounded-[var(--radius-md)] py-1 text-left focus-glow disabled:cursor-not-allowed ${className}`}
     >
       {icon && <span className="shrink-0">{icon}</span>}
       {/* `min-w-0` is what lets the text shrink instead of forcing the row
@@ -392,6 +412,7 @@ export function SwitchRow({
       <SwitchTrack checked={checked} disabled={disabled} />
     </button>
   );
+  return title ? <Tooltip label={title}>{sw}</Tooltip> : sw;
 }
 
 export function Toggle({
@@ -416,7 +437,7 @@ export function Toggle({
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="switch-btn flex w-full min-w-0 cursor-pointer items-center justify-between gap-4 rounded-[var(--radius-md)] py-3 text-left outline-none transition-colors hover:bg-[var(--panel-strong)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.6)]"
+      className="switch-btn flex w-full min-w-0 cursor-pointer items-center justify-between gap-4 rounded-[var(--radius-md)] py-3 text-left transition-colors hover:bg-[var(--panel-strong)] focus-glow"
     >
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium text-[var(--text)]">{label}</span>
@@ -576,7 +597,7 @@ export function Dropdown<T extends string | number>({
           aria-haspopup="listbox"
           aria-expanded={pop.shown}
           aria-label={ariaLabel}
-          title={title}
+          data-tip={title}
           className={`${ICON_BTN} ${pop.shown ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
         >
           {icon}
@@ -587,6 +608,7 @@ export function Dropdown<T extends string | number>({
           value={value}
           panelRef={pop.panelRef}
           animClass={pop.animClass}
+          triggerRef={pop.triggerRef}
           registerItem={pop.registerItem}
           onKeyDown={pop.onPanelKeyDown}
           onPick={(id) => {
@@ -606,7 +628,7 @@ export function Dropdown<T extends string | number>({
         aria-haspopup="listbox"
         aria-expanded={pop.shown}
         aria-label={ariaLabel}
-        title={title}
+        data-tip={title}
         className={
             chip
               ? `flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${
@@ -641,6 +663,7 @@ export function Dropdown<T extends string | number>({
           value={value}
           panelRef={pop.panelRef}
           animClass={pop.animClass}
+          triggerRef={pop.triggerRef}
           registerItem={pop.registerItem}
           onKeyDown={pop.onPanelKeyDown}
           onPick={(id) => {
@@ -680,6 +703,7 @@ function DropdownPanel<T extends string | number>({
   registerItem,
   onKeyDown,
   onPick,
+  triggerRef,
 }: {
   shown: boolean;
   options: { id: T; label: string }[];
@@ -689,14 +713,31 @@ function DropdownPanel<T extends string | number>({
   registerItem: (i: number) => (el: HTMLButtonElement | null) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   onPick: (id: T) => void;
+  triggerRef: React.RefObject<HTMLButtonElement | null>;
 }) {
+  // Portalled and measured, so no ancestor's overflow or stacking context can
+  // clip it. The hook owns the measurement so the gallery's two menus measure
+  // themselves the same way.
+  const anchor = useAnchoredPanel(triggerRef, shown);
+
+  // The popover needs this node to tell an option click from an outside click,
+  // and the panel is portalled so it is not inside the popover's root. So the
+  // hook's ref is handed back up to `panelRef`, which is the one the popover
+  // already tests.
+  useEffect(() => {
+    panelRef.current = anchor.panelRef.current;
+  });
+
   if (!shown) return null;
-  return (
+  // Off-screen until measured, rather than at the viewport's top-left corner
+  // for a frame.
+  return createPortal(
     <div
-      ref={panelRef}
+      ref={anchor.panelRef}
+      style={anchor.style}
       role="listbox"
       onKeyDown={onKeyDown}
-      className={`${animClass} absolute left-0 top-[calc(100%+4px)] z-30 max-h-64 min-w-[9rem] overflow-y-auto rounded-lg border border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] p-1 shadow-[0_20px_50px_-16px_rgb(0_0_0/0.7)] outline-none backdrop-blur-xl`}
+      className={`${animClass} z-[120] min-w-[9rem] overflow-y-auto overscroll-contain rounded-lg border border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] p-1 shadow-[0_20px_50px_-16px_rgb(0_0_0/0.7)] outline-none backdrop-blur-xl`}
     >
       {options.map((o, i) => {
         const active = o.id === value;
@@ -719,7 +760,8 @@ function DropdownPanel<T extends string | number>({
           </button>
         );
       })}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -757,10 +799,14 @@ export function Btn({
    */
   pending?: boolean;
   /**
-   * Hover text. The only way to explain a *disabled* button: it cannot take
-   * focus, so no on-click handler will ever fire to set one. Needed by the
-   * delete control, which is disabled with a single profile left and has to say
-   * why rather than simply going quiet.
+   * Hover text, shown as the app's own tooltip.
+   *
+   * The only way to explain a *disabled* button: it cannot take focus, so no
+   * on-click handler will ever fire to set one, and a tooltip driven by focus
+   * alone would never appear. Needed by the delete control, which is disabled
+   * with a single profile left and has to say why rather than simply going
+   * quiet. The pointer path is what covers it — a disabled button still emits
+   * pointer events in WebView2.
    */
   title?: string;
 }) {
@@ -779,19 +825,21 @@ export function Btn({
     size === "sm"
       ? "rounded-sm px-2.5 py-1.5 text-xs"
       : "rounded-md px-4 py-2 text-sm";
-  return (
+  const button = (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled || pending}
-      title={title}
       aria-busy={pending || undefined}
-      className={`inline-flex select-none items-center justify-center gap-2 font-semibold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${sizing} ${styles} ${className ?? ""}`}
+      className={`inline-flex select-none items-center justify-center gap-2 font-semibold transition-[color,background-color,border-color,transform] focus-glow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${sizing} ${styles} ${className ?? ""}`}
     >
       {pending && <IconSpinner className="h-3.5 w-3.5 shrink-0" />}
       {children}
     </button>
   );
+  // The tooltip wraps rather than sets `title`, so the native bubble is gone
+  // while the prop — and every call site that passes one — is unchanged.
+  return title ? <Tooltip label={title}>{button}</Tooltip> : button;
 }
 
 // ---------- Chip & Segmented (shared selection-button language) ----------
@@ -801,7 +849,7 @@ export function Btn({
  * app has one "selected" look instead of ad-hoc variants per screen.
  */
 const CHIP_BASE =
-  "select-none border font-semibold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40";
+  "select-none border font-semibold transition-[color,background-color,border-color,transform] focus-glow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40";
 const CHIP_ON =
   "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]";
 const CHIP_OFF =
@@ -813,12 +861,13 @@ export function chipStyle(on: boolean): string {
 
 /**
  * Canonical icon-button tokens, derived from the chip language: same accent
- * values as CHIP_ON/OFF, but square-ish (rounded-lg, matching Btn) and
- * icon-sized. Contained like every other button in the app — a quiet panel
- * chip at rest, not a floating ghost. Exported for the Overview player.
+ * values as CHIP_ON/OFF, but square-ish (rounded-md, matching Btn at its
+ * default size) and icon-sized. Contained like every other button in the app —
+ * a quiet panel chip at rest, not a floating ghost. Exported for the Overview
+ * player.
  */
 export const ICON_BTN =
-  "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-all duration-150 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.5)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100";
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-[color,background-color,border-color,transform] duration-150 select-none focus-glow active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100";
 export const ICON_BTN_IDLE =
   "border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)] hover:border-[var(--line-strong)] hover:text-[var(--text)]";
 export const ICON_BTN_ACTIVE = CHIP_ON;
@@ -831,7 +880,7 @@ export const ICON_BTN_PRIMARY =
  * used inside card headers. One token so every header action matches.
  */
 export const MINI_BTN =
-  "inline-flex select-none items-center gap-1 rounded-md border border-[var(--line)] px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] transition-all hover-glow active:scale-95";
+  "inline-flex select-none items-center gap-1 rounded-md border border-[var(--line)] px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] transition-[color,background-color,border-color,transform] focus-glow hover-glow active:scale-95";
 
 /**
  * Icon button that sits on top of imagery (gallery thumbnails, collection
@@ -842,7 +891,15 @@ export const MINI_BTN =
  * card, in the collection card, and here -- which had drifted to two different
  * hit areas (24px and 28px), three different radii, and two different focus
  * treatments. One definition now, so a scrim button looks the same everywhere
- * it is drawn over a picture. Radius and hit area otherwise match ICON_BTN.
+ * it is drawn over a picture. Radius matches ICON_BTN but the hit area does
+ * not: this one is 28px, not 32px, because it sits on top of a thumbnail where
+ * a larger box would cover the artwork it is meant to annotate.
+ *
+ * The one primitive that keeps its own focus ring: a glow ring in the accent
+ * colour disappears against a wallpaper, so this stays white. `focus-glow`
+ * takes `--focus-offset` for a surface of another colour, but the ring itself
+ * would need to change too, which is a different treatment rather than a
+ * themed one.
  */
 export const OVERLAY_ICON_BTN =
   "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 bg-black/60 text-white/80 backdrop-blur-sm transition-colors hover:border-white/30 hover:bg-black/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 active:scale-95";
@@ -861,12 +918,11 @@ export function SelectChip({
   disabled?: boolean;
   title?: string;
 }) {
-  return (
+  const chip = (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={title}
       // The selected state is carried by color alone otherwise, which a
       // screen reader (and a colorblind user) cannot see.
       aria-pressed={active}
@@ -875,6 +931,7 @@ export function SelectChip({
       {children}
     </button>
   );
+  return title ? <Tooltip label={title}>{chip}</Tooltip> : chip;
 }
 
 /** Segmented control: a row of mutually exclusive options. */
@@ -983,12 +1040,11 @@ export function CopyHexButton({
 }) {
   const { copy, justCopied } = useCopy();
   const hex = formatHex(value);
-  return (
+  const btn = (
     <button
       type="button"
       onClick={() => void copy(hex)}
       aria-label={t("common.copy-color-hex")}
-      title={justCopied ? t("common.copied-to-clipboard") : t("common.copy-color-hex")}
       // Focus reveals it too: a keyboard user tabbing past a hidden button
       // cannot find it, and `opacity-0` alone would still let it take focus
       // while being invisible.
@@ -1000,6 +1056,13 @@ export function CopyHexButton({
         <IconCopy className="h-3.5 w-3.5" />
       )}
     </button>
+  );
+  return (
+    <Tooltip
+      label={justCopied ? t("common.copied-to-clipboard") : t("common.copy-color-hex")}
+    >
+      {btn}
+    </Tooltip>
   );
 }
 
@@ -1130,7 +1193,7 @@ export function ColorInput({
           aria-label={`${label} — ${t("common.edit-color")}`}
           aria-expanded={open}
           aria-haspopup="dialog"
-          className="group relative h-9 w-16 overflow-hidden rounded-xl border border-[var(--line-strong)] shadow-[0_6px_18px_-8px_rgb(0_0_0/0.5)] transition-all hover:border-[var(--line-strong)] hover:brightness-110"
+          className="group relative h-9 w-16 overflow-hidden rounded-xl border border-[var(--line-strong)] shadow-[0_6px_18px_-8px_rgb(0_0_0/0.5)] transition-[border-color,filter] hover:border-[var(--line-strong)] hover:brightness-110"
           style={{
             background: `linear-gradient(135deg, ${hex} 0%, ${hex}CC 60%, rgb(0 0 0 / 0.35) 160%)`,
             boxShadow: `inset 0 0 18px -4px ${hex}CC, inset 0 0 0 1px rgb(255 255 255 / 0.12)`,
@@ -1178,7 +1241,7 @@ export function ColorInput({
               }}
             />
             <div
-              className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--text,#ecedef)] shadow-[0_0_0_1px_rgb(0_0_0/0.6)]"
+              className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--text)] shadow-[0_0_0_1px_rgb(0_0_0/0.6)]"
               style={{ left: `calc(8px + (100% - 16px) * ${hue / 360})`, background: hueHex }}
             />
             <input
@@ -1200,7 +1263,7 @@ export function ColorInput({
             {PRESETS.map((p) => (
               <button
                 key={p.hex}
-                title={t(p.labelKey)}
+                data-tip={t(p.labelKey)}
                 aria-label={t(p.labelKey)}
                 onClick={() => {
                   const [pr, pg, pb] = [
@@ -1222,7 +1285,7 @@ export function ColorInput({
           {/* eyedropper row + hex input */}
           <div className="mt-3 flex items-center gap-2">
             <button
-              title={t("common.pick-a-color-from-the-screen")}
+              data-tip={t("common.pick-a-color-from-the-screen")}
               onClick={async () => {
                 try {
                   // EyeDropper API (Chromium / WebView2): full-screen pixel sampling.
@@ -1526,7 +1589,7 @@ export type SettingsSectionDef = {
   id: string;
   label: string;
   blurb: string;
-  icon: React.FC<React.SVGProps<SVGSVGElement>>;
+  icon: Glyph;
 };
 
 // ---------- Theme picker ----------
@@ -1631,7 +1694,7 @@ export function SettingsLayout({
           type="button"
           onClick={() => onSelect(s.id)}
           aria-current={isActive ? "true" : undefined}
-          title={t(s.blurb)}
+          data-tip={t(s.blurb)}
           className={`flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors ${
             isActive
               ? "bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]"
@@ -1747,7 +1810,7 @@ export function CollapsibleCard({
       >
         <h2 className="kicker flex shrink-0 items-center gap-2 !text-[var(--text-dim)]">
           {icon && (
-            <span className="text-[rgb(var(--glow))] [&>svg]:h-3.5 [&>svg]:w-3.5">
+            <span className="text-[rgb(var(--glow))] [&_svg]:h-3.5 [&_svg]:w-3.5">
               {icon}
             </span>
           )}
@@ -1788,6 +1851,37 @@ export function ItemTitle({
   );
 }
 
+/**
+ * A key cap: one token of a combo, drawn as a key on a keyboard.
+ *
+ * Three call sites drew their own -- the Overview shortcut rows, the shortcut
+ * overlay and the sidebar's Ctrl+K hint -- at three different sizes and radii,
+ * so a combo in the card did not look like the same combo in the sheet it
+ * opens. One shape now.
+ *
+ * `--radius-sm` is the smallest step on the scale and the right one here: a
+ * cap is the smallest element in the app, and the next step up reads as a
+ * rounded chip rather than a key.
+ */
+export function KeyCap({ children }: { children: ReactNode }) {
+  return (
+    <kbd className="rounded-[var(--radius-sm)] border border-[var(--line-strong)] bg-[var(--panel-strong)] px-1.5 py-0.5 font-mono text-[10px] leading-none text-[var(--text)]">
+      {children}
+    </kbd>
+  );
+}
+
+/** A whole combo as key caps, in order. */
+export function ComboCaps({ keys }: { keys: readonly string[] }) {
+  return (
+    <span className="flex shrink-0 gap-1">
+      {keys.map((k, i) => (
+        <KeyCap key={`${k}-${i}`}>{k}</KeyCap>
+      ))}
+    </span>
+  );
+}
+
 /** Standardized refresh/retry button. */
 export function RefreshBtn({
   label = t("common.refresh"),
@@ -1822,7 +1916,7 @@ export function AliasHint({ onReset }: { onReset: () => void }) {
   return (
     <button
       onClick={onReset}
-      title={t("common.reset-to-default-name")}
+      data-tip={t("common.reset-to-default-name")}
       aria-label={t("common.reset-to-default-name")}
       className="rounded border border-dashed border-[var(--line-strong)] px-1 py-px font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--text-faint)] transition-colors hover:border-[var(--glow)] hover:text-[var(--text)]"
     >
@@ -2008,7 +2102,7 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
                       </div>
                       <button
                         onClick={() => startRename(m.device)}
-                        title={t("common.rename-screen", { name: displayName(m, i, screenNames) })}
+                        data-tip={t("common.rename-screen", { name: displayName(m, i, screenNames) })}
                         aria-label={t("common.rename-screen", { name: displayName(m, i, screenNames) })}
                         className="shrink-0 rounded p-0.5 text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
                       >

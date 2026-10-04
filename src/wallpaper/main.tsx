@@ -5,11 +5,16 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { EVENTS } from "@shared/constants";
+import { installContextMenuSuppression } from "@shared/contextMenu";
 import type { Config, StickerDef, WallpaperKind, ZoneDef } from "@shared/types";
 import { computeSamples, type PixelBuf, type ZoneRect } from "./sampler";
 import { SHADER_SOURCES, compileShaderProgram, shaderCanvasSize } from "./shaders";
 import { applySnap, snapResizeAxis, type Guide, type Rect } from "./snap";
 import "../runtime.css";
+
+// A property of the webview rather than of a component: WebView2's own menu
+// (Back, Reload, Inspect) over a wallpaper that cannot do any of those.
+installContextMenuSuppression();
 
 interface MonitorInfo {
   device: string;

@@ -1,4 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { useAnchoredPanel } from "../dropdownAnchor";
 import { IconClose, IconGrid, IconLayers, IconSearch, IconSelectAll, IconSliders, IconSort, IconSparkle, IconStar } from "../icons";
 import type { SelectAllState } from "./selection";
 import { t } from "../../i18n";
@@ -187,6 +189,12 @@ export function GalleryToolbar({
   const [open, setOpen] = useState(false);
   /** Which collection chip has its action menu open, if any. */
   const [chipMenu, setChipMenu] = useState<string | null>(null);
+  const chipTrigger = useRef<HTMLButtonElement | null>(null);
+
+  // Right-aligned: the trigger is the trailing half of a chip, so the menu
+  // hangs off its right edge. Portalled for the same reason as the collection
+  // menu -- the chips live in a horizontally scrolling strip.
+  const chipAnchor = useAnchoredPanel(chipTrigger, chipMenu !== null, "right");
 
   // A menu left open behind a re-render, or one opened on a chip that a delete
   // has just removed, would hang open over a row that is no longer there.
@@ -197,7 +205,15 @@ export function GalleryToolbar({
   // Clicking anywhere else dismisses it, the way every menu behaves.
   useEffect(() => {
     if (!chipMenu) return;
-    const away = () => setChipMenu(null);
+    // The panel is portalled to `document.body`, so a click on it is not a
+    // descendant of the chip button. Without this the menu would close before
+    // `onRenameCollection` ran.
+    const away = (e: MouseEvent) => {
+      const target = e.target as Node;
+      const inTrigger = chipTrigger.current?.contains(target) ?? false;
+      const inPanel = chipAnchor.panelRef.current?.contains(target) ?? false;
+      if (!inTrigger && !inPanel) setChipMenu(null);
+    };
     const esc = (e: KeyboardEvent) => e.key === "Escape" && setChipMenu(null);
     document.addEventListener("click", away);
     document.addEventListener("keydown", esc);
@@ -477,6 +493,7 @@ export function GalleryToolbar({
                   screen that shows them. */}
               <div className="relative">
                 <button
+                  ref={chipTrigger}
                   aria-label={t("gallery.collection-actions", { name: c.name })}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -486,11 +503,14 @@ export function GalleryToolbar({
                 >
                   ⋯
                 </button>
-                {chipMenu === c.id && (
-                  <div
-                    className="page-enter absolute right-0 top-7 z-20 w-36 overflow-hidden rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] py-1 shadow-[var(--shadow)]"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                {chipMenu === c.id &&
+                  createPortal(
+                    <div
+                      ref={chipAnchor.panelRef}
+                      style={chipAnchor.style}
+                      role="menu"
+                      className="page-enter z-[120] w-36 rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] py-1 shadow-[var(--shadow)]"
+                    >
                     <button
                       onClick={() => {
                         setChipMenu(null);
@@ -509,8 +529,9 @@ export function GalleryToolbar({
                     >
                       {t("common.delete")}
                     </button>
-                  </div>
-                )}
+                    </div>,
+                    document.body,
+                  )}
               </div>
             </div>
           ))}

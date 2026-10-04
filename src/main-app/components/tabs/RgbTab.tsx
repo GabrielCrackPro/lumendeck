@@ -124,6 +124,7 @@ export default function RgbTab() {
       <div className="@container grid items-start gap-5 lg:grid-cols-[1fr_1.15fr]">
         <div className="space-y-5">
           <Card
+            anchor="devices"
             title={t("common.devices")}
             right={
               rgb.connected ? (
@@ -211,7 +212,7 @@ export default function RgbTab() {
               They are different questions with different urgency — a lighting
               rule you cannot find is worse than a device you cannot name — so
               they get their own card. */}
-          <Card title={t("common.automation")}>
+          <Card anchor="automation" title={t("common.automation")}>
             <Toggle
               label={t("common.turn-off-lights-when-idle")}
               description={t("common.automatically-turn-off-rgb-after-a-period-of-no")}
@@ -329,6 +330,7 @@ export default function RgbTab() {
 
         <div className="space-y-5">
           <Card
+            anchor="lighting-mode"
             title={t("common.lighting-mode")}
             right={
               /* Brightness and speed already read as two large figures on the
@@ -557,9 +559,15 @@ export default function RgbTab() {
                   format={(v) => v.toFixed(2)}
                   onChange={(v) => save((c) => (c.rgb.mixer.gamma = v))}
                 />
+                {/* This is how often frames are written to the devices -- the
+                    OpenRGB client's own rate, not anything about the app
+                    checking for updates. It was labelled "Min update interval",
+                    which is what `rgb.minUpdateMs` is still called, and that
+                    collision is how the update watcher nearly got wired to it.
+                    The label now names the LEDs. */}
                 {!isAnimated && (
                   <Slider
-                    label={t("common.min-update-interval")}
+                    label={t("common.led-write-interval")}
                     min={30}
                     max={1000}
                     step={10}

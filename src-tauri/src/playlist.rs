@@ -182,6 +182,66 @@ pub fn next_entry_index(
     })
 }
 
+/// Wall-clock nanoseconds, the seed for a shuffled pick.
+///
+/// Nanos rather than seconds so two presses within the same second still land
+/// on different wallpapers.
+fn seed_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
+/// Pick a vault entry that is not the one on screen, deterministically from a
+/// seed.
+///
+/// Takes the seed as an argument rather than reading a clock inside, so the
+/// rule is testable and so a caller that wants a different pick per press just
+/// passes a different seed.
+///
+/// Two rules that are not obvious:
+///
+///  - It never returns the current entry. A "random" wallpaper that lands on
+///    the one already showing looks broken, because pressing the key appears to
+///    do nothing.
+///  - With exactly two entries it alternates. Any random choice there is the
+///    same as "the other one", and being explicit keeps it from ever repeating
+///    the current wallpaper.
+///
+/// The mix is a small integer hash rather than a crate: the project has no
+/// random dependency, and adding one for a single index is not worth the lock
+/// file churn. Seeded from the clock by the caller.
+pub fn shuffled_entry_index(
+    gallery: &[crate::config::GalleryEntry],
+    live: &crate::config::WallpaperConfig,
+    seed: u64,
+) -> Option<usize> {
+    if gallery.is_empty() {
+        return None;
+    }
+    if gallery.len() == 1 {
+        return Some(0);
+    }
+    let current = gallery
+        .iter()
+        .position(|g| g.kind == live.kind && g.source == live.source);
+    // SplitMix-style finaliser: cheap, and it spreads adjacent seeds across the
+    // whole range, which a raw modulo of a millisecond clock does not.
+    let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    let pick = (z % gallery.len() as u64) as usize;
+    match current {
+        // Off-by-one from the current index, so the result is never the current
+        // entry -- which is also what makes it correct at the wrap point.
+        Some(i) => Some((i + 1 + pick % (gallery.len() - 1)) % gallery.len()),
+        // Nothing on screen from the vault yet, so any entry will do.
+        None => Some(pick),
+    }
+}
+
 /// Apply the next vault entry after the one on screen, wrapping at the end.
 /// Backs the "next wallpaper" hotkey so the vault can be stepped without
 /// opening the dashboard.
@@ -191,7 +251,13 @@ pub fn next_entry_index(
 /// stale overrides in place can make the press look like a no-op.
 pub fn advance() -> Option<crate::config::GalleryEntry> {
     let cfg = crate::config_store::get();
-    let idx = next_entry_index(&cfg.gallery, &cfg.wallpaper)?;
+    // Sequential unless the gallery is set to shuffle, so the default behaviour
+    // of the next-wallpaper key is unchanged.
+    let idx = if cfg.gallery_shuffle {
+        shuffled_entry_index(&cfg.gallery, &cfg.wallpaper, seed_now())?
+    } else {
+        next_entry_index(&cfg.gallery, &cfg.wallpaper)?
+    };
     let next = cfg.gallery[idx].clone();
     let app = crate::app_handle()?;
 
@@ -270,5 +336,96 @@ mod tests {
         let mut w = live("C:/a.mp4");
         w.kind = WallpaperKind::Video;
         assert_eq!(next_entry_index(&g, &w), Some(0));
+    }
+}
+
+#[cfg(test)]
+mod shuffle_tests {
+    use super::shuffled_entry_index;
+    use crate::config::{GalleryEntry, WallpaperConfig, WallpaperKind};
+
+    fn entry(id: &str) -> GalleryEntry {
+        GalleryEntry {
+            id: id.into(),
+            name: id.into(),
+            kind: WallpaperKind::Image,
+            source: format!("media.localhost/{id}.jpg"),
+            added_ms: 0,
+            thumb: None,
+            opts: None,
+            favorite: false,
+            last_applied_ms: None,
+        }
+    }
+
+    fn live(gallery: &[GalleryEntry], idx: usize) -> WallpaperConfig {
+        WallpaperConfig {
+            kind: gallery[idx].kind,
+            source: gallery[idx].source.clone(),
+            ..Default::default()
+        }
+    }
+
+    fn vault(n: usize) -> Vec<GalleryEntry> {
+        (0..n).map(|i| entry(&format!("w{i}"))).collect()
+    }
+
+    #[test]
+    fn never_returns_the_wallpaper_already_on_screen() {
+        // The failure this guards: a "random" wallpaper that lands on the one
+        // already showing, so pressing the key looks like nothing happened.
+        let gallery = vault(6);
+        for start in 0..gallery.len() {
+            for seed in 0..64u64 {
+                let got = shuffled_entry_index(&gallery, &live(&gallery, start), seed);
+                assert_ne!(got, Some(start), "seed {seed} from {start}");
+                assert!(got.unwrap() < gallery.len());
+            }
+        }
+    }
+
+    #[test]
+    fn alternates_when_the_vault_holds_two() {
+        // With two entries any random choice is "the other one"; being explicit
+        // keeps it from ever repeating what is on screen.
+        let gallery = vault(2);
+        for seed in 0..32u64 {
+            assert_eq!(shuffled_entry_index(&gallery, &live(&gallery, 0), seed), Some(1));
+            assert_eq!(shuffled_entry_index(&gallery, &live(&gallery, 1), seed), Some(0));
+        }
+    }
+
+    #[test]
+    fn a_single_entry_vault_repeats_itself() {
+        // Nothing else to play, so this is not a bug worth refusing over.
+        let gallery = vault(1);
+        assert_eq!(shuffled_entry_index(&gallery, &live(&gallery, 0), 7), Some(0));
+    }
+
+    #[test]
+    fn an_empty_vault_has_nothing_to_shuffle() {
+        assert_eq!(shuffled_entry_index(&[], &WallpaperConfig::default(), 3), None);
+    }
+
+    #[test]
+    fn a_wallpaper_from_outside_the_vault_can_pick_anything() {
+        let gallery = vault(5);
+        let outsider = WallpaperConfig::default();
+        let got = shuffled_entry_index(&gallery, &outsider, 42);
+        assert!(got.is_some() && got.unwrap() < gallery.len());
+    }
+
+    #[test]
+    fn a_seed_moves_the_pick_rather_than_always_walking_on() {
+        // The behaviour the flag exists for: pressing twice in a row must not
+        // be the same as "next, next, next". Distinct seeds should reach more
+        // than one entry over a press sequence.
+        let gallery = vault(5);
+        let current = live(&gallery, 0);
+        let reached: std::collections::BTreeSet<usize> = (0..200u64)
+            .map(|seed| shuffled_entry_index(&gallery, &current, seed).unwrap())
+            .collect();
+        assert!(reached.len() > 1, "shuffle never varied");
+        assert!(reached.len() <= gallery.len() - 1);
     }
 }

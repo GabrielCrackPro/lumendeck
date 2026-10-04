@@ -16,6 +16,7 @@ import {
   Segmented,
   InfoNote,
   ItemTitle,
+  Select,
   Slider,
   SettingsLayout,
   ThemePicker,
@@ -24,7 +25,15 @@ import {
 import { api } from "../../ipc";
 import { usePending } from "../../pending";
 import { truncateError } from "../../utilities";
-import { checkForAppUpdate, installAppUpdate, announceUpdate } from "../../updater";
+import {
+  checkForAppUpdate,
+  installAppUpdate,
+  announceUpdate,
+  summaryFor,
+  effectiveInterval,
+  intervalChoices,
+  intervalLabelKey,
+} from "../../updater";
 
 import WhatsNewCard from "../WhatsNewCard";
 import HotkeysCard from "../HotkeysCard";
@@ -46,12 +55,13 @@ import {
   IconTerminal,
   IconCopy,
   IconDownload,
+  IconCheck,
 } from "../icons";
-import { t, LOCALE_NAMES } from "../../i18n";
+import { t, useLocale, LOCALE_NAMES } from "../../i18n";
+import { CHECK_OUTCOME_LABELS, checkTimeLabel } from "../updateCheck";
 import type { Config, DevInfo, TransferKind } from "@shared/types";
 import TransferImport from "../TransferImport";
 import { useCopy } from "../useCopy";
-import { ConfigPickerModal } from "../ConfigPickerModal";
 import { ConfigAvatar } from "../ConfigAvatar";
 import { useConfigPicker } from "../useConfigPicker";
 import { buildReport } from "../devReport";
@@ -222,16 +232,32 @@ function LanguagePicker({ value }: { value: string }) {
 }
 
 export default function GeneralTab() {
-  const { cfg, save, wallpaperPaused, updateAvailable, setUpdateAvailable } =
-    useStore(
-      useShallow((s) => ({
-        cfg: s.cfg,
-        save: s.save,
-        wallpaperPaused: s.wallpaperPaused,
-        updateAvailable: s.updateAvailable,
-        setUpdateAvailable: s.setUpdateAvailable,
-      })),
-    );
+  const {
+    cfg,
+    save,
+    wallpaperPaused,
+    updateAvailable,
+    setUpdateAvailable,
+    updateCheck,
+  } = useStore(
+    useShallow((s) => ({
+      cfg: s.cfg,
+      save: s.save,
+      wallpaperPaused: s.wallpaperPaused,
+      updateAvailable: s.updateAvailable,
+      setUpdateAvailable: s.setUpdateAvailable,
+      updateCheck: s.updateCheck,
+    })),
+  );
+  // "Never checked" is the honest reading of no record, and it is a different
+  // statement from "checked and found nothing".
+  const check = updateCheck ?? { atMs: null, outcome: null };
+  const locale = useLocale();
+  // The same one-line summary the update toast shows. `notes` is the raw
+  // markdown body from latest.json, so rendering it here is how the About card
+  // ends up printing "## 0.2.34 -- 2026-10-04 ### Added - **transfer:** ..."
+  // to a user; the full list is one scroll below in the changelog card.
+  const updateSummary = summaryFor(updateAvailable?.notes ?? null);
   // Each row drives a delete of its own entry, keyed by id so two rows can
   // work without blocking one another. Applying and capturing are not here any
   // more -- they belong to the picker dialog this card opens.
@@ -408,23 +434,21 @@ export default function GeneralTab() {
         {anchor(
           "scenes",
           <Card title={t("common.profiles")} icon={<IconLayers />}>
-            {/* Capturing and switching both happen in the picker dialog, which
-                the Overview header also opens — one implementation, so the two
-                surfaces cannot disagree about what is running. Opening straight
-                into its save view is what this button means: Settings is where
-                you manage configs, and the first thing you do there is add
-                one. The list below stays because deleting is not a thing a
-                picker should do, and this is the only place it is offered. */}
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <Btn variant="primary" onClick={picker.openSave}>
-                {t("settings.capture-current-look")}
-              </Btn>
-              {scenes.length > 0 && (
-                <Btn variant="ghost" onClick={picker.openBrowse}>
-                  {t("common.profiles")}
-                </Btn>
-              )}
-            </div>
+            {/* This card deliberately does not open the picker.
+
+                Two surfaces offering the same dialog is how they start to
+                disagree: Settings grew a button that opened it straight into
+                its save view, so the same action was reachable from two places
+                and the Overview's capture flow was no longer the obvious one.
+                Capturing and switching belong to the Overview, which owns the
+                header chip and the look on screen; Settings lists what exists
+                and lets you rename or delete it, which the picker does not do.
+
+                What is left is the list itself: rename and delete, which the
+                picker also offers per row. So this card is where a profile is
+                looked after, and the Overview is where one is applied or
+                captured — the two answers to two different questions, without
+                either opening the other's dialog. */}
             {scenes.length > 0 ? (
               /* Rows, not a grid of tiles: a profile is identified by its name
                  and its avatar, both of which read at a glance in a single
@@ -444,13 +468,19 @@ export default function GeneralTab() {
                           : "border-[var(--line)] hover:border-[var(--line-strong)]"
                       }`}
                     >
-                      <ConfigAvatar scene={s} size={30} onClick={picker.openBrowse} />
+                      <ConfigAvatar scene={s} size={30} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <ItemTitle className="truncate">{s.name}</ItemTitle>
                           {isRunning && (
-                            <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.1em] text-[rgb(var(--glow))]">
-                              {t("common.applied")}
+                            /* The same mark the Overview card uses, down to
+                               the tick and the wording. The two lists show the
+                               same profiles, so the one that says which profile
+                               is running must not be the one that says it
+                               differently. */
+                            <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[rgb(var(--glow))]">
+                              <IconCheck className="h-3.5 w-3.5" />
+                              {t("common.profile-applied-now")}
                             </span>
                           )}
                         </div>
@@ -478,22 +508,46 @@ export default function GeneralTab() {
                           // disabled attribute alone: the button is a
                           // convenience, the rule is not.
                           if (!picker.canDelete) return;
-                          void run(`scene-delete-${s.id}`, async () => {
-                            await api.sceneDelete(s.id).catch(() => {});
-                            const fresh = await api.getConfig();
-                            useStore.setState({ cfg: fresh });
-                            useStore
-                              .getState()
-                              .undoDelete(
-                                t("common.deleted-profile", { name: s.name }),
-                                (next) => {
-                                  // Pushed back verbatim: the profile carries its
-                                  // own wallpaper + rgb snapshot, and keeping the
-                                  // id means anything pointing at it still resolves.
-                                  next.scenes.push(s);
-                                },
+                          void run(
+                            `scene-delete-${s.id}`,
+                            async () => {
+                              // Not swallowed. A failed delete used to fall
+                              // through to the code below as though it had
+                              // worked: the user was told the profile was
+                              // deleted and handed an Undo button for something
+                              // still on disk, and pressing Undo would then
+                              // restore over a profile that never left. A
+                              // destructive action that did not happen has to
+                              // stop here.
+                              await api.sceneDelete(s.id);
+                              const fresh = await api.getConfig();
+                              useStore.setState({ cfg: fresh });
+                              useStore
+                                .getState()
+                                .undoDelete(
+                                  t("common.deleted-profile", { name: s.name }),
+                                  (next) => {
+                                    // Pushed back verbatim: the profile carries its
+                                    // own wallpaper + rgb snapshot, and keeping the
+                                    // id means anything pointing at it still resolves.
+                                    next.scenes.push(s);
+                                  },
+                                );
+                            },
+                            (error) => {
+                              // Nothing was deleted, so the list on screen is
+                              // still the truth and there is nothing to undo.
+                              // Silence would leave the user believing their
+                              // profile is gone.
+                              useStore.getState().toast(
+                                "error",
+                                t("common.could-not-delete-profile-{name}-{error}", {
+                                  name: s.name,
+                                  error: truncateError(error, 80),
+                                }),
                               );
-                          });
+                            },
+                          );
                         }}
                       >
                         {t("common.delete")}
@@ -506,22 +560,6 @@ export default function GeneralTab() {
               <p className="text-xs text-[var(--text-faint)]">
                 {t("common.no-profiles-yet-set-up-a-look-you-like-then-cap")}
               </p>
-            )}
-            {picker.open && (
-              <ConfigPickerModal
-                scenes={scenes}
-                activeId={picker.activeId}
-                applyingId={picker.applyingId}
-                startIn={picker.startInSave ? "save" : "browse"}
-                onClose={picker.close}
-                onApply={picker.apply}
-                onSave={picker.save}
-                onRename={picker.rename}
-                onDelete={picker.remove}
-                onChooseLogo={picker.chooseLogo}
-                onClearLogo={(id) => picker.setLogo(id, null)}
-          canDelete={picker.canDelete}
-              />
             )}
           </Card>,
         )}
@@ -599,10 +637,10 @@ export default function GeneralTab() {
                       {t("common.version-{version}-is-available", {
                         version: updateAvailable.version,
                       })}
-                      {updateAvailable.notes && (
+                      {updateSummary && (
                         <span className="text-(--text-dim)">
                           {" "}
-                          {updateAvailable.notes}
+                          {updateSummary}
                         </span>
                       )}
                     </div>
@@ -645,7 +683,11 @@ export default function GeneralTab() {
                         setUpdateAvailable(update);
                         if (update) {
                           // Same offer as the startup check: install from the toast.
-                          announceUpdate(update);
+                          // `repeat` because this button is the user asking --
+                          // if the automatic check already showed this version,
+                          // the announce-once guard would make the press a
+                          // silent no-op.
+                          announceUpdate(update, { repeat: true });
                         } else {
                           useStore
                             .getState()
@@ -680,6 +722,59 @@ export default function GeneralTab() {
                             })
                           : t("common.check-for-updates")}
                   </Btn>
+                </div>
+              </div>
+
+              {/* The recurring check, which is not the button above it: coming
+                  back to the window always checks whatever this says, and the
+                  button is a question rather than a poll.
+
+                  A dropdown rather than a slider because the meaningful choices
+                  are a handful of cadences. A slider offered every value in
+                  between, and there is no such thing as a deliberate 47-minute
+                  update check -- the precision was an illusion over a decision
+                  nobody makes that way. */}
+              <div className="mt-1">
+                <Select
+                  label={t("common.update-check-interval")}
+                  value={String(effectiveInterval(cfg?.general.updateCheckMinutes))}
+                  options={intervalChoices(cfg?.general.updateCheckMinutes).map((m) => ({
+                    id: String(m),
+                    // `intervalLabelKey` already resolves an off-list value to the
+                    // counted wording, so this is one lookup rather than a branch
+                    // that had to agree with it.
+                    label: t(intervalLabelKey(m), { n: m }),
+                  }))}
+                  onChange={(v) =>
+                    save((c) => (c.general.updateCheckMinutes = Number(v)))
+                  }
+                />
+                {/* What the last check did, and when. Without this the interval
+                    above is a blind dropdown: nothing distinguishes a working
+                    one from one that has been failing hourly, or one that has
+                    never run. */}
+                <div className="mt-2 flex min-w-0 items-center gap-2 text-[11px] text-[var(--text-faint)]">
+                  <span className="shrink-0">{t("update.last-check")}</span>
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                      check.outcome === "failed"
+                        ? "bg-amber-400"
+                        : check.outcome === "update"
+                          ? "bg-emerald-400"
+                          : "bg-[var(--line-strong)]"
+                    }`}
+                  />
+                  <span className="min-w-0 truncate">
+                    {check.outcome ? t(CHECK_OUTCOME_LABELS[check.outcome]) : t("update.not-checked-yet")}
+                  </span>
+                  {check.atMs != null && (
+                    <>
+                      <span aria-hidden>&middot;</span>
+                      <span className="shrink-0 font-mono tabular-nums">
+                        {checkTimeLabel(check.atMs, Date.now(), locale)}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             </Card>

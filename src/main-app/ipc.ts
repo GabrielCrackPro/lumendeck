@@ -8,6 +8,7 @@ import type {
   GalleryEntry,
   MediaInfo,
   OpenrgbStatus,
+  PerfSnapshot,
   RgbStatus,
   SceneProfile,
   StickerDef,
@@ -122,6 +123,14 @@ export const api = {
   volumeSet: (percent: number) => invoke<void>("volume_set", { percent }),
   /** Toggle system mute; resolves to the new state. */
   volumeMuteToggle: () => invoke<boolean>("volume_mute_toggle"),
+  /**
+   * The sampler's last CPU/memory reading. A read of a cached snapshot rather
+   * than a fresh measurement -- the backend samples on a timer because CPU
+   * load is a difference between two samples, so asking for it on demand would
+   * mean blocking for the sampling interval to get a number averaged over a
+   * window the caller never asked for.
+   */
+  perfSnapshot: () => invoke<PerfSnapshot>("perf_snapshot"),
   mediaCurrent: () => invoke<MediaInfo | null>("media_current"),
   /** The user's current Windows accent color (RGB triplet), for UI theming. */
   systemAccent: () => invoke<[number, number, number] | null>("system_accent"),

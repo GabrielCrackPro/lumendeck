@@ -11,8 +11,13 @@
 // design showed something this app cannot know -- GPU load, watts drawn, a
 // decoder's name, a frame cap -- the row is absent rather than invented.
 
-import { IconImage, IconSun, IconZap, IconBulb } from "../icons";
+import { useEffect, useRef, useState } from "react";
+import { IconImage, IconSun, IconZap, IconBulb, IconCopy, IconShuffle } from "../icons";
 import { Card, SwitchBtn } from "../ui";
+import { useCopy } from "../useCopy";
+import { wallpaperPalette, type PaletteEntry } from "../wallpaperPalette";
+import { formatHex } from "../colorHex";
+import { useStore } from "../../store";
 import { GalleryThumb } from "./GalleryThumb";
 import { hasTileMeta, tileMetaFor } from "./tileMeta";
 import type { VaultIndex } from "./vaultIndex";
@@ -20,6 +25,9 @@ import { GALLERY_KIND_LABEL } from "./kindLabels";
 import { t } from "../../i18n";
 import { basename } from "../../utilities";
 import type { Config, GalleryEntry } from "@shared/types";
+
+/** Stable identity, so "no palette yet" is not a fresh array on every render. */
+const EMPTY_PALETTE: PaletteEntry[] = [];
 
 export interface NowShowingCardProps {
   cfg: Config;
@@ -80,10 +88,60 @@ export function NowShowingCard({
     addedMs: 0,
   };
 
-  const zones = cfg.rgb.zones ?? [];
-  // Only zones that are actually mapped to a device. A zone with no device
-  // drives no light, so listing it in a row about lighting would be a lie.
-  const mappedZones = zones.filter((z) => z.deviceIds.length > 0);
+  // The colours the picture is putting on the wall. The map is selected by
+  // reference because it is rewritten at frame rate; a selector that built the
+  // palette itself would return fresh objects every call, so no shallow
+  // comparison could ever see it as unchanged.
+  const deviceColors = useStore((s) => s.deviceColors);
+  // Top-level rather than under `general`: it is about the vault, and the
+  // lighting section owns nothing here.
+  const galleryShuffle = cfg.galleryShuffle ?? false;
+  // Which wallpaper the captured colours belong to.
+  const wallpaperKey = `${cfg.wallpaper.kind}:${cfg.wallpaper.source}`;
+  // Captured once, not derived every sample.
+  //
+  // `deviceColors` is rewritten at frame rate, so a derived palette rebuilt the
+  // swatches on every tick -- the hex under each colour visibly flickered as
+  // the sampled value drifted, and a palette whose entries reorder themselves
+  // every second is not a palette anyone can read off the screen. So the row is
+  // a snapshot, taken the first time this wallpaper has colours, and held.
+  //
+  // Keyed by the wallpaper rather than captured forever: a snapshot of the last
+  // picture would still be showing long after the wallpaper changed, and it is
+  // the picture that is being described.
+  const [captured, setCaptured] = useState<{
+    key: string;
+    entries: PaletteEntry[];
+  } | null>(null);
+  const palette =
+    captured?.key === wallpaperKey ? captured.entries : EMPTY_PALETTE;
+  // Set on every wallpaper change, and cleared by the first sample that
+  // follows it.
+  //
+  // The colours in the store at the instant the wallpaper switches still
+  // belong to the wallpaper being switched away from -- the engine has not
+  // sampled the new picture yet. Capturing then would label the previous
+  // wallpaper's colours with the new wallpaper's name, which is worse than
+  // showing nothing for a second. So the first sample after a switch is
+  // discarded and the second one is captured.
+  const awaitingFreshSample = useRef<string | null>(null);
+  useEffect(() => {
+    setCaptured(null);
+    awaitingFreshSample.current = wallpaperKey;
+  }, [wallpaperKey]);
+  useEffect(() => {
+    if (captured) return;
+    if (awaitingFreshSample.current === wallpaperKey) {
+      awaitingFreshSample.current = null;
+      return;
+    }
+    const next = wallpaperPalette(deviceColors);
+    if (next.length > 0) setCaptured({ key: wallpaperKey, entries: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceColors, captured, wallpaperKey]);
+  // The shared clipboard hook, so a failed copy says so instead of silently
+  // doing nothing -- which is what a bare `navigator.clipboard` call does.
+  const { copy } = useCopy();
 
   return (
     // No item count and no Live badge in the header, both of which were here and
@@ -174,6 +232,25 @@ export function NowShowingCard({
             />
           </Row>
 
+          {/* Shuffle. Next to the wallpaper row because it changes how that
+              wallpaper is chosen, not how it renders -- a separate section
+              would make it look like a setting of its own. */}
+          <Row
+            icon={<IconShuffle className="h-3.5 w-3.5" />}
+            label={t("gallery.play-in-random-order")}
+            hint={
+              galleryShuffle
+                ? t("gallery.random-order-next-wallpaper-key")
+                : t("gallery.random-order-off-walks-in-order")
+            }
+          >
+            <SwitchBtn
+              checked={galleryShuffle}
+              onChange={(v) => save((c) => (c.galleryShuffle = v))}
+              title={t("gallery.play-in-random-order")}
+            />
+          </Row>
+
           <Row
             icon={<IconSun className="h-3.5 w-3.5" />}
             label={t("gallery.wallpaper-enabled")}
@@ -190,9 +267,11 @@ export function NowShowingCard({
             />
           </Row>
 
-          {/* Zone row. The chips are the real zone names, which is the thing
-              the reference design gestured at with C1..C4 — a list of what the
-              picture is currently driving. */}
+          {/* Colour row: the palette, and nothing about zones. The reference
+              design gestured at C1..C4 here, which is a list of what the picture
+              drives; where sampling happens is a lighting setting, and showing
+              it on a row about colours made the row look like it was about
+              something it was not. */}
           <div className="flex min-w-0 items-start gap-2.5 rounded-[var(--radius-md)] px-1 py-2">
             <IconZap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--text-faint)]" />
             <div className="min-w-0 flex-1">
@@ -200,31 +279,61 @@ export function NowShowingCard({
                 <span className="text-[13px] font-medium text-[var(--text)]">
                   {t("gallery.colour-extraction")}
                 </span>
-                <span className="font-mono text-[10px] text-[var(--text-faint)]">
-                  {t("common.{n}-zones", { n: mappedZones.length })}
-                </span>
+                {palette.length > 0 && (
+                  <span className="font-mono text-[10px] text-[var(--text-faint)]">
+                    {t("common.{n}-colours", { n: palette.length })}
+                  </span>
+                )}
               </div>
               <p className="mt-0.5 text-[11px] leading-snug text-[var(--text-faint)]">
-                {mappedZones.length > 0
-                  ? t("gallery.zones-following-this-picture")
-                  : t("gallery.no-zones-mapped-yet")}
+                {palette.length > 0
+                  ? t("gallery.colours-sampled-from-this-picture")
+                  : t("gallery.waiting-for-a-colour-reading")}
               </p>
-              {mappedZones.length > 0 && (
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  {mappedZones.slice(0, 4).map((z) => (
-                    <span
-                      key={z.id}
-                      title={z.name}
-                      className="max-w-[7rem] truncate rounded-md border border-[rgb(var(--glow)/0.45)] bg-[rgb(var(--glow)/0.12)] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.08em] text-[rgb(var(--glow))]"
-                    >
-                      {z.name}
-                    </span>
-                  ))}
-                  {mappedZones.length > 4 && (
-                    <span className="rounded-md border border-[var(--line)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--text-faint)]">
-                      {t("common.{n}-more", { n: mappedZones.length - 4 })}
-                    </span>
-                  )}
+              {/* The colours the picture is putting out. Each swatch is a
+                  button: the hex is the thing worth taking away, and a colour
+                  you can only look at is one you cannot paste anywhere else.
+
+                  Nothing about zones lives here. Where the picture is sampled is
+                  a lighting setting with its own section, and repeating it here
+                  made this row look like it was about zones rather than about
+                  the colours it was showing. */}
+              {palette.length > 0 && (
+                /* A snapshot, so the row does not reorder itself while it is
+                   being read. The count sits on the right because how many
+                   colours were found is worth knowing: fewer than four means the
+                   picture is close to monochrome. */
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                  {palette.map((entry) => {
+                    const hex = formatHex(entry.rgb);
+                    return (
+                      <button
+                        key={hex}
+                        type="button"
+                        onClick={() => void copy(hex)}
+                        title={t("common.copy-colour-{hex}", { hex })}
+                        className="group flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--panel)] py-1 pl-1 pr-2 transition-colors hover:border-[rgb(var(--glow)/0.45)] hover:bg-[var(--panel-strong)] focus-glow"
+                      >
+                        {/* Big enough to recognise as a colour rather than a
+                            dot: 16px is the smallest swatch that can be told
+                            apart from its neighbour. The dark edge keeps a
+                            near-white colour from dissolving into the panel. */}
+                        <span
+                          aria-hidden="true"
+                          className="h-5 w-5 shrink-0 rounded-sm border border-black/30"
+                          style={{ background: hex }}
+                        />
+                        <span className="font-mono text-[11px] text-[var(--text-dim)] group-hover:text-[var(--text)]">
+                          {hex}
+                        </span>
+                        {/* Faint at rest rather than invisible: a copy icon that
+                            only appears under the pointer is an affordance
+                            nobody discovers, and on a touch pointer it never
+                            appears at all. */}
+                        <IconCopy className="h-3 w-3 shrink-0 text-[var(--text-faint)] opacity-40 transition-opacity group-hover:opacity-100" />
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>

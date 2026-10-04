@@ -7,14 +7,23 @@ import { DEFAULT_GLOW } from "@shared/constants";
 import { readableOnTheme } from "../accent";
 import { useEffectiveTheme } from "../theme";
 import TitleBar from "./TitleBar";
-import { AppMark } from "./ui";
-import Sidebar, { SETTINGS_TAB, TABS, shortcutRows } from "./Sidebar";
+import { AppMark, ComboCaps } from "./ui";
+import Sidebar, {
+  ANCHOR_FRAMES,
+  SETTINGS_TAB,
+  TABS,
+  anchorSelector,
+  isAnchorFor,
+  isTabId,
+  shortcutRows,
+} from "./Sidebar";
 import type { TabId } from "./Sidebar";
 import { t } from "../i18n";
 import { ConfigAvatar } from "./ConfigAvatar";
 import { ConfigPickerModal } from "./ConfigPickerModal";
 import { useConfigPicker } from "./useConfigPicker";
 import { isLiveStatus } from "./liveStatus";
+import { installDelegatedTooltips } from "./Tooltip";
 
 /** Read the --glow triplet currently on :root, or null when unparsable. */
 function currentGlow(): [number, number, number] | null {
@@ -268,6 +277,20 @@ function Toasts() {
                     {t.action.label}
                   </button>
                 )}
+                {/* The reading link, under the action: two intentions, two
+                    weights. A toast has no room for two equal buttons, and
+                    installing is the one that should look like the default. */}
+                {t.link && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      t.link!.run();
+                    }}
+                    className="mt-1.5 text-[11px] font-medium text-[var(--text-faint)] underline underline-offset-2 transition-colors hover:text-[var(--text-dim)]"
+                  >
+                    {t.link.label}
+                  </button>
+                )}
               </div>
             </div>
             {t.progress != null && (
@@ -378,16 +401,7 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
               className="flex items-center justify-between gap-4 rounded-lg px-2.5 py-2"
             >
               <span className="text-sm text-[var(--text-dim)]">{r.what}</span>
-              <span className="flex shrink-0 gap-1">
-                {r.keys.map((k) => (
-                  <kbd
-                    key={k}
-                    className="rounded-[4px] border border-[var(--line-strong)] bg-[var(--panel-strong)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text)]"
-                  >
-                    {k}
-                  </kbd>
-                ))}
-              </span>
+              <ComboCaps keys={r.keys} />
             </li>
           ))}
         </ul>
@@ -424,7 +438,65 @@ function TabSkeleton() {
 }
 
 export default function Shell() {
+  // One delegated listener covers every `data-tip` in the tree, which is how
+  // the long tail of controls that used to set a native `title` now get the
+  // app's own tooltip without each one being wrapped.
+  useEffect(() => installDelegatedTooltips(), []);
   const [tab, setTab] = useState<TabId>("overview");
+  // Navigation requested from outside the dashboard — the update toast sends
+  // the user to the changelog this way. The tab lives here rather than in the
+  // store because it is the one piece of navigation state no store consumer
+  // needs, which leaves a module-level toast unable to change it. The request
+  // is cleared as it is applied so it cannot re-fire on a later render.
+  //
+  // Checked rather than cast, because the store holds a plain string: a request
+  // naming a tab that does not exist would set the pane to an id nothing
+  // renders, leaving the dashboard blank with no error.
+  const navRequest = useStore((s) => s.navRequest);
+  const clearNavRequest = useStore((s) => s.clearNavRequest);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [pendingAnchor, setPendingAnchor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!navRequest) return;
+    // Split in two on purpose. `setTab` commits a render in which the pane may
+    // still be suspended, so the anchor is looked for on the next frame rather
+    // than in this one, and dropped if the tab has no such anchor -- landing on
+    // the right screen is worth doing even when the spot does not exist.
+    if (isTabId(navRequest.tab)) {
+      setTab(navRequest.tab);
+      const anchor = navRequest.anchor;
+      setPendingAnchor(
+        anchor && isAnchorFor(navRequest.tab, anchor) ? anchor : null,
+      );
+    }
+    clearNavRequest();
+  }, [navRequest, clearNavRequest]);
+
+  // Scroll the anchor into view once the pane has actually rendered.
+  //
+  // Retried across frames because every tab is `lazy()`: the first frame after a
+  // switch is the Suspense skeleton, and an anchor found -- or given up on --
+  // there would be a decision made about markup that did not exist yet. The
+  // budget is bounded so a genuinely absent anchor cannot leave a frame loop
+  // running for the life of the window.
+  useEffect(() => {
+    if (!pendingAnchor) return;
+    let tries = 0;
+    let raf = requestAnimationFrame(function attempt() {
+      const el = paneRef.current?.querySelector(anchorSelector(pendingAnchor!));
+      if (el) {
+        (el as HTMLElement).scrollIntoView({ block: "start" });
+        setPendingAnchor(null);
+        return;
+      }
+      if (++tries >= ANCHOR_FRAMES) {
+        setPendingAnchor(null);
+        return;
+      }
+      raf = requestAnimationFrame(attempt);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [pendingAnchor, tab]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
@@ -591,7 +663,11 @@ export default function Shell() {
                 window a hard cap left a dead gutter wider than the sidebar
                 beside it. The cap still stops an ultrawide from stretching a
                 single column across three feet of glass. */}
-            <div key={tab} className="page-enter mx-auto w-full max-w-[2600px]">
+            <div
+              key={tab}
+              ref={paneRef}
+              className="page-enter mx-auto w-full max-w-[2600px]"
+            >
               <Suspense fallback={<TabSkeleton />}>
                 {tab === "overview" && (
                   <OverviewTab

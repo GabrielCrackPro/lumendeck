@@ -27,6 +27,7 @@ pub mod tokens;
 pub mod media;
 pub mod media_session;pub mod mouse_hook;
 pub mod pause;
+pub mod perf;
 pub mod placement_overlay;
 pub mod playlist;
 pub mod rgb;
@@ -439,6 +440,7 @@ pub fn run() {
         .manage(rgb::EngineState::new())
         .invoke_handler(tauri::generate_handler![
             ipc::get_config,
+            ipc::perf_snapshot,
             ipc::set_config,
             ipc::reload_config,
             ipc::log_sticker_render,
@@ -534,6 +536,12 @@ pub fn run() {
             // user changes it (Settings > Personalization, or an external app).
             crate::sys_theme::spawn_accent_watcher(app.handle().clone());
             crate::volume::spawn_watcher(app.handle().clone());
+
+            // CPU/RAM for the header strip. Started here rather than when the
+            // dashboard window first asks for it, so the strip has a reading by
+            // the time it is painted. Idempotent, so a window recreated after a
+            // display change does not start a second sampler.
+            crate::perf::start();
 
             // Repair the lock screen on startup. Builds before the toggle had a
             // release path could leave `LockScreenImage` pointing at us with the
@@ -648,7 +656,10 @@ pub fn run() {
             .min_inner_size(900.0, 640.0)
             .resizable(true)
             .decorations(false)
-            .visible(false);
+            .visible(false)
+            // Stated rather than inherited: see `devtools_allowed` for why the
+            // keys have to be stopped here rather than in the page.
+            .devtools(crate::window_utils::devtools_allowed());
             if let Some(icon) = app.default_window_icon() {
                 main_window_builder = main_window_builder.icon(icon.clone())?;
             }
