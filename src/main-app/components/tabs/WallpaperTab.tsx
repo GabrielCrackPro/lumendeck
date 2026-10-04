@@ -46,6 +46,7 @@ import {
   type StampMap,
   type VaultIndex,
 } from "../gallery/vaultIndex";
+import { autoIndexEnabled, buildAfterImport } from "../gallery/autoIndex";
 import { type GalleryDensity } from "../gallery/GalleryToolbar";
 
 type MonEntry = MonitorEntry;
@@ -157,7 +158,12 @@ export default function WallpaperTab() {
           setDropBusy(true);
           api
             .galleryImportPaths(paths)
-            .then((list) => {
+            .then(async (list) => {
+              if (seq !== importSeq) return;
+              // Same treatment as the toolbar's import buttons: a drop is an
+              // import, and leaving its files unmeasured would make the drop
+              // path the one route that quietly does not index.
+              await indexAfterImport(list.length);
               if (seq !== importSeq) return;
               toast(
                 "ok",
@@ -385,6 +391,7 @@ export default function WallpaperTab() {
         );
         const last = lists.at(-1)?.at(-1);
         if (last && appliesOnImport) await api.galleryApply(last.id);
+        await indexAfterImport(picked.length);
         toast(
           "ok",
           appliesOnImport
@@ -402,6 +409,7 @@ export default function WallpaperTab() {
         const folder = await api.pickMediaFolder();
         if (!folder) return;
         const list = await api.galleryImportFolder(folder);
+        await indexAfterImport(list.length);
         toast("ok", t("gallery.imported-{n}-items-from-the-folder", { n: list.length }));
       },
       (e) => toast("error", t("gallery.folder-import-failed-{error}", { error: truncateError(e) })),
@@ -409,6 +417,10 @@ export default function WallpaperTab() {
 
   /** Whether a fresh import should take over the screens. */
   const appliesOnImport = wall.applyAfterImport !== false;
+  /** Whether a fresh import gets measured. Read through `autoIndexEnabled` for
+   *  the same reason as above: a config predating the field has no value, and
+   *  the answer for it is the same as for one that says true. */
+  const indexesOnImport = autoIndexEnabled(wall);
 
   /**
    * Download a link into the vault.
@@ -428,6 +440,7 @@ export default function WallpaperTab() {
         const added = list[list.length - 1];
         const applied = !!added && appliesOnImport;
         if (applied) await api.galleryApply(added!.id);
+        await indexAfterImport(list.length);
         toast(
           "ok",
           t(
@@ -620,6 +633,54 @@ export default function WallpaperTab() {
       setVaultIndex(
         await buildIndex(cfg.gallery, stamps, (p) => setIndexProgress({ done: p.done, total: p.total })),
       );
+    } catch (e) {
+      toast("error", t("gallery.indexing-failed-{error}", { error: truncateError(e) }));
+    } finally {
+      setIndexing(false);
+      setIndexProgress(null);
+    }
+  };
+
+  /**
+   * Measure what an import just brought in, when the setting says to.
+   *
+   * Runs after the gallery has been written, and reads the config back rather
+   * than trusting `cfg.gallery` from the render closure: the import command has
+   * only just returned, so the store may still hold the pre-import vault. Indexing
+   * that would measure the wrong list -- or, on a first import, an empty one, and
+   * report itself complete.
+   *
+   * Silently skipped when the index is already complete or a build is running,
+   * so an ordinary import stays ordinary. Only a failure is worth a toast, and
+   * only because the user was told their files were being measured.
+   */
+  const indexAfterImport = async (added: number) => {
+    // Read the config back rather than trusting `cfg.gallery` from the render
+    // closure: the import command has only just returned, so the store may still
+    // hold the pre-import vault. Indexing that would measure the wrong list — or,
+    // on a first import, an empty one, and report itself complete.
+    const fresh = await api.getConfig();
+    if (!autoIndexEnabled(fresh.wallpaper)) return;
+    try {
+      const result = await buildAfterImport(
+        {
+          added,
+          building: indexing,
+          entries: fresh.gallery,
+          index: readCache(),
+        },
+        {
+          onStart: () => setIndexing(true),
+          onProgress: (p) => setIndexProgress({ done: p.done, total: p.total }),
+        },
+      );
+      // Null means the index already covered the vault, or one was already
+      // running. Nothing to show and nothing to report.
+      if (!result) return;
+      setVaultIndex(result.index);
+      // The stamps the build ran against, so a later index on this tab judges
+      // coverage from the same view rather than re-probing everything.
+      setStamps(result.stamps);
     } catch (e) {
       toast("error", t("gallery.indexing-failed-{error}", { error: truncateError(e) }));
     } finally {
@@ -1008,6 +1069,30 @@ export default function WallpaperTab() {
                 }`}
               />
               {t("gallery.apply-after-import")}
+            </button>
+            {/* Its sibling rather than a fourth chip in the filter panel: both of
+                these answer "what happens when I import", and a user who turned
+                one off has almost certainly been surprised by the other too. The
+                same pill shape, and hidden at the same breakpoint so the row
+                either has both or neither. */}
+            <button
+              onClick={() =>
+                save((c) => (c.wallpaper.indexAfterImport = !indexesOnImport))
+              }
+              aria-pressed={indexesOnImport}
+              title={t("gallery.index-after-import")}
+              className={`hidden shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors sm:flex ${
+                indexesOnImport
+                  ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]"
+                  : "border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text-faint)] hover:text-[var(--text-dim)]"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  indexesOnImport ? "bg-[rgb(var(--glow))]" : "bg-[var(--line-strong)]"
+                }`}
+              />
+              {t("gallery.index-after-import")}
             </button>
             <Btn variant="primary" disabled={busy} onClick={() => setAddStep("sources")}>
               <IconPlus className="h-4 w-4" />

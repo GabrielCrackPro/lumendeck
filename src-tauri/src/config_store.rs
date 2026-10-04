@@ -514,6 +514,30 @@ mod tests {
     }
 
     #[test]
+    fn importing_measures_by_default_for_existing_configs_too() {
+        // `index_after_import` is true in `Config::default()`, so an upgrading
+        // user gets it — asserted rather than assumed, because "did I remember
+        // to put it in both places" is exactly the mistake the two-defaults
+        // split invites.
+        let json = serde_json::json!({
+            "version": crate::config::CONFIG_VERSION,
+            "wallpaper": {"kind": "shader", "source": "aurora"}
+        });
+        let cfg = parse_and_migrate(&json.to_string()).unwrap();
+        assert!(cfg.wallpaper.index_after_import);
+    }
+
+    #[test]
+    fn an_explicit_opt_out_of_auto_indexing_survives() {
+        let json = serde_json::json!({
+            "version": crate::config::CONFIG_VERSION,
+            "wallpaper": {"kind": "shader", "source": "aurora", "indexAfterImport": false}
+        });
+        let cfg = parse_and_migrate(&json.to_string()).unwrap();
+        assert!(!cfg.wallpaper.index_after_import);
+    }
+
+    #[test]
     fn color_hex_readout_respects_an_explicit_opt_out() {
         let json = serde_json::json!({
             "version": crate::config::CONFIG_VERSION,

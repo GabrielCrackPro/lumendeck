@@ -45,9 +45,11 @@ import {
   IconAlert,
   IconTerminal,
   IconCopy,
+  IconDownload,
 } from "../icons";
 import { t, LOCALE_NAMES } from "../../i18n";
-import type { DevInfo } from "@shared/types";
+import type { Config, DevInfo, TransferKind } from "@shared/types";
+import TransferImport from "../TransferImport";
 import { useCopy } from "../useCopy";
 import { ConfigPickerModal } from "../ConfigPickerModal";
 import { ConfigAvatar } from "../ConfigAvatar";
@@ -524,6 +526,16 @@ export default function GeneralTab() {
           </Card>,
         )}
 
+        {/* Import and export, in the profiles section rather than its own nav
+            entry. The two halves of it are about profiles and about the whole
+            configuration, and the profile half only makes sense next to the list
+            it exports — while the config half is the last-resort button nobody
+            should have to go hunting for. */}
+        {anchor(
+          "transfer",
+          <TransferCard onChanged={(fresh) => useStore.setState({ cfg: fresh })} />,
+        )}
+
         {anchor(
           "playback",
           <Card title={t("common.playback-engine")} icon={<IconPlay />}>
@@ -731,6 +743,71 @@ export default function GeneralTab() {
  * caller of factory_reset, so a misclick is unrecoverable. Quitting is now a
  * plain button, and it is the only control here.
  */
+/**
+ * Import and export, as profiles or as the whole configuration.
+ *
+ * The asymmetry between the two is the point of the card rather than an
+ * accident of it. Exporting profiles and importing profiles is additive and
+ * harmless — names are uniqued and ids reminted, so nothing local can be
+ * overwritten. Exporting the config and importing it is a replace, and it is
+ * presented as one: the confirmation names what is lost, not just what happens.
+ *
+ * The confirmation lives in `TransferImport`, not here, because onboarding
+ * offers the same import and the two copies of a destructive warning would
+ * eventually disagree about what an import costs.
+ */
+function TransferCard({ onChanged }: { onChanged: (cfg: Config) => void }) {
+  const { run } = usePending();
+
+  const exportTo = (kind: TransferKind, name: string) =>
+    run(
+      `transfer-export-${kind}`,
+      async () => {
+        const path = await api.transferPickSavePath(name);
+        // Cancelling a save dialog is the ordinary outcome, not a failure.
+        if (!path) return;
+        const written = await api.transferExport(kind, path);
+        useStore
+          .getState()
+          .toast("ok", t("settings.exported-to-{path}", { path: written }));
+      },
+      (e) =>
+        useStore
+          .getState()
+          .toast("error", t("settings.export-failed-{error}", { error: truncateError(e) })),
+    );
+
+  return (
+    <Card title={t("settings.import-export")} icon={<IconDownload />}>
+      <p className="mb-4 text-sm leading-relaxed text-[var(--text-dim)]">
+        {t("settings.export-profiles-description")}
+      </p>
+
+      <div className="flex flex-wrap gap-2.5">
+        <Btn
+          onClick={() => void exportTo("profiles", "lumendeck-profiles.json")}
+        >
+          <IconDownload className="h-4 w-4" />
+          {t("settings.export-profiles")}
+        </Btn>
+        <Btn onClick={() => void exportTo("config", "lumendeck-config.json")}>
+          <IconDownload className="h-4 w-4" />
+          {t("settings.export-config")}
+        </Btn>
+      </div>
+
+      {/* Below the exports rather than beside them: `TransferImport` swaps the
+          whole block for its confirmation, and a swap that ate one button of a
+          three-button row would reflow the other two mid-decision. */}
+      <TransferImport onChanged={onChanged} className="mt-3" />
+
+      <p className="mt-4 text-xs leading-relaxed text-[var(--text-faint)]">
+        {t("settings.export-config-description")}
+      </p>
+    </Card>
+  );
+}
+
 function DangerZone({
   confirming,
   onConfirm,

@@ -453,6 +453,18 @@ pub struct WallpaperConfig {
     /// meant. It is wrong for a folder: importing sixty files then leaves the
     /// sixtieth one on your desktop, which is never the intent.
     pub apply_after_import: bool,
+    /// Whether an import measures what it brought in (resolution, length).
+    ///
+    /// The vault index is what makes "sort by 4K" and "only the long ones"
+    /// answerable, and until it is built a freshly imported file has no
+    /// measurements at all. On by default for every existing config too, not
+    /// just new ones: there is no history to preserve, the work is bounded to
+    /// what was just added, and an upgrade is not a moment to start doing less.
+    ///
+    /// Off is for the person who imports a few hundred files and would rather
+    /// not pay for measuring them — the toolbar's "Index vault" button stays
+    /// there either way.
+    pub index_after_import: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -476,6 +488,7 @@ impl Default for WallpaperConfig {
             video_hue: 0.0,
             per_monitor: std::collections::BTreeMap::new(),
             apply_after_import: true,
+            index_after_import: true,
         }
     }
 }

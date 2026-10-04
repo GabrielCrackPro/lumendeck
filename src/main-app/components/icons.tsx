@@ -349,6 +349,14 @@ export const IconDownload = (props: P) => (
   </svg>
 );
 
+export const IconUpload = (props: P) => (
+  <svg {...base(props)}>
+    <path d="M12 20V10" />
+    <path d="m8 13 4-4 4 4" />
+    <path d="M5 5h14" />
+  </svg>
+);
+
 export const IconCopy = (props: P) => (
   <svg {...base(props)}>
     <rect x="9" y="9" width="11" height="11" rx="2.2" />

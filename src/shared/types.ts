@@ -36,6 +36,14 @@ export interface WallpaperConfig {
   perMonitor: Record<string, PerMonitorWallpaper>;
   /** Whether importing a wallpaper also puts it on the displays. */
   applyAfterImport?: boolean;
+  /**
+   * Whether an import measures what it brought in (resolution, length).
+   *
+   * Optional and read as `!== false`, like `applyAfterImport`: a config written
+   * before the field existed has no value here, and the answer for that config
+   * is the same as for one that says true.
+   */
+  indexAfterImport?: boolean;
 }
 
 /** Per-display wallpaper override (kind+source only; playback opts are global). */
@@ -380,6 +388,52 @@ export interface RgbDeviceInfo {
   typeName: string;
   leds: number;
   zones: string[];
+}
+
+export interface OpenrgbStatus {
+  /** The server answered and reported at least one device. */
+  ready: boolean;
+  /** The pinned OpenRGB version this app would fetch. */
+  version: string;
+  sizeBytes: number;
+  /** Where a human can verify the download claim. */
+  releasesPage: string;
+  /** Path to the unpacked portable build, once it exists. */
+  installedAt: string | null;
+}
+
+/** Which payload an export file carries, and so what importing it does. */
+export type TransferKind = "profiles" | "config";
+
+/**
+ * What importing an export file would do, resolved before anything is written.
+ *
+ * Exists so a destructive import can be confirmed on facts: `profiles` adds to
+ * what is here, `config` replaces all of it.
+ */
+export interface TransferPreview {
+  kind: TransferKind;
+  /** The LumenDeck version that wrote the file. */
+  fromVersion: string;
+  /** Profile names the file carries. Empty for a config import. */
+  profiles: string[];
+  /** True when this replaces the entire configuration. */
+  replacesEverything: boolean;
+  /**
+   * Media files travelling inside the bundle, for a config import.
+   *
+   * Zero for a JSON config export written before exports were bundled, which
+   * is a real and common file: it restored settings and a vault of dead paths.
+   */
+  bundledMedia: number;
+  /**
+   * Paths the exporting machine referenced but could not include, because the
+   * file was already gone from its disk.
+   *
+   * Reported rather than swallowed: a restore that quietly brings four tiles
+   * out of sixty is discovered one broken tile at a time otherwise.
+   */
+  missingMedia: string[];
 }
 
 export interface RgbStatus {

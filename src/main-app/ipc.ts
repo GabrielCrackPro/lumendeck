@@ -1,12 +1,13 @@
 // Thin typed wrappers over the Tauri IPC surface.
 import { invoke } from "@tauri-apps/api/core";
 import type { StampMap } from "./components/gallery/indexStamps";
-import type { DevInfo } from "@shared/types";
+import type { DevInfo, TransferKind, TransferPreview } from "@shared/types";
 import type {
   Config,
   EntryOptions,
   GalleryEntry,
   MediaInfo,
+  OpenrgbStatus,
   RgbStatus,
   SceneProfile,
   StickerDef,
@@ -139,7 +140,32 @@ export const api = {
   sceneSetLogo: (id: string, source: string | null) =>
     invoke<string>("scene_set_logo", { id, source }),
 
+  /**
+   * Write an export file. `kind` is "profiles" or "config"; the backend
+   * decides what goes in it and forces a `.json` extension. Resolves with the
+   * path actually written, which is not always the one asked for.
+   */
+  transferExport: (kind: TransferKind, path: string) =>
+    invoke<string>("transfer_export", { kind, path }),
+  /**
+   * Read an export file and say what importing it would do, changing nothing.
+   * Lets a destructive import be confirmed on facts rather than on a guess.
+   */
+  transferPreview: (path: string) => invoke<TransferPreview>("transfer_preview", { path }),
+  /**
+   * Apply an import. Returns the number of profiles that arrived. For "config"
+   * this replaces everything — preview first.
+   */
+  transferImport: (path: string) => invoke<number>("transfer_import", { path }),
+  /** Save/open dialogs for exports. Null when cancelled, which is not an error. */
+  transferPickSavePath: (defaultName: string) =>
+    invoke<string | null>("transfer_pick_save_path", { defaultName }),
+  transferPickOpenPath: () => invoke<string | null>("transfer_pick_open_path"),
+
   rgbStatus: () => invoke<RgbStatus>("rgb_status"),
+  openrgbStatus: () => invoke<OpenrgbStatus>("openrgb_status"),
+  openrgbInstall: () => invoke<string>("openrgb_install"),
+  openrgbLaunch: (exe: string) => invoke<void>("openrgb_launch", { exe }),
   rgbRefresh: () => invoke<void>("rgb_refresh"),
 
   /** Manual pause toggle (same as the tray control). Returns the new state. */

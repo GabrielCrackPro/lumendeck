@@ -900,6 +900,79 @@ pub fn gallery_apply_monitor(
     Ok(())
 }
 
+/// What the setup step needs to know about the OpenRGB requirement, without
+/// downloading anything.
+#[derive(serde::Serialize)]
+pub struct OpenrgbStatus {
+    /// The server answered and reported at least one device.
+    ready: bool,
+    /// The pinned version this app would fetch.
+    version: String,
+    /// Size of the download, for the button's own copy. Zero when unknown.
+    size_bytes: u64,
+    /// Where the human can check the claim.
+    releases_page: String,
+    /// Path to the unpacked executable, set once the portable build is on
+    /// disk, so a second setup run offers "start it" rather than "download
+    /// it". The executable rather than the folder: `openrgb_launch` takes one,
+    /// and handing it the folder made the Start button fail on a working
+    /// install.
+    installed_at: Option<String>,
+}
+
+/// Is OpenRGB already running and holding devices?
+#[tauri::command]
+pub fn openrgb_status(state: State<'_, crate::rgb::EngineState>) -> OpenrgbStatus {
+    let st = state.client.status();
+    OpenrgbStatus {
+        ready: st.connected && !st.devices.is_empty(),
+        version: crate::openrgb_setup::version().to_string(),
+        size_bytes: 0,
+        releases_page: crate::openrgb_setup::releases_page(),
+        installed_at: crate::openrgb_setup::installed_exe(&crate::config_store::data_dir())
+            .map(|exe| exe.display().to_string()),
+    }
+}
+
+/// Fetch the pinned OpenRGB build, verify it, and unpack it.
+///
+/// The only path in the app that downloads an executable, which is why the
+/// checksum is not optional: see openrgb_setup.rs. Never runs the MSI, never
+/// asks for elevation.
+#[tauri::command]
+pub async fn openrgb_install() -> Result<String, String> {
+    let data = crate::config_store::data_dir();
+    let exe = crate::openrgb_setup::download_and_install(&data).await?;
+    // A change to what is installed is worth one line in the log, which is the
+    // only place anyone can find out afterwards what the app fetched.
+    log::info!(
+        "openrgb {} unpacked to {}",
+        crate::openrgb_setup::version(),
+        exe.display()
+    );
+    Ok(exe.display().to_string())
+}
+
+/// Start the OpenRGB server with its SDK server enabled.
+///
+/// `--server` is what exposes the port LumenDeck's client connects to; without
+/// it the app runs, takes up the tray, and never lights anything up, which is
+/// the exact state the user was told they had fixed.
+#[tauri::command]
+pub fn openrgb_launch(exe: String) -> Result<(), String> {
+    let path = std::path::PathBuf::from(exe);
+    if !path.is_file() {
+        return Err("OpenRGB is not installed yet".into());
+    }
+    std::process::Command::new(&path)
+        .arg("--server")
+        .spawn()
+        .map_err(|e| format!("Could not start OpenRGB: {e}"))?;
+    log::info!("openrgb started from {}", path.display());
+    Ok(())
+}
+
+
 /// Download a remote wallpaper (direct video/image URL) into the app media
 /// folder and add it to the gallery. Returns the new entry (full list).
 /// Safety: HTTPS-only, 200 MB cap, extension sniffed from Content-Type —
@@ -2032,6 +2105,297 @@ pub fn scene_set_logo(id: String, source: Option<String>) -> Result<String, Stri
     Ok(path_str)
 }
 
+// ---------- Import / export ----------
+
+/// What the UI shows before an import replaces anything.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferPreview {
+    /// Which payload the file holds.
+    kind: crate::transfer::TransferKind,
+    /// The LumenDeck version that wrote it.
+    from_version: String,
+    /// Profiles the file carries, named — for a profiles import.
+    profiles: Vec<String>,
+    /// True when this replaces the whole config rather than adding to it.
+    replaces_everything: bool,
+    /// Media files travelling in the bundle, for a config import.
+    bundled_media: usize,
+    /// Paths the exporter referenced but could not include, because the file
+    /// was already gone. Reported so the confirmation can say the restore is
+    /// partial rather than leaving the user to find out tile by tile.
+    missing_media: Vec<String>,
+}
+
+/// Ask where to write an export, returning null if cancelled.
+///
+/// A Rust command rather than the frontend dialog plugin, because that is where
+/// every other dialog in this app lives and the dashboard's capability set
+/// grants no dialog permissions at all. Cancelling is a null, not an error: it
+/// is the ordinary outcome of a save dialog and must not raise a toast.
+#[tauri::command]
+pub async fn transfer_pick_save_path(default_name: String) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(app) = crate::app_handle() else {
+        return Ok(None);
+    };
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        // Both, because a config export is a zip and a profiles export is not.
+        // Listing only `json` would hide every config backup in the dialog.
+        .add_filter("LumenDeck export", &["zip", "json"])
+        .set_file_name(&default_name)
+        .save_file(move |path| {
+            let _ = tx.send(path.map(|p| p.to_string()));
+        });
+    rx.await.map_err(crate::error::err_str)
+}
+
+/// Ask which export file to import, returning null if cancelled.
+#[tauri::command]
+pub async fn transfer_pick_open_path() -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(app) = crate::app_handle() else {
+        return Ok(None);
+    };
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("LumenDeck export", &["zip", "json"])
+        .pick_file(move |path| {
+            let _ = tx.send(path.map(|p| p.to_string()));
+        });
+    rx.await.map_err(crate::error::err_str)
+}
+
+/// Write an export file somewhere the user picked.
+///
+/// The extension is forced to `.json` on the way out rather than trusted from
+/// the dialog, so a file called `backup.txt` still opens in something that can
+/// read it. Returns the path actually written, which is not always the path
+/// asked for.
+#[tauri::command]
+pub async fn transfer_export(
+    kind: crate::transfer::TransferKind,
+    path: String,
+) -> Result<String, String> {
+    let cfg = crate::config_store::get();
+    let file = crate::transfer::build_export(kind, &cfg, env!("CARGO_PKG_VERSION"), &cfg.scenes);
+    let text = crate::transfer::to_json(&file);
+
+    // A profiles export is JSON: profiles are wallpaper and lighting settings,
+    // and none of that is a file. A config export is a bundle, because a vault
+    // is a list of absolute paths and those do not survive being copied to
+    // another machine.
+    if kind == crate::transfer::TransferKind::Profiles {
+        let target = with_extension(path, "json");
+        std::fs::write(&target, text).map_err(crate::error::err_str)?;
+        log::info!("exported {:?} to {}", file.kind, target.display());
+        return Ok(target.display().to_string());
+    }
+
+    let plan = crate::transfer_archive::plan_bundle(&cfg, &|p| {
+        std::path::Path::new(p).is_file()
+    });
+    let target = with_extension(path, "zip");
+    crate::transfer_bundle::write_bundle(&target, &text, &plan.files, &plan.missing)?;
+    // One line, and it says what and where plus how much travelled — an export
+    // is the one action whose result the user cannot see in the app, and a
+    // bundle that silently left files behind would read as complete.
+    log::info!(
+        "exported config to {} ({} media, {} missing)",
+        target.display(),
+        plan.files.len(),
+        plan.missing.len()
+    );
+    Ok(target.display().to_string())
+}
+
+/// Read an export file and say what importing it would do, writing nothing.
+///
+/// Split from the apply so the caller can show a summary and get a yes. A config
+/// import replaces everything, and that is not a thing to discover after the
+/// fact.
+#[tauri::command]
+pub fn transfer_preview(path: String) -> Result<TransferPreview, String> {
+    let p = std::path::PathBuf::from(&path);
+    let text = if is_zip(&p) {
+        crate::transfer_bundle::read_envelope(&p)?
+    } else {
+        read_text_file(&path)?
+    };
+    let file = crate::transfer::parse_export(&text)?;
+    let profiles = match file.kind {
+        crate::transfer::TransferKind::Profiles => {
+            file.profiles.iter().map(|p| p.name.clone()).collect()
+        }
+        crate::transfer::TransferKind::Config => Vec::new(),
+    };
+    // Only a bundle can carry media; a JSON config export from an older build
+    // genuinely has none, and saying so is more useful than implying a restore
+    // will bring the vault with it.
+    let (bundled_media, missing_media) = if is_zip(&p) {
+        let bundled = crate::transfer_bundle::count_media(&p).unwrap_or(0);
+        let missing = crate::transfer_bundle::read_missing(&p);
+        (bundled, missing)
+    } else {
+        (0, Vec::new())
+    };
+    Ok(TransferPreview {
+        replaces_everything: matches!(file.kind, crate::transfer::TransferKind::Config),
+        kind: file.kind,
+        from_version: file.app_version,
+        profiles,
+        bundled_media,
+        missing_media,
+    })
+}
+
+/// Apply an import read from disk.
+///
+/// The whole decision — validate, remint, rename — happens in `plan_import`
+/// before anything is written, so a file that turns out to be wrong leaves the
+/// current config exactly as it was.
+#[tauri::command]
+pub fn transfer_import(app: AppHandle, path: String) -> Result<usize, String> {
+    let p = std::path::PathBuf::from(&path);
+    let bundled = is_zip(&p);
+    let text = if bundled {
+        crate::transfer_bundle::read_envelope(&p)?
+    } else {
+        read_text_file(&path)?
+    };
+    let current = crate::config_store::get();
+
+    // Unpacked before the config is replaced, so a vault never points at files
+    // that were never written: that state looks whole and is entirely broken.
+    let landed = if bundled {
+        let envelope = crate::transfer::parse_export(&text)?;
+        let incoming_cfg = envelope.config.clone().unwrap_or_default();
+        // Which gallery entry a bundled file belongs to, so the unpacked name
+        // comes from our own id rather than anything the archive said.
+        let by_source: std::collections::HashMap<&str, &str> = incoming_cfg
+            .gallery
+            .iter()
+            .map(|g| (g.source.as_str(), g.id.as_str()))
+            .collect();
+        let unpacked = crate::transfer_bundle::restore_bundle(
+            &p,
+            &media_dir(),
+            &incoming_cfg,
+            &|src| {
+                by_source
+                    .get(src)
+                    .map(|id| (*id).to_string())
+                    .unwrap_or_else(nanoid_like)
+            },
+        )?;
+        if unpacked.rejected > 0 {
+            log::warn!(
+                "ignored {} unrecognised member(s) in the bundle",
+                unpacked.rejected
+            );
+        }
+        log::info!(
+            "unpacked {} media file(s), {} MB, from {path}",
+            unpacked.landed.len(),
+            unpacked.bytes / (1024 * 1024)
+        );
+        unpacked.landed
+    } else {
+        std::collections::BTreeMap::new()
+    };
+
+    let plan = crate::transfer::plan_import(&text, &current, &mut || {
+        format!("scene-{}", nanoid_like())
+    })?;
+
+    match plan.config {
+        Some(mut incoming) => {
+            let count = incoming.scenes.len();
+            let rewritten = crate::transfer_archive::rewrite_paths(&mut incoming, &landed);
+            // A replace, deliberately. The caller was warned by
+            // `transfer_preview` and is expected to have exported first.
+            crate::config_store::set(incoming)?;
+            let fresh = crate::config_store::get();
+            apply_side_effects(&app, &fresh);
+            log::info!(
+                "config imported from {path} ({count} profiles, {rewritten} path(s) repointed)"
+            );
+            Ok(count)
+        }
+        None => {
+            let added = plan.profiles.len().saturating_sub(current.scenes.len());
+            crate::config_store::update(|c| c.scenes = plan.profiles.clone())?;
+            log::info!("imported {added} profile(s) from {path}");
+            Ok(added)
+        }
+    }
+}
+
+/// Force an extension, adding one only when there is none.
+///
+/// Adding rather than replacing: a user who typed `backup.v1` meant that name,
+/// while one who left the dialog's default without an extension meant `.zip`.
+fn with_extension(path: String, ext: &str) -> std::path::PathBuf {
+    let p = std::path::PathBuf::from(path);
+    match p.extension().and_then(|e| e.to_str()) {
+        Some(e) if e.eq_ignore_ascii_case(ext) => p,
+        _ => {
+            let mut name = p.file_name().unwrap_or_default().to_os_string();
+            name.push(".");
+            name.push(ext);
+            p.with_file_name(name)
+        }
+    }
+}
+
+/// The app's own media directory, where bundled files are unpacked.
+///
+/// Already the home of URL downloads and profile logos, so a restored vault
+/// lands beside files the app already owns rather than in a second place.
+fn media_dir() -> std::path::PathBuf {
+    crate::config_store::data_dir().join("media")
+}
+
+/// Is this a bundle rather than a plain JSON export?
+///
+/// By magic bytes, not by extension: a user who renamed the file, and a build
+/// from before config exports were bundled, both have to land on the right path.
+fn is_zip(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut magic = [0u8; 2];
+    match f.read_exact(&mut magic) {
+        Ok(()) => magic == [0x50, 0x4b],
+        Err(_) => false,
+    }
+}
+
+/// Read an import file as text, with a size cap.
+///
+/// The cap is generous — a large vault's config runs to a few hundred KB — but
+/// it exists so picking a 4 GB video by mistake produces an error naming the
+/// problem rather than an out-of-memory.
+fn read_text_file(path: &str) -> Result<String, String> {
+    const MAX_BYTES: u64 = 64 * 1024 * 1024;
+    let p = std::path::PathBuf::from(path);
+    let meta = std::fs::metadata(&p).map_err(crate::error::err_str)?;
+    if !meta.is_file() {
+        return Err(format!("{} is not a file", p.display()));
+    }
+    if meta.len() > MAX_BYTES {
+        return Err(format!(
+            "that file is {} MB; an export is never that large",
+            meta.len() / (1024 * 1024)
+        ));
+    }
+    std::fs::read_to_string(&p).map_err(crate::error::err_str)
+}
+
 /// Reduce an id to something safe as a filename.
 ///
 /// Scene ids are generated, but they also arrive from a migrated config file,
@@ -2048,6 +2412,105 @@ fn sanitize_for_filename(id: &str) -> String {
         "scene".to_string()
     } else {
         cleaned.chars().take(64).collect()
+    }
+}
+
+#[cfg(test)]
+mod transfer_file_tests {
+    use super::{is_zip, read_text_file, with_extension};
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "lumendeck-transfer-test-{}-{name}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&p);
+        p
+    }
+
+    #[test]
+    fn a_config_export_is_written_with_a_zip_extension() {
+        assert!(with_extension(r"C:\backup".into(), "zip")
+            .to_string_lossy()
+            .ends_with("backup.zip"));
+    }
+
+    #[test]
+    fn an_extension_the_user_typed_is_kept_and_the_ours_appended() {
+        // `backup.v1` is a name they chose, not a mistake to correct.
+        assert!(with_extension(r"C:\exports\backup.v1".into(), "zip")
+            .to_string_lossy()
+            .ends_with("backup.v1.zip"));
+    }
+
+    #[test]
+    fn an_existing_extension_is_not_doubled() {
+        let out = with_extension(r"C:\backup.zip".into(), "zip");
+        assert!(out.to_string_lossy().ends_with("backup.zip"));
+        assert!(!out.to_string_lossy().ends_with(".zip.zip"));
+        // And a .json file renamed to .zip becomes .zip, not .zip.zip.
+        let out2 = with_extension(r"C:\backup.json".into(), "zip");
+        assert!(out2.to_string_lossy().ends_with("backup.json.zip"));
+    }
+
+    #[test]
+    fn a_bundle_is_recognised_by_its_bytes_not_its_name() {
+        // A user who renamed the file, or a build from before config exports
+        // were bundled, both have to land on the right path. Reading the name
+        // would get both wrong.
+        let zip = temp_path("detect.zip");
+        let plain = temp_path("detect.json");
+        std::fs::write(&zip, [0x50u8, 0x4b, 0x03, 0x04]).unwrap();
+        std::fs::write(&plain, "{}").unwrap();
+        assert!(is_zip(&zip));
+        assert!(!is_zip(&plain));
+        // A zip renamed .json is still a zip.
+        let renamed = temp_path("renamed.json");
+        std::fs::write(&renamed, [0x50u8, 0x4b, 0x03, 0x04]).unwrap();
+        assert!(is_zip(&renamed));
+        let _ = std::fs::remove_file(&zip);
+        let _ = std::fs::remove_file(&plain);
+        let _ = std::fs::remove_file(&renamed);
+    }
+
+    #[test]
+    fn a_file_is_read_back_as_written() {
+        let p = temp_path("roundtrip.txt");
+        std::fs::write(&p, "hello").unwrap();
+        assert_eq!(read_text_file(&p.to_string_lossy()).unwrap(), "hello");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn a_directory_is_refused_rather_than_read() {
+        let dir = std::env::temp_dir();
+        let err = read_text_file(&dir.to_string_lossy()).unwrap_err();
+        assert!(err.contains("not a file"), "got: {err}");
+    }
+
+    #[test]
+    fn a_missing_file_is_an_error_rather_than_an_empty_read() {
+        // The assertion is on the failure, not on its wording: Windows' own
+        // message names the file, and a test pinning an OS error string would
+        // fail on a locale change rather than on a behaviour change.
+        let p = temp_path("absent.json");
+        let err = read_text_file(&p.to_string_lossy()).unwrap_err();
+        assert!(!err.is_empty(), "the user must be told something");
+        assert!(
+            !err.contains("0 bytes"),
+            "a missing file is not an empty one"
+        );
+    }
+
+    #[test]
+    fn binary_content_is_refused_not_returned_as_mangled_text() {
+        // `read_to_string` rejects invalid UTF-8, which is the right answer for
+        // "that is not an export file" and much better than a lossy conversion
+        // that reaches `parse_export` as plausible-looking JSON.
+        let p = temp_path("binary.json");
+        std::fs::write(&p, [0xff, 0xfe, 0x00, 0x01]).unwrap();
+        assert!(read_text_file(&p.to_string_lossy()).is_err());
+        let _ = std::fs::remove_file(&p);
     }
 }
 

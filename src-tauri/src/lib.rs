@@ -39,7 +39,11 @@ pub mod lock_screen;
 pub mod lock_screen_reg;
 pub mod sticker_windows;
 pub mod taskbar_thumbnail;
+pub mod openrgb_setup;
 pub mod thumbs;
+pub mod transfer;
+pub mod transfer_archive;
+pub mod transfer_bundle;
 pub mod tray;
 pub mod wallpaper;
 pub mod volume;
@@ -123,6 +127,26 @@ use tauri::{
     tray::TrayIconBuilder,
     Manager,
 };
+use tauri_plugin_window_state::AppHandleExt;
+
+/// What is persisted about the dashboard window, for both the plugin's own
+/// save-on-exit and the debounced save on move/resize. One function so the two
+/// cannot drift: a window saved with flags the restore does not honour is the
+/// kind of bug that only shows up after a restart.
+///
+/// A `const fn` rather than a `const` because bitflags 2's `|` operator is not
+/// const -- `union` is.
+///
+/// VISIBLE is excluded on purpose. Restore calls `show()` and `set_focus()` on
+/// a window whose saved state was visible, and an autostart launch is meant to
+/// come up in the tray with nothing on screen -- with it set, the dashboard
+/// would appear on every login. DECORATIONS and FULLSCREEN are excluded for
+/// the same kind of reason: the dashboard is frameless and draws its own
+/// titlebar, so a stale value there is a bug waiting to happen.
+const fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
+    use tauri_plugin_window_state::StateFlags;
+    StateFlags::SIZE.union(StateFlags::POSITION).union(StateFlags::MAXIMIZED)
+}
 
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 
@@ -388,6 +412,23 @@ pub fn run() {
         // itself; `hotkeys::sync` applies the user's bindings once the
         // dashboard and tray exist.
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // Remember the dashboard's size, position and maximized state between
+        // launches, so reopening the app lands it where the user left it
+        // instead of centred at the default 1100x760 every single time.
+        //
+        // Scoped to one window on purpose. The sticker, placement and wallpaper
+        // windows are positioned from config on every launch, and restoring a
+        // previous run's geometry over the top would fight the code that owns
+        // it -- a sticker placed at (400, 300) would reopen at wherever it
+        // happened to be last night.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_filter(|label| label == "main")
+                // Flags live in WINDOW_STATE_FLAGS, which also drives the
+                // debounced save below; the rationale is documented there.
+                .with_state_flags(window_state_flags())
+                .build(),
+        )
         // Serve local media to webviews over http://media.localhost (WebView2
         // treats custom schemes this way, which enables range requests).
         .register_uri_scheme_protocol("media", |_ctx, request| {
@@ -425,6 +466,9 @@ pub fn run() {
             ipc::pick_media_folder,
             ipc::list_images,
             ipc::rgb_status,
+            ipc::openrgb_status,
+            ipc::openrgb_install,
+            ipc::openrgb_launch,
             ipc::rgb_refresh,
             ipc::send_zone_samples,
             ipc::update_rgb_config,
@@ -462,6 +506,11 @@ pub fn run() {
             ipc::scene_delete,
             ipc::scene_rename,
             ipc::scene_set_logo,
+            ipc::transfer_pick_save_path,
+            ipc::transfer_pick_open_path,
+            ipc::transfer_export,
+            ipc::transfer_preview,
+            ipc::transfer_import,
             ipc::media_transport,
             ipc::media_seek,
             ipc::media_shuffle,
@@ -633,8 +682,50 @@ pub fn run() {
             // wallpaper the user expects to keep.
             if let Some(win) = app.get_webview_window("main") {
                 let win_handle = win.clone();
+
+                // Persist the window state shortly after the user stops moving
+                // or resizing, instead of only when the process exits cleanly.
+                //
+                // The plugin saves on `RunEvent::Exit`, and a tray app rarely
+                // gets one: it is killed at logoff, stopped from a terminal,
+                // or ended from Task Manager, none of which run the exit event.
+                // Observed exactly that -- the state file was never written at
+                // all, and the dashboard came back un-maximised.
+                //
+                // Debounced because a drag fires this continuously; the flag
+                // collapses a burst of events into one write.
+                fn save_now(handle: &tauri::AppHandle) {
+                    if let Err(e) = handle.save_window_state(window_state_flags()) {
+                        // Debug, not a warning: the file lives in the app
+                        // config dir and a failure here is never fatal.
+                        log::debug!("window state not saved: {e}");
+                    }
+                }
+                let save_pending = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let save_handle = app.handle().clone();
+                let schedule_window_state_save = move || {
+                    if save_pending.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        return;
+                    }
+                    let pending = save_pending.clone();
+                    let handle = save_handle.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(800));
+                        pending.store(false, std::sync::atomic::Ordering::SeqCst);
+                        save_now(&handle);
+                    });
+                };
+                // The debounced save is the wrong tool for the moment the window
+                // goes away: maximize then immediately quit lands inside the
+                // 800ms window, the sleeping thread dies with the process, and
+                // the state is lost -- which is exactly the report this started
+                // from. Closing is rare and already a deliberate act, so it
+                // saves synchronously.
+                let close_handle = app.handle().clone();
+
                 win.on_window_event(move |ev| match ev {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
+                        save_now(&close_handle);
                         api.prevent_close();
                         let _ = win_handle.hide();
                     }
@@ -650,7 +741,13 @@ pub fn run() {
                         if win_handle.is_minimized().unwrap_or(false)
                             && config_store::get().general.minimize_to_tray =>
                     {
+                        save_now(&close_handle);
                         let _ = win_handle.hide();
+                    }
+                    // After the minimize arm above, so a minimize-to-tray does
+                    // not record the icon-sized rect Windows reports mid-restore.
+                    tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                        schedule_window_state_save();
                     }
                     _ => {}
                 });
