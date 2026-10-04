@@ -4,6 +4,20 @@ Step-by-step recipes for the changes that come up repeatedly. Conventions and
 hard rules live in [`AGENTS.md`](../AGENTS.md); how the pieces fit is in
 [`architecture.md`](architecture.md).
 
+## Contents
+
+**Recipes** — [adding a setting](#adding-a-setting) ·
+[adding an IPC command](#adding-an-ipc-command) ·
+[adding UI](#adding-ui) ·
+[adding user-facing copy](#adding-user-facing-copy) ·
+[a colour or LED appearance change](#adding-a-colour-or-led-appearance-change)
+
+**Reference** — [testing](#testing) · [logging](#logging)
+
+**Shipping** — [committing](#committing) · [releasing](#releasing)
+
+**When it goes wrong** — [troubleshooting](#troubleshooting)
+
 ## Before you start
 
 ```bash
@@ -11,7 +25,11 @@ pnpm install        # also installs the git hooks
 node scripts/verify.mjs
 ```
 
-Run `verify` before and after. It is the same set CI runs, in the same order.
+Run `verify` before and after. It is the same set CI runs, in the same order, and
+it stops at the first failure. Toolchain requirements are in the README's
+[requirements table](../README.md#to-build-it-from-source) — the common failure
+is a missing Visual Studio C++ workload, which surfaces as an unresolved
+`WebView2Loader.lib`.
 
 ## Running the app
 
@@ -31,7 +49,7 @@ around this short of adding a mock harness.
 2. Give it an entry in the relevant `Default` impl.
 3. Decide which default it means. A field whose value should differ between "new
    install" and "existing config" goes in `config_store::first_run_defaults()`,
-   not in `Config::default()` — see [`AGENTS.md`](AGENTS.md#config-defaults-have-two-different-meanings).
+   not in `Config::default()` — see [`AGENTS.md`](../AGENTS.md#config-defaults-have-two-different-meanings).
 4. Mirror it in `src/shared/types.ts`, camelCase, with a doc comment.
 5. Add a test for an older config that predates the field.
 6. Add the control to the right card in `components/tabs/`, and decide whether it
@@ -54,6 +72,7 @@ around this short of adding a mock harness.
 
 Compose from `components/ui.tsx`. The primitives there are not a style
 preference, they are the fix for four hand-rolled variants of the same button.
+Tokens, motion and the primitive list are in [`design.md`](design.md).
 
 Then extract the logic. Before you finish, the component should be mostly
 markup, with every decision it makes living in a tested module beside it:
@@ -86,6 +105,13 @@ Every string a person reads goes in both `locales/en.json` and `locales/es.json`
 
 Then run `node scripts/i18n-check.mjs`. It catches missing keys, dead keys,
 English left in a `label:` field, bare JSX text, and single-brace placeholders.
+
+Never edit a catalog inline. Write a throwaway `scripts/tmp-*.mjs` that asserts
+what it is about to do — the key does not already exist, the value has no
+single-brace placeholder, the Spanish differs from the English — run it, check
+the diff is the two lines you expected, then delete it. A hand-edited catalog
+loses a trailing comma about half the time, and the failure surfaces as a
+four-hundred-line parse error far from the line you broke.
 
 ## Adding a colour or LED appearance change
 
@@ -196,13 +222,20 @@ throws without an IPC host. Use `pnpm app:dev`.
 **A fix does not appear to work.** Check the timestamp on the executable you are
 running. Rebuild.
 
+**`cargo build` fails on `WebView2Loader.lib`.** Missing Visual Studio C++
+workload, not a missing SDK. See the README's build requirements.
+
+**The OpenRGB download fails on a real machine.** It has never been run end to
+end. The URL, digest and layout are pinned in `openrgb_setup.rs`; check the
+release still publishes that exact asset before assuming the code is wrong.
+
 **`cargo fmt --check` reports hundreds of files.** Expected. Do not run it.
 
 **An i18n key is reported as unused but you just used it.** It is behind a
 variable the checker cannot follow. Move it into a `FOO_LABELS` map.
 
 **The log is full of the same line.** Something is logging a poll instead of a
-transition. See [`AGENTS.md`](AGENTS.md#never-let-unchanged-state-reach-the-log).
+transition. See [`AGENTS.md`](../AGENTS.md#never-let-unchanged-state-reach-the-log).
 
 **Something looks wrong in the UI.** It very well is. This is the known blind
 spot: nothing renders the app outside the Tauri shell, so visual regressions are

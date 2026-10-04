@@ -9,6 +9,15 @@ Every value below is read from the code it describes, and the file is named at
 each section. If one of them is wrong, the code is the authority and this file
 is the bug.
 
+## Contents
+
+- [The idea in one paragraph](#the-idea-in-one-paragraph)
+- [Colour](#colour) — [themes](#themes) · [the accent](#the-accent---glow) · [rules](#rules)
+- [Radius](#radius) · [Typography](#typography) · [Layout and breakpoints](#layout-and-breakpoints)
+- [Components](#components) — [surfaces](#surfaces) · [controls](#controls) · [token classes](#tokens-when-you-need-the-classes-rather-than-the-component)
+- [Control states](#control-states) · [Motion](#motion) — [reduced motion](#reduced-motion)
+- [Icons](#icons) · [Copy](#copy) · [Traps](#traps) · [Where things live](#where-things-live)
+
 ---
 
 ## The idea in one paragraph

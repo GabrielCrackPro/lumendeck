@@ -3,6 +3,23 @@
 How LumenDeck is put together, and why the shapes are what they are. For
 conventions and hard rules see [`AGENTS.md`](../AGENTS.md).
 
+## Contents
+
+- [Processes and windows](#processes-and-windows)
+- [The frame pipeline](#the-frame-pipeline)
+- [IPC](#ipc)
+- [Configuration](#configuration)
+- [Threading](#threading)
+- [Logging](#logging)
+- [Build identity](#build-identity)
+- [Frontend](#frontend)
+- [Colour](#colour)
+
+If you are looking for a recipe rather than a reason — how to add a command, a
+setting or a piece of copy — it is in
+[`development.md`](development.md). If you are changing something that renders,
+[`design.md`](design.md) is the reference for tokens and primitives.
+
 ## Processes and windows
 
 One Rust process hosts four kinds of webview. They are separate webviews rather
@@ -52,7 +69,7 @@ sample colours from.
 The static background snapshot is deliberately **not** per-frame. It is pushed
 once per wallpaper source change, plus a periodic refresh. A push per frame makes
 the desktop background flicker and floods the log; if `desktop wallpaper set`
-appears more often than that, something is wrong and the README says so.
+appears more often than that, something is wrong.
 
 The blit loop caps itself to the video's own frame rate. A 24 fps source does
 roughly half the canvas work of a naive 60 fps loop with no visible difference.
