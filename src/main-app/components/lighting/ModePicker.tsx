@@ -100,7 +100,7 @@ export function ModePicker(props: ModePickerProps) {
                   onClick={() => onPick(id)}
                   data-tip={t(m.hint)}
                   aria-pressed={active}
-                  className={`group flex w-full flex-col overflow-hidden rounded-xl border text-left transition-all duration-200 active:scale-[0.98] ${
+                  className={`group flex w-full flex-col overflow-hidden rounded-xl border text-left transition-all var(--motion-base) var(--ease-standard) active:scale-[0.98] ${
                     active
                       ? "border-[rgb(var(--glow)/0.55)] shadow-[0_10px_30px_-12px_rgb(var(--glow)/0.6)] ring-1 ring-[rgb(var(--glow)/0.3)]"
                       : "border-[var(--line)] hover:border-[var(--line-strong)] hover:shadow-[0_4px_16px_-8px_rgb(var(--glow)/0.35)]"

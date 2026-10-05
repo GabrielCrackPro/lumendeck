@@ -221,7 +221,7 @@ function Splash({ stage, streaming }: { stage: Stage; streaming: boolean }) {
           {steps.map((s) => (
             <span
               key={s}
-              className={`h-1 w-10 rounded-full transition-all duration-500 ${
+              className={`h-1 w-10 rounded-full transition-all var(--motion-slow) var(--ease-standard) ${
                 s <= stage
                   ? "bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow))]"
                   : "bg-[var(--line-strong)]"

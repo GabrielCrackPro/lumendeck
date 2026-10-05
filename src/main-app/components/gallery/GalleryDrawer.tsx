@@ -215,7 +215,7 @@ export function GalleryDrawer({
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4 body-enter">
           {health && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-200">
               <span className="shrink-0 font-semibold">

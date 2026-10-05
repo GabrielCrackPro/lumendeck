@@ -16,7 +16,7 @@
 @utility live-pulse {
   /* The live pill breathes once on mount so "this is the one that's on" is not
      a static chip that can be confused with the selection ring. */
-  animation: livePulse var(--motion-slow) var(--ease-standard) both;
+  animation: livePulse var(--motion-slow) var(--ease-emphasized) both;
 }
 
 @keyframes livePulse {
@@ -38,10 +38,9 @@
 
 @utility overlay-action-play {
   /* The primary action on a tile is "apply this wallpaper" - it earns the only
-     lift in the cluster so it does not read as one button among four. */
-  transition: transform var(--motion-fast) var(--ease-standard),
-    background-color var(--motion-fast) ease,
-    color var(--motion-fast) ease;
+     lift in the cluster so it does not read as one button among four. */    transition: transform var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
   @media (hover: hover) {
     &:hover {
       transform: translateY(-1px);
@@ -52,6 +51,6 @@
 @utility overlay-action-danger {
   /* Destructive actions in the overlay cluster keep the shared icon treatment
      but do not lift - the contrast is the affordance. */
-  transition: background-color var(--motion-fast) ease,
-    color var(--motion-fast) ease;
+  transition: background-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
 }

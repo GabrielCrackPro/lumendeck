@@ -611,7 +611,7 @@ function ReloadToast() {
   return (
     <div
       aria-live="polite"
-      className={`pointer-events-none fixed right-4 bottom-4 z-50 rounded-full bg-neutral-900/70 px-3 py-1.5 font-sans text-xs text-neutral-300 ring-1 ring-white/10 backdrop-blur transition-all duration-500 ${
+      className={`pointer-events-none fixed right-4 bottom-4 z-50 rounded-full bg-neutral-900/70 px-3 py-1.5 font-sans text-xs text-neutral-300 ring-1 ring-white/10 backdrop-blur transition-all var(--motion-slow) var(--ease-standard) ${
         visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
       }`}
     >
@@ -1165,7 +1165,7 @@ function MediaSurface({
         src={src}
         alt=""
         crossOrigin="anonymous"
-        className="object-cover transition-opacity duration-700"
+        className="object-cover transition-opacity var(--motion-slow) var(--ease-standard)"
         style={{
           width: "100%",
           height: "100%",

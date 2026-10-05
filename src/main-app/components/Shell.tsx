@@ -61,7 +61,7 @@ function BootSplash() {
           {[0, 1, 2].map((i) => (
             <span
               key={i}
-              className="h-1 w-8 rounded-full animate-[lpulse_1.4s_ease-in-out_infinite] bg-[rgb(var(--glow))] shadow-[0_0_6px_rgb(var(--glow))]"
+              className="h-1 w-8 rounded-full pulse-slow bg-[rgb(var(--glow))] shadow-[0_0_6px_rgb(var(--glow))]"
               style={{ animationDelay: `${i * 0.2}s` }}
             />
           ))}
@@ -207,7 +207,7 @@ function Toasts() {
             {t.progress != null && (
               <div className="h-1 w-full bg-[var(--panel-sunken)]">
                 <div
-                  className="h-full bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow)/0.7)] transition-[width] duration-200"
+                  className="h-full bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow)/0.7)] transition-[width] var(--motion-base) var(--ease-standard)"
                   style={{ width: `${Math.max(2, Math.min(100, t.progress))}%` }}
                 />
               </div>

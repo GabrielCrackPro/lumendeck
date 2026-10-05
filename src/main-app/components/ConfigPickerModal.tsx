@@ -315,7 +315,7 @@ export function ConfigPickerModal({
               description={t("common.capture-the-whole-look-wallpaper-per-monitor-ove")}
             />
           ) : (
-            <ul className="flex flex-col gap-1 overflow-y-auto">
+            <ul className="flex flex-col gap-1 overflow-y-auto body-enter">
               {scenes.map((s) => {
                 const isActive = s.id === activeId;
                 const isApplying = s.id === applyingId;

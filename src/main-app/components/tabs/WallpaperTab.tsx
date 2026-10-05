@@ -1806,16 +1806,14 @@ export default function WallpaperTab() {
                         c.wallpaper.kind = "shader";
                         c.wallpaper.source = s.id;
                       })
-                    }
-                    className={`group overflow-hidden rounded-2xl border text-left transition-all duration-300 ${
+                    }                     className={`group overflow-hidden rounded-2xl border text-left transition-all var(--motion-slow) var(--ease-standard) ${
                       active
                         ? "border-[rgb(var(--glow)/0.7)] shadow-[0_10px_30px_-12px_rgb(var(--glow)/0.5)] ring-2 ring-[rgb(var(--glow)/0.2)]"
                         : "border-[var(--line)] hover:border-[var(--line-strong)]"
                     }`}
                   >
                     <div className="relative h-14 w-full overflow-hidden">
-                      <div
-                        className="h-full w-full transition-transform duration-700 group-hover:scale-110"
+                      <div                         className="h-full w-full transition-transform var(--motion-slow) var(--ease-standard) group-hover:scale-110"
                         style={{ background: SHADER_ART[s.id] }}
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />

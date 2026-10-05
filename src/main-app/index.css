@@ -87,6 +87,7 @@
   --ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
   --ease-emphasized: cubic-bezier(0.34, 1.4, 0.64, 1);
   --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-smooth: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 /* ---------- base ---------- */
@@ -232,10 +233,13 @@ body {
   color: var(--text-faint);
 }
 
-/* Glow-hover affordance for quiet buttons: border and text warm on hover. */
+/* Glow-hover affordance for quiet buttons: border and text warm on hover.
+   `fast` is the right register for a hover affordance on a 12px label — slow enough
+   to be felt, fast enough to answer the pointer. Kept on the scale rather than a
+   bare `150ms` so reduced-motion zeroes it with everything else.*/
 @utility hover-glow {
   transition-property: color, border-color;
-  transition-duration: 150ms;
+  transition-duration: var(--motion-fast);
 
   &:hover {
     border-color: rgb(var(--glow) / 0.5);
@@ -451,17 +455,14 @@ input[type="color"]::-webkit-color-swatch {
 
 /* ---------- motion ---------- */
 
-@keyframes lfade {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
+/* Decorative looping pulses, shared so the boot splash, the dev badge, the app
+   mark, the chip dot and the sidebar live dot all breathe at the same rate and
+   easing instead of four inline Tailwind animation strings that differ by a tenth
+   of a second each. Duration is a per-context class so a boot pulse can be faster
+   than a chip dot without inventing a new keyframe.
 
+   ease-in-out on purpose: a looping opacity/scale pulse that eases-out would
+   per-cycle and eases-out reads as a series of starts rather than a steady beat. */
 @keyframes lpulse {
   0%,
   100% {
@@ -483,6 +484,73 @@ input[type="color"]::-webkit-color-swatch {
   50% {
     transform: scale(1.05);
     filter: brightness(1.25);
+  }
+}
+
+/* A dot that pulses once on mount, then holds — for a status pill that has just
+   arrived at its on state and should not read as a static chip. */
+@keyframes pulse-on {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- shared transition classes ----------
+   Callers pick one of these instead of a literal `duration-N` / `ease-...`. The
+   mapping is the same one in the @theme block above; the classes exist so a
+   component never reaches for `duration-200` / `ease-out` by habit.
+
+   Transitions (state changes):
+     t-fast     hover / press / focus feedback, icon-button hover, chip hover
+     t-base     panel border, card lift, switch track/knob, chevron rotate, dropdown arrow
+     t-slow     larger state moves: card hover translate, image reveal opacity, accordion body
+
+   Loops (decorative, infinite): pulses and breaths — see the per-context classes below.
+
+   Entrances (one-shot, `animation:`): the `*-enter` classes below. */
+
+/* state-change transitions */
+.t-fast {
+  transition-property: color, background-color, border-color, transform, opacity, box-shadow;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-standard);
+}
+.t-base {
+  transition-property: color, background-color, border-color, transform, opacity, box-shadow, width;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--ease-standard);
+}
+.t-slow {
+  transition-property: color, background-color, border-color, transform, opacity, box-shadow;
+  transition-duration: var(--motion-slow);
+  transition-timing-function: var(--ease-standard);
+}
+
+/* Press feedback: a button's `active:scale-*` snap should move at the same 160ms everywhere.
+   Color/opacity/shadow are intentionally absent — a press only moves, it does not recolor. */
+.btn-active {
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+/* A small icon nudge on hover (e.g. a jump-link chevron sliding 2px). Fast, an affordance not a move. */
+.chevron-slide {
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+
+@keyframes lfade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -625,11 +693,55 @@ input[type="color"]::-webkit-color-swatch {
      lift, and a hover that takes 450ms to answer reads as lag rather than
      motion. box-shadow and border-color are listed so overriding the Tailwind
      `transition-all` does not cost the rest of the tile its hover. */
-  transition: opacity var(--motion-base) cubic-bezier(0.2, 0.7, 0.2, 1),
-    transform var(--motion-base) cubic-bezier(0.2, 0.7, 0.2, 1),
+  transition: opacity var(--motion-base) var(--ease-smooth),
+    transform var(--motion-base) var(--ease-smooth),
     box-shadow var(--motion-base) ease,
     border-color var(--motion-base) ease;
 }
+
+/* Image hover scale — a deliberately slower, separate register from the state-change
+   scale above. Scaling a photograph by 1.05 reads as a reveal, and anything faster
+   than ~460ms feels like a jitter on the picture rather than a gesture. These are
+   the only transitions that sit outside the `--motion-*` register on purpose, and
+   they all go to the same place so the choice is a decision rather than a drift.
+
+   Tailwind emits the *static* part of the scale as `group-hover:scale-[1.05]` /
+   `group-hover:scale-[1.1]`; this class only supplies the *transition* that makes
+   that static value smooth, on the image register. The scale itself stays with the
+   caller's Tailwind class so it stays visible in the markup.
+
+   `img-scale` is the hover parent (the `group`): its transform children animate on
+   the slow register. `img-reveal` is the child that dissolves (an overlay scrub or
+   a still-cover that must fade as the image arrives). Both list themselves in the
+   reduced-motion block so the path is complete.
+*/
+.img-scale {
+  transition: transform var(--motion-slow) var(--ease-smooth);
+}
+.img-reveal {
+  transition: opacity var(--motion-slow) var(--ease-smooth);
+}
+
+/* A body of content (a card's controls, a settings panel, an empty state) that
+   enters as a short cascade rather than all at once. Same motion as `.page-enter`
+   (`lfade`), but with a tighter per-child schedule so a paragraph of text does not
+   feel like it is loading. For body content, not for 28px tiles — those use `.stagger`.
+
+   `backwards`, not `both`: same reasoning as `.stagger` — `lfade` is a transform,
+   and the forwards fill would leave a stacking context behind forever. */
+.body-enter > * {
+  animation: lfade var(--motion-slow) var(--ease-standard) backwards;
+}
+.body-enter > *:nth-child(1) { animation-delay: 0.02s; }
+.body-enter > *:nth-child(2) { animation-delay: 0.05s; }
+.body-enter > *:nth-child(3) { animation-delay: 0.08s; }
+.body-enter > *:nth-child(4) { animation-delay: 0.11s; }
+.body-enter > *:nth-child(5) { animation-delay: 0.14s; }
+.body-enter > *:nth-child(6) { animation-delay: 0.17s; }
+.body-enter > *:nth-child(7) { animation-delay: 0.2s; }
+.body-enter > *:nth-child(8) { animation-delay: 0.23s; }
+.body-enter > *:nth-child(9) { animation-delay: 0.26s; }
+.body-enter > *:nth-child(10) { animation-delay: 0.29s; }
 
 @keyframes starPop {
   0% {
@@ -680,7 +792,7 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .rail-active {
-  animation: railGlow 2.4s ease-in-out infinite;
+  animation: railGlow var(--motion-slower) ease-in-out infinite;
 }
 
 /* idle accent fan: a brief shimmer across the rail's accent edge when it folds
@@ -703,7 +815,7 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .rail-accent-fan {
-  animation: accentFan 0.7s ease-out both;
+  animation: accentFan var(--motion-fast) var(--ease-exit) both;
 }
 
 /* A collection chip while a tile is in flight. Slow on purpose: this runs for
@@ -758,7 +870,7 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .pal-overlay {
-  animation: palOverlay var(--motion-fast) ease-out both;
+  animation: palOverlay var(--motion-fast) var(--ease-standard) both;
 }
 .pal-panel {
   animation: palPanel var(--motion-base) var(--ease-standard) both;
@@ -767,7 +879,7 @@ input[type="color"]::-webkit-color-swatch {
   animation: palSwap var(--motion-base) var(--ease-standard) both;
 }
 .pal-row {
-  animation: palRow var(--motion-base) ease-out both;
+  animation: palRow var(--motion-base) var(--ease-standard) both;
 }
 
 /* ---------- vault drawer ----------
@@ -793,7 +905,7 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .drawer-scrim {
-  animation: drawerScrim var(--motion-fast) ease-out both;
+  animation: drawerScrim var(--motion-fast) var(--ease-standard) both;
 }
 .drawer-panel {
   animation: drawerSlide var(--motion-base) var(--ease-standard) both;
@@ -870,7 +982,7 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 .modal-scrim {
-  animation: modalFade var(--motion-fast) ease-out both;
+  animation: modalFade var(--motion-fast) var(--ease-standard) both;
 }
 .modal-panel {
   animation: modalIn var(--motion-base) var(--ease-standard) both;
@@ -882,9 +994,9 @@ input[type="color"]::-webkit-color-swatch {
 
 /* selection ring: transitions instead of an instant class swap */
 .pal-cmd {
-  transition: background-color var(--motion-instant) ease,
-    color var(--motion-instant) ease,
-    transform 0.1s ease;
+  transition: background-color var(--motion-instant) var(--ease-standard),
+    color var(--motion-instant) var(--ease-standard),
+    transform var(--motion-instant) var(--ease-standard);
 }
 .pal-cmd:active {
   transform: scale(0.985);
@@ -911,7 +1023,7 @@ input[type="color"]::-webkit-color-swatch {
     transform: translateX(0);
   }
 }.track-swap {
-  animation: trackSwap var(--motion-slower) ease-out;
+  animation: trackSwap var(--motion-slower) var(--ease-standard);
 }
 
 /* The newest segment of a system chart, arriving once a second.
@@ -983,14 +1095,24 @@ input[type="color"]::-webkit-color-swatch {
   overflow: hidden;
 }
 
-/* The chevron, on the panel's own duration rather than a literal, so it lands
-   at the same moment the panel does instead of trailing it. */
-.disclose-chevron {
-  transition: transform var(--motion-base) var(--ease-standard);
+.track-slide {
+  animation: trackSlide var(--motion-slower) var(--ease-emphasized) both;
 }
 
-.track-slide {
-  animation: trackSlide var(--motion-slower) var(--ease-emphasized);
+/* live pulse / breath — per-context durations, shared keyframe */
+.pulse-slow {
+  animation: lpulse var(--motion-slower) ease-in-out infinite;
+}
+.pulse-base {
+  animation: lpulse var(--motion-base) ease-in-out infinite;
+}
+.breath-slow {
+  animation: lbreath var(--motion-slower) ease-in-out infinite;
+}
+
+/* A dot that pops in on mount and holds — for chips/marks that have just switched on. */
+.pop-on {
+  animation: pulse-on var(--motion-base) var(--ease-emphasized) both;
 }
 
 @keyframes transportPulse {
@@ -1040,7 +1162,7 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 .transport-pulse {
-  animation: transportPulse var(--motion-slow) ease-out both;
+  animation: transportPulse var(--motion-slow) var(--ease-standard) both;
 }
 
 /*
@@ -1092,13 +1214,18 @@ input[type="color"]::-webkit-color-swatch {
   .player-toggle-pop,
   .star-pop,
   .live-pop,
-  .drop-armed {
+  .drop-armed,
+  .pulse-slow,
+  .pulse-base,
+  .breath-slow,
+  .pop-on {
     animation: none !important;
   }
   /* The reveal is a transition, and the wildcard above already collapses its
      duration, but the start state still has to be released or every tile stays
      invisible. */
-  .tile-reveal {
+  .tile-reveal,
+  .img-reveal {
     opacity: 1;
     transform: none;
   }
@@ -1116,5 +1243,23 @@ input[type="color"]::-webkit-color-swatch {
      border-colour change above is fine to keep -- it has no displacement. */
   .card-surface:hover {
     transform: none;
+  }
+  /* Same reasoning for the image hover scale: the transform still applies, just
+     instantly. Listing it here so the reduced-motion path is complete rather than
+     leaving one register live by accident. */
+  .img-scale {
+    transition: none !important;
+  }
+  /* Body cascades and page/step enters are animations — the wildcard above kills
+     the timing, but the resting state still has to be the final frame, not the
+     `from`. Otherwise a reduced-motion user lands on a half-faded panel. */
+  .body-enter > *,
+  .page-enter,
+  .page-enter-header,
+  .step-enter-forward,
+  .step-enter-back {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 }

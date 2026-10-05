@@ -461,8 +461,7 @@ export default function RgbTab() {
                     <div className="py-2.5">
                       <div className="kicker mb-2">{t("common.audio-level")}</div>
                       <div className="relative h-3 overflow-hidden rounded-full bg-[var(--panel)]">
-                        <div
-                          className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-75"
+                        <div                           className="absolute inset-y-0 left-0 rounded-full transition-[width] var(--motion-instant) var(--ease-standard)"
                           style={{
                             width: `${Math.round(audioLevel.volume * 100)}%`,
                             // The transient is a decaying envelope, not a flag,

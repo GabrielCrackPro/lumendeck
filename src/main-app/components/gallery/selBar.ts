@@ -21,7 +21,7 @@
  * the day something puts this row in a narrower column.
  */
 export const SEL_BTN =
-  "flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs font-semibold transition-all duration-150 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.5)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-30";
+  "flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs font-semibold transition-all var(--motion-fast) var(--ease-standard) select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.5)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-30";
 
 /**
  * The label span inside a `SEL_BTN`.

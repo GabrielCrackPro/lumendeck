@@ -181,7 +181,7 @@ const ENGINE_DOT: Record<EngineState["tone"], string> = {
   off: "bg-[var(--text-faint)]",
   offline: "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.8)]",
   idle: "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.7)]",
-  live: "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-[lpulse_2s_ease-in-out_infinite]",
+  live: "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] pulse-base",
 };
 
 /** One rail row. Labels are the only permanent content — everything else is a
@@ -221,7 +221,7 @@ function NavItem({
       data-tip={title}
       aria-label={t(item.label)}
       aria-current={active ? "page" : undefined}
-      className={`group relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg py-2 text-left transition-colors duration-150 ${
+      className={`group relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg py-2 text-left transition-colors var(--motion-fast) var(--ease-standard) ${
         collapsed ? "px-3" : "px-2.5"
       } ${
         active
@@ -236,7 +236,7 @@ function NavItem({
       <IconAdapted className={`h-[17px] w-[17px] shrink-0 ${active ? "" : "opacity-80"}`} />
       <span
         style={{ transitionDelay: `${index * 24}ms` }}
-        className={`min-w-0 flex-1 truncate text-[13px] font-medium tracking-tight transition-[opacity,transform,filter] duration-200 ease-out ${
+        className={`min-w-0 flex-1 truncate text-[13px] font-medium tracking-tight transition-[opacity,transform,filter] var(--motion-base) var(--ease-standard) ${
           collapsed
             ? "-translate-x-2 opacity-0 blur-[1.5px]"
             : "translate-x-0 opacity-100 blur-0"
@@ -267,14 +267,14 @@ function SearchButton({
     >
       <IconSearch className="h-4 w-4 shrink-0" />
       <span
-        className={`min-w-0 flex-1 truncate text-left text-[12px] transition-[opacity,transform] duration-200 ease-out ${
+        className={`min-w-0 flex-1 truncate text-left text-[12px] transition-[opacity,transform] var(--motion-base) var(--ease-standard) ${
           collapsed ? "-translate-x-2 opacity-0" : "translate-x-0 opacity-100"
         }`}
       >
         {t("nav.search")}
       </span>
       <kbd
-        className={`shrink-0 font-mono text-[9px] tracking-widest transition-opacity duration-150 ${
+        className={`shrink-0 font-mono text-[9px] tracking-widest transition-opacity var(--motion-fast) var(--ease-standard) ${
           collapsed ? "opacity-0" : "opacity-100"
         }`}
       >
@@ -330,7 +330,7 @@ function RailFooter({
         aria-label={t("nav.keyboard-shortcuts-2")}
         aria-hidden={collapsed}
         tabIndex={collapsed ? -1 : 0}
-        className={`flex h-7 shrink-0 items-center justify-center overflow-hidden rounded-md text-[var(--text-faint)] transition-[opacity,width] duration-200 hover:bg-[var(--panel-strong)] hover:text-[var(--text)] ${
+        className={`flex h-7 shrink-0 items-center justify-center overflow-hidden rounded-md text-[var(--text-faint)] transition-[opacity,width] var(--motion-base) var(--ease-standard) hover:bg-[var(--panel-strong)] hover:text-[var(--text)] ${
           collapsed ? "w-0 opacity-0" : "w-7 opacity-100"
         }`}
       >
@@ -345,11 +345,11 @@ function RailFooter({
         )}
         aria-label={t(collapsed ? "nav.expand-sidebar" : "nav.collapse-sidebar")}
         aria-expanded={!collapsed}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)] rail-toggle"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] transition-colors var(--motion-fast) var(--ease-standard) hover:bg-[var(--panel-strong)] hover:text-[var(--text)] rail-toggle"
       >
         <span className="absolute inset-0 m-auto h-5 w-5 rounded-full rail-toggle-fan" />
         <IconRailCollapse
-          className={`relative h-[14px] w-[14px] transition-transform duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
+          className={`relative h-[14px] w-[14px] transition-transform var(--motion-base) var(--ease-standard) ${
             collapsed ? "rotate-180" : ""
           }`}
         />
@@ -381,7 +381,7 @@ export default function Sidebar({
   return (
     <nav
       aria-label={t("nav.sections")}
-      className={`flex shrink-0 flex-col rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-[var(--shadow)] backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
+      className={`flex shrink-0 flex-col rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-[var(--shadow)] backdrop-blur-xl transition-[width] var(--motion-base) var(--ease-standard) ${
         collapsed ? "w-[58px]" : "w-[200px]"
       }`}
     >
@@ -397,7 +397,7 @@ export default function Sidebar({
         <AppMark size={26} />
         <AppWordmark
           size={26}
-          className={`min-w-0 flex-1 transition-[opacity,transform,filter] duration-200 ease-out ${
+          className={`min-w-0 flex-1 transition-[opacity,transform,filter] var(--motion-base) var(--ease-standard) ${
             collapsed ? "-translate-x-2 opacity-0 blur-[1.5px]" : ""
           }`}
         />

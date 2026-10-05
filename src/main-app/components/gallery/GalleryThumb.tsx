@@ -100,7 +100,7 @@ export function GalleryThumb({ entry }: GalleryThumbProps) {
           onLoad={() => setThumbLoaded(true)}
           // Crosses out rather than vanishing, so a video arriving under its
           // own still looks like one becoming the other.
-          className="absolute inset-0 h-full w-full bg-black/50 object-cover transition-opacity duration-500"
+          className="absolute inset-0 h-full w-full bg-black/50 object-cover transition-opacity var(--motion-slow) var(--ease-standard)"
         />
       )}
       {!playing && (

@@ -101,6 +101,7 @@ export function Modal({
   return createPortal(
     <div
       className="modal-scrim fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      aria-hidden={true}
       onMouseDown={(e) => {
         // Only a press that both starts and ends on the scrim dismisses, so a
         // text selection dragged out of the panel does not close it.

@@ -117,7 +117,7 @@ function GalleryCardImpl({
       onClick={(e) => onSelect({ shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey })}
       draggable={draggable}
       onDragStart={onDragStart}
-      className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] outline-none transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow))]  ${near ? "tile-revealed" : "tile-reveal"} ${
+      className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] outline-none transition-all var(--motion-slow) var(--ease-standard) hover:-translate-y-0.5 hover:shadow-[var(--shadow)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow))]  ${near ? "tile-revealed" : "tile-reveal"} ${
         active
           ? "border-[rgb(var(--glow)/0.7)] shadow-[0_14px_36px_-14px_rgb(var(--glow)/0.55)] ring-2 ring-[rgb(var(--glow)/0.22)]"
           : selected
@@ -132,7 +132,7 @@ function GalleryCardImpl({
           transient or about the picture itself, and covering a wallpaper with
           its own name is the one thing a wallpaper gallery should not do. */}
       <div className="relative aspect-video w-full overflow-hidden">
-        <div className="absolute inset-0 transition-transform duration-500 group-hover:scale-[1.05]">
+        <div className="absolute inset-0 transition-transform var(--motion-slow) var(--ease-standard) group-hover:scale-[1.05]">
           {thumbFor(entry)}
         </div>
 
@@ -298,7 +298,7 @@ function GalleryCardImpl({
             e.stopPropagation();
             onSelect({ shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
           }}
-          className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-md border backdrop-blur transition-opacity duration-150 ${
+          className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-md border backdrop-blur transition-opacity var(--motion-fast) var(--ease-standard) ${
             checked
               ? "border-transparent bg-[rgb(var(--glow))] text-[var(--on-accent)] opacity-100"
               : "border-white/40 bg-black/45 text-transparent opacity-40 hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"

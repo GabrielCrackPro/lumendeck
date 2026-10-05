@@ -43,7 +43,7 @@ export function AppMark({
     <span
       style={{ width: size, height: size, borderRadius: Math.round(size * 0.26) }}
       className={`inline-flex shrink-0 items-center justify-center overflow-hidden border border-[rgb(var(--glow)/0.45)] bg-[var(--panel-sunken)] ${
-        pulse ? "animate-[lbreath_2.4s_ease-in-out_infinite]" : ""
+        pulse ? "breath-slow" : ""
       } ${className}`}
     >
       <img
@@ -87,7 +87,7 @@ export function DevBadge() {
       }
       className="inline-flex shrink-0 select-none items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-[1px] font-mono text-[9px] font-medium uppercase leading-[14px] tracking-[0.14em] text-amber-300"
     >
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-[lpulse_1.8s_ease-in-out_infinite]" />
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 pulse-base" />
       {t("common.dev")}
       <span className="normal-case text-amber-400/70">
         {versionLabel(__APP_VERSION__)}
@@ -148,14 +148,22 @@ export function Section({
         }`}
       >
         <IconChevronDown
-          className={`h-4 w-4 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${
+          className={`h-4 w-4 shrink-0 text-[var(--text-faint)] transition-transform var(--motion-base) var(--ease-standard) ${
             open ? "" : "-rotate-90"
           }`}
         />
         <span className="kicker !tracking-[0.14em]">{title}</span>
         {badge != null && <span className="ml-auto shrink-0">{badge}</span>}
       </button>
-      {open && <div className="pb-2 pl-6 pr-1">{children}</div>}
+      <div
+        className="disclose"
+        data-open={String(open)}
+        aria-hidden={open ? undefined : true}
+      >
+        <div className="disclose-inner">
+          <div className="pb-2 pl-6 pr-1">{children}</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -256,7 +264,7 @@ export function Chip({
       className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] ${CHIP_FRAME[tone]}`}
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full ${CHIP_DOT[tone]} ${pulse ? "animate-[lpulse_2s_ease-in-out_infinite]" : ""}`}
+        className={`h-1.5 w-1.5 rounded-full ${CHIP_DOT[tone]} ${pulse ? "pulse-base" : ""}`}
       />
       {children}
     </span>
@@ -294,7 +302,7 @@ export function ChipButton({
       onClick={onClick}
       disabled={disabled}
       data-tip={title}
-      className={`inline-flex select-none items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] transition-[color,background-color,border-color,transform] focus-glow hover:brightness-125 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 ${CHIP_FRAME[tone]}`}
+      className={`inline-flex select-none items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] transition-[color,background-color,border-color,transform] var(--motion-fast) var(--ease-standard) focus-glow hover:brightness-125 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 ${CHIP_FRAME[tone]}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${CHIP_DOT[tone]}`} />
       {children}
@@ -335,7 +343,7 @@ function SwitchTrack({
       // collapsed to zero content width plus its 1px borders: a 2px sliver. The
       // absolutely-positioned knob escaped it and painted outside the card, so
       // the switch read as a thin line beside a floating white dot.
-      className={`pointer-events-none relative block h-[20px] w-[34px] shrink-0 rounded-full border transition-[background-color,border-color] duration-200 ${
+      className={`pointer-events-none relative block h-[20px] w-[34px] shrink-0 rounded-full border transition-[background-color,border-color] var(--motion-base) var(--ease-standard) ${
         disabled
           ? checked
             ? "border-transparent bg-[rgb(var(--glow)/0.3)]"
@@ -357,7 +365,7 @@ function SwitchTrack({
         // using it made this knob fully transparent and the switch vanished.
         // The fallback keeps a future unresolved token from turning the
         // control invisible, which is the worst way for this to fail.
-        className={`absolute top-[2.5px] h-[14px] w-[14px] rounded-full bg-[var(--text)] shadow transition-[background-color,border-color,transform] duration-200 ${
+        className={`absolute top-[2.5px] h-[14px] w-[14px] rounded-full bg-[var(--text)] shadow transition-[background-color,border-color,transform] var(--motion-base) var(--ease-standard) ${
           checked ? "left-[17px]" : "left-[2.5px]"
         } ${disabled ? "opacity-70" : ""}`}
       />
@@ -692,7 +700,7 @@ export function Dropdown<T extends string | number>({
           <span className="min-w-0 truncate">{current?.label ?? String(value)}</span>
           <svg
             viewBox="0 0 24 24"
-            className={`${chip || compact ? "h-3 w-3" : "h-4 w-4"} shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${pop.shown ? "rotate-180" : ""}`}
+            className={`${chip || compact ? "h-3 w-3" : "h-4 w-4"} shrink-0 text-[var(--text-faint)] transition-transform var(--motion-base) var(--ease-standard) ${pop.shown ? "rotate-180" : ""}`}
           fill="none"
           stroke="currentColor"
           strokeWidth="1.8"
@@ -877,7 +885,7 @@ export function Btn({
       onClick={onClick}
       disabled={disabled || pending}
       aria-busy={pending || undefined}
-      className={`inline-flex select-none items-center justify-center gap-2 font-semibold transition-[color,background-color,border-color,transform] focus-glow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${sizing} ${styles} ${className ?? ""}`}
+      className={`inline-flex select-none items-center justify-center gap-2 font-semibold transition-[color,background-color,border-color,transform] var(--motion-fast) var(--ease-standard) focus-glow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${sizing} ${styles} ${className ?? ""}`}
     >
       {pending && <IconSpinner className="h-3.5 w-3.5 shrink-0" />}
       {children}
@@ -895,7 +903,7 @@ export function Btn({
  * app has one "selected" look instead of ad-hoc variants per screen.
  */
 const CHIP_BASE =
-  "select-none border font-semibold transition-[color,background-color,border-color,transform] focus-glow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40";
+  "select-none border font-semibold transition-[color,background-color,border-color,transform] var(--motion-fast) var(--ease-standard) focus-glow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40";
 const CHIP_ON =
   "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]";
 const CHIP_OFF =
@@ -913,7 +921,7 @@ export function chipStyle(on: boolean): string {
  * player.
  */
 export const ICON_BTN =
-  "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-[color,background-color,border-color,transform] duration-150 select-none focus-glow active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100";
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-[color,background-color,border-color,transform] var(--motion-fast) var(--ease-standard) select-none focus-glow active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100";
 export const ICON_BTN_IDLE =
   "border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)] hover:border-[var(--line-strong)] hover:text-[var(--text)]";
 export const ICON_BTN_ACTIVE = CHIP_ON;
@@ -926,7 +934,7 @@ export const ICON_BTN_PRIMARY =
  * used inside card headers. One token so every header action matches.
  */
 export const MINI_BTN =
-  "inline-flex select-none items-center gap-1 rounded-md border border-[var(--line)] px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] transition-[color,background-color,border-color,transform] focus-glow hover-glow active:scale-95";
+  "inline-flex select-none items-center gap-1 rounded-md border border-[var(--line)] px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] transition-[color,background-color,border-color,transform] var(--motion-fast) var(--ease-standard) focus-glow hover-glow active:scale-95";
 
 /**
  * Icon button that sits on top of imagery (gallery thumbnails, collection
@@ -1239,7 +1247,7 @@ export function ColorInput({
           aria-label={`${label} — ${t("common.edit-color")}`}
           aria-expanded={open}
           aria-haspopup="dialog"
-          className="group relative h-9 w-16 overflow-hidden rounded-xl border border-[var(--line-strong)] shadow-[0_6px_18px_-8px_rgb(0_0_0/0.5)] transition-[border-color,filter] hover:border-[var(--line-strong)] hover:brightness-110"
+          className="group relative h-9 w-16 overflow-hidden rounded-xl border border-[var(--line-strong)] shadow-[0_6px_18px_-8px_rgb(0_0_0/0.5)] transition-[border-color,filter] var(--motion-fast) var(--ease-standard) hover:border-[var(--line-strong)] hover:brightness-110"
           style={{
             background: `linear-gradient(135deg, ${hex} 0%, ${hex}CC 60%, rgb(0 0 0 / 0.35) 160%)`,
             boxShadow: `inset 0 0 18px -4px ${hex}CC, inset 0 0 0 1px rgb(255 255 255 / 0.12)`,
@@ -1866,7 +1874,7 @@ export function CollapsibleCard({
           {summary}
         </span>
         <IconChevronDown
-          className={`h-4 w-4 shrink-0 text-[var(--text-faint)] transition-transform duration-200 ${
+          className={`h-4 w-4 shrink-0 text-[var(--text-faint)] transition-transform var(--motion-base) var(--ease-standard) ${
             open ? "" : "-rotate-90"
           }`}
         />

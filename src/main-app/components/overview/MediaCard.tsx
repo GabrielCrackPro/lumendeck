@@ -208,7 +208,7 @@ function WallpaperStage({
 function EqBars({ playing }: { playing: boolean }) {
   return (
     <span
-      className="flex shrink-0 items-end gap-[2px] overflow-hidden transition-all duration-300 ease-out"
+      className="flex shrink-0 items-end gap-[2px] overflow-hidden transition-all var(--motion-slow) var(--ease-standard)"
       style={{
         width: playing ? "22px" : "0px",
         opacity: playing ? 1 : 0,

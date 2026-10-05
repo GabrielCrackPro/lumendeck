@@ -224,7 +224,7 @@ export function DeviceRow({
       // composing with them: a muted device that has just been plugged in still
       // needs to be findable, and "the hardware is here" is a fact about the
       // device, not about its colour.
-      className={`min-w-0 overflow-hidden rounded-xl border transition-colors duration-200 ${
+      className={`min-w-0 overflow-hidden rounded-xl border transition-colors var(--motion-base) var(--ease-standard) ${
         justArrived
           ? "border-emerald-400/50 bg-emerald-500/[0.07] shadow-[0_0_0_1px_rgb(16_185_129/0.25)]"
           : muted
@@ -304,7 +304,7 @@ export function DeviceRow({
                 else rather than keeping full accent, so "off" still reads.
               */}
               <span
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-[var(--panel)] transition-colors duration-200 ${
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-[var(--panel)] transition-colors var(--motion-base) var(--ease-standard) ${
                   muted
                     ? "text-[var(--text-faint)]"
                     : "text-[rgb(var(--glow))]"

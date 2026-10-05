@@ -142,8 +142,7 @@ export function CollectionsView({
         return (
           <div key={c.id} className="group/col relative">
             <button
-              onClick={() => onOpen(c.id)}
-              className="block w-full overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--line-strong)] hover:shadow-[var(--shadow)]"
+              onClick={() => onOpen(c.id)}               className="block w-full overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] text-left transition-all var(--motion-base) var(--ease-standard) hover:-translate-y-0.5 hover:border-[var(--line-strong)] hover:shadow-[var(--shadow)]"
             >
               <div className="relative aspect-video w-full bg-[var(--panel-sunken)]">
                 {cover.kind === "image" ? (
@@ -151,14 +150,12 @@ export function CollectionsView({
                     src={cover.convert ? convertFileSrc(cover.url, "media") : cover.url}
                     alt=""
                     loading="lazy"
-                    decoding="async"
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover/col:scale-[1.05]"
+                    decoding="async"                     className="h-full w-full object-cover transition-transform var(--motion-slow) var(--ease-standard) group-hover/col:scale-[1.05]"
                   />
                 ) : cover.kind === "shader" ? (
                   // A shader preset has no file behind it — the gradient is the
                   // wallpaper. Requesting an image for it gives a broken frame.
-                  <div
-                    className="h-full w-full transition-transform duration-500 group-hover/col:scale-[1.05]"
+                  <div                     className="h-full w-full transition-transform var(--motion-slow) var(--ease-standard) group-hover/col:scale-[1.05]"
                     style={{ background: cover.art }}
                   />
                 ) : cover.kind === "web" ? (
