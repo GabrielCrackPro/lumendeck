@@ -320,7 +320,7 @@ export function GalleryGrid({
           {hiddenChecked > 0 && (
             <span
               className="flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-amber-200"
-              title={t("gallery.{n}-selected-are-hidden", { n: hiddenChecked })}
+              data-tip={t("gallery.{n}-selected-are-hidden", { n: hiddenChecked })}
             >
               <IconEyeOff className="h-3 w-3 shrink-0" />
               {hiddenChecked}
@@ -343,7 +343,7 @@ export function GalleryGrid({
               aria-haspopup="menu"
               aria-expanded={collectionMenu}
               aria-label={t("gallery.add-the-selection-to")}
-              title={
+              data-tip={
                 collectionOptions.length === 0
                   ? t("gallery.all-selected-already-collected")
                   : t("gallery.add-the-selection-to")
@@ -388,7 +388,7 @@ export function GalleryGrid({
             onClick={onApplyChecked}
             aria-label={t("gallery.apply-selection")}
             aria-busy={applyPending || undefined}
-            title={t("gallery.sets-the-newest-of-the-ticked-wallpapers")}
+            data-tip={t("gallery.sets-the-newest-of-the-ticked-wallpapers")}
             className={`${SEL_BTN} ${SEL_BTN_PRIMARY}`}
           >
             {applyPending ? (
@@ -407,7 +407,7 @@ export function GalleryGrid({
             onClick={onRemoveChecked}
             aria-label={t("gallery.remove-the-selected")}
             aria-busy={removePending || undefined}
-            title={t("gallery.remove-the-selected")}
+            data-tip={t("gallery.remove-the-selected")}
             className={`${SEL_BTN} ${SEL_BTN_IDLE} hover:border-red-500/60 hover:bg-red-500/10 hover:text-red-400`}
           >
             {removePending ? (
@@ -422,7 +422,7 @@ export function GalleryGrid({
           <button
             onClick={onClearChecked}
             aria-label={t("gallery.clear-the-selection")}
-            title={t("gallery.clear-the-selection")}
+            data-tip={t("gallery.clear-the-selection")}
             className={`${SEL_BTN} w-8 justify-center px-0 ${SEL_BTN_IDLE}`}
           >
             <IconClose className="h-4 w-4 shrink-0" />

@@ -5,6 +5,7 @@
 // read, pick a nearby shade of the same hue that is.
 import { parseHex } from "./components/colorHex";
 import { themeToken } from "@shared/palette";
+import { DEFAULT_GLOW } from "@shared/constants";
 
 /** [r, g, b] tuple, 0..255. */
 type RGB = [number, number, number];
@@ -189,4 +190,129 @@ export function readableOnTheme(
   // would extrapolate past the corrected colour rather than stopping at it.
   const fixed = liftToward(rgb, surface, paletteRgb(theme, "accent-lift"));
   return blend(rgb, fixed, Math.min(1, strength));
+}
+
+/** Where the UI accent is coming from. */
+export type AccentSource =
+  | "wallpaper"
+  | "windows"
+  | "static"
+  | "device"
+  | "fallback";
+
+/**
+ * What each accent source is called in the interface.
+ *
+ * A lookup table rather than a template-literal key, so every label is written
+ * out somewhere a reader and the i18n checker can both see.
+ */
+export const ACCENT_SOURCE_LABELS: Record<AccentSource, string> = {
+  wallpaper: "common.accent-follows-the-wallpaper",
+  windows: "common.accent-follows-windows",
+  static: "common.accent-is-frozen",
+  device: "common.accent-follows-a-device",
+  fallback: "common.accent-has-not-settled",
+};
+
+/** Everything the accent chain reads. One field per store value it touches. */
+export interface AccentInput {
+  deviceColors: Record<number, { rgb: RGB }>;
+  mode: string | undefined;
+  staticColor: RGB | undefined;
+  excludedDevices: number[] | undefined;
+  devices: { id: number; typeName: string }[];
+  /** Chosen device id, -1 for "frozen", null for "whichever is active". */
+  accentDevice: number | null;
+  accentLive: boolean;
+  wallpaperColor: RGB | null;
+  sysAccent: RGB | null;
+  theme: "dark" | "light";
+  autoShade: number;
+  amoled: boolean;
+}
+
+/**
+ * Resolve the accent colour *and* the branch it came from, in one pass.
+ *
+ * The colour is what `--glow` is set to; the source is what the Overview's
+ * provenance chip names. They are one function because they are one decision:
+ * this used to be a hand-kept mirror of the branch order in `Shell.tsx`, and
+ * the mirror drifted exactly the way a second copy of a precedence rule does —
+ * it read `devices.length > 0` for "there is a device colour", which is a
+ * connected device with nothing sampled yet, and it reported a chosen device
+ * even when that device had never reported a colour and the chain had walked
+ * past it. The chip then explained a colour the user was not looking at, which
+ * is the one thing a provenance chip must never do.
+ *
+ * Precedence, unchanged from the CSS variable's: a visibly non-black wallpaper
+ * colour leads while live following is on; with live following off the OS
+ * accent leads; then a frozen static colour; then a chosen device that has
+ * actually reported; then whichever device is lit (keyboard first); then the
+ * factory default. Only the *source* labels differ from before — the colour
+ * this returns is byte-for-byte what the old branch produced.
+ */
+export function resolveAccent(input: AccentInput): {
+  rgb: RGB;
+  source: AccentSource;
+} {
+  // One readability pass for every source, so the returned colour keeps the
+  // identity of where it came from.
+  const pick = (rgb: RGB, source: AccentSource) => ({
+    rgb: readableOnTheme(
+      rgb,
+      input.theme,
+      Math.max(0, Math.min(1, input.autoShade)),
+      input.amoled,
+    ),
+    source,
+  });
+  // A dark scene must not tint the whole UI unreadably dark, so a near-black
+  // wallpaper colour is not a colour at all — and the chip must not name it
+  // either, which is why this test lives here and not at the call site.
+  const wpColor =
+    input.wallpaperColor && input.wallpaperColor.some((v) => v > 24)
+      ? input.wallpaperColor
+      : null;
+  const fallback =
+    input.mode === "static" || input.mode === "breathe"
+      ? input.staticColor
+      : undefined;
+  if (input.accentLive && wpColor) return pick(wpColor, "wallpaper");
+  if (!input.accentLive) {
+    // The OS accent leads when live following is off. Before the one-shot seed
+    // lands there is nothing to lead with, and calling that gap "Windows" would
+    // send people to a switch that was never involved.
+    return input.sysAccent
+      ? pick(input.sysAccent, "windows")
+      : pick(input.staticColor ?? fallback ?? DEFAULT_GLOW, "fallback");
+  }
+  // "Off" (-1): freeze the accent to the configured static colour.
+  if (input.accentDevice === -1) {
+    return pick(
+      input.staticColor ?? fallback ?? input.sysAccent ?? DEFAULT_GLOW,
+      "static",
+    );
+  }
+  // A manual pick wins outright — but only once that device has reported a
+  // colour. A chosen device that is silent is not the source of anything.
+  if (input.accentDevice != null) {
+    const picked = input.deviceColors[input.accentDevice]?.rgb;
+    if (picked) return pick(picked, "device");
+  }
+  // Otherwise prefer a device actually in the loop: the keyboard first, then
+  // any non-excluded device, so an excluded/black device never tints the whole
+  // interface black.
+  const excludedSet = new Set(input.excludedDevices ?? []);
+  const activeIds = input.devices
+    .filter((d) => !excludedSet.has(d.id))
+    .sort((a, b) => {
+      const kb = (x: { typeName: string }) => (/keyboard/i.test(x.typeName) ? 0 : 1);
+      return kb(a) - kb(b);
+    })
+    .map((d) => d.id);
+  const live =
+    activeIds.map((id) => input.deviceColors[id]?.rgb).find((c) => c != null) ??
+    Object.values(input.deviceColors).find((c) => c.rgb.some((v) => v > 0))?.rgb;
+  if (live) return pick(live, "device");
+  return pick(wpColor ?? fallback ?? input.sysAccent ?? DEFAULT_GLOW, "fallback");
 }

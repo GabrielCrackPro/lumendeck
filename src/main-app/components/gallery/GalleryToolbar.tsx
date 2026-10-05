@@ -331,7 +331,7 @@ export function GalleryToolbar({
           role="checkbox"
           aria-checked={selectAllState === "all" ? true : selectAllState === "some" ? "mixed" : false}
           aria-label={t("gallery.select-all")}
-          title={
+          data-tip={
             selectAllState === "all"
               ? t("gallery.clear-the-selection")
               : t("gallery.select-all-hint")
@@ -346,13 +346,13 @@ export function GalleryToolbar({
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-label={t("gallery.filters")}
-          title={t("gallery.filters")}
+          data-tip={t("gallery.filters")}
           className={`${ICON_BTN} relative ${open || activeCount > 0 ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
         >
           <IconSliders className="h-4 w-4" />
           {activeCount > 0 && (
             <span
-              className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[rgb(var(--glow))] px-0.5 font-mono text-[8px] font-bold text-[#06121f]"
+              className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[rgb(var(--glow))] px-0.5 font-mono text-[8px] font-bold text-[var(--on-accent)]"
               aria-hidden
             >
               {activeCount}
@@ -537,7 +537,7 @@ export function GalleryToolbar({
           ))}
           <button
             onClick={onNewCollection}
-            title={t("gallery.new-collection")}
+            data-tip={t("gallery.new-collection")}
             aria-label={t("gallery.new-collection")}
             className={`flex ${CHIP_H} w-[26px] items-center justify-center rounded-full border border-dashed border-[var(--line-strong)] text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text)]`}
           >
@@ -604,7 +604,7 @@ export function GalleryToolbar({
                   c.clear.kind === "collection" ? onCollection(c.clear.id) : onQuery(c.clear.patch)
                 }
                 aria-label={t("gallery.remove-the-{name}-filter", { name })}
-                title={t("gallery.remove-the-{name}-filter", { name })}
+                data-tip={t("gallery.remove-the-{name}-filter", { name })}
                 className="flex max-w-full items-center gap-1.5 rounded-full border border-[rgb(var(--glow)/0.35)] bg-[rgb(var(--glow)/0.08)] py-0.5 pl-2.5 pr-1.5 text-xs text-[rgb(var(--glow))] transition-colors hover:border-[rgb(var(--glow)/0.7)] hover:bg-[rgb(var(--glow)/0.14)]"
               >
                 <span className="truncate">{name}</span>

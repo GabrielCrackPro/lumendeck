@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lightsGradient } from "./deviceLights";
+import { lightsGradient, previewLiveColor } from "./deviceLights";
 
 const ZONES: [number, number, number][] = [
   [96, 140, 255],
@@ -46,5 +46,50 @@ describe("lightsGradient", () => {
 
   it("falls back to the unlit colour when the engine has pushed nothing", () => {
     expect(lightsGradient([])).toBe("rgb(30 32 36)");
+  });
+});
+
+describe("previewLiveColor", () => {
+  type Dev = { id: number; typeName: string };
+  const RED: [number, number, number] = [220, 30, 30];
+  const GREEN: [number, number, number] = [30, 200, 30];
+  const colors = {
+    1: { rgb: RED },
+    2: { rgb: GREEN },
+  };
+
+  it("prefers the keyboard over other devices, like the accent does", () => {
+    const devices: Dev[] = [
+      { id: 2, typeName: "Mouse" },
+      { id: 1, typeName: "RGB Keyboard" },
+    ];
+    expect(previewLiveColor(colors, devices, [])).toEqual(RED);
+  });
+
+  it("never samples a muted device while one in the loop is lit", () => {
+    const devices: Dev[] = [
+      { id: 1, typeName: "Keyboard" },
+      { id: 2, typeName: "Mouse" },
+    ];
+    expect(previewLiveColor(colors, devices, [1])).toEqual(GREEN);
+  });
+
+  it("falls back to any reported colour when every device is muted", () => {
+    // The accent chain keeps the same last resort: better a muted device's
+    // colour than no preview at all.
+    const devices: Dev[] = [{ id: 1, typeName: "Keyboard" }];
+    expect(previewLiveColor(colors, devices, [1])).toEqual(RED);
+  });
+
+  it("falls through a device with no colour to one that has reported", () => {
+    const devices: Dev[] = [
+      { id: 9, typeName: "Keyboard" },
+      { id: 2, typeName: "Mouse" },
+    ];
+    expect(previewLiveColor(colors, devices, [])).toEqual(GREEN);
+  });
+
+  it("returns null when nothing has ever reported", () => {
+    expect(previewLiveColor({}, [{ id: 1, typeName: "Keyboard" }], [])).toBeNull();
   });
 });

@@ -64,6 +64,8 @@ import TransferImport from "../TransferImport";
 import { useCopy } from "../useCopy";
 import { ConfigAvatar } from "../ConfigAvatar";
 import { useConfigPicker } from "../useConfigPicker";
+import { GALLERY_KIND_LABEL } from "../gallery/kindLabels";
+import { RGB_MODE_LABEL } from "../../rgbModeLabels";
 import { buildReport } from "../devReport";
 import { versionDisagreement, versionLabel } from "../buildIdentity";
 
@@ -479,7 +481,7 @@ export default function GeneralTab() {
                                is running must not be the one that says it
                                differently. */
                             <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[rgb(var(--glow))]">
-                              <IconCheck className="h-3.5 w-3.5" />
+                              <IconCheck className="h-3 w-3" />
                               {t("common.profile-applied-now")}
                             </span>
                           )}
@@ -488,8 +490,12 @@ export default function GeneralTab() {
                           {/* Stickers are part of what a profile restores now, so
                               the row says so -- but only when there are any,
                               since a count of zero is noise on a row about a
-                              look. */}
-                          {s.wallpaper.kind} · {s.rgb.mode}
+                              look. The enum ids are translated — the same maps
+                              the gallery filter and the lighting picker read —
+                              not printed raw, which is how a Spanish user ended
+                              up reading "video · cycle" on a row about their
+                              profile. */}
+                          {t(GALLERY_KIND_LABEL[s.wallpaper.kind])} · {t(RGB_MODE_LABEL[s.rgb.mode])}
                           {s.stickers.length > 0 &&
                             ` · ${t("common.{n}-stickers", { n: s.stickers.length })}`}
                         </div>
@@ -619,7 +625,7 @@ export default function GeneralTab() {
                   {__APP_BUILD_ID__ && (
                     <span
                       className="rounded-sm bg-amber-500/20 px-1 text-amber-400"
-                      title={t("common.built-from-commit-{id}", {
+                      data-tip={t("common.built-from-commit-{id}", {
                         id: __APP_BUILD_ID__,
                       })}
                     >
@@ -1089,6 +1095,7 @@ function DeveloperCard() {
   const [info, setInfo] = useState<DevInfo | null>(null);
   const [failed, setFailed] = useState(false);
   const { copy: copyText } = useCopy();
+  const { pending: reloadPending, run: runReload } = usePending();
 
   useEffect(() => {
     let alive = true;
@@ -1184,7 +1191,7 @@ function DeveloperCard() {
             {facts.map(([label, value]) => (
               <div key={label} className="flex min-w-0 flex-col gap-0.5">
                 <span className="kicker">{label}</span>
-                <span className="truncate font-mono text-xs text-[var(--text)]" title={value}>
+                <span className="truncate font-mono text-xs text-[var(--text)]" data-tip={value}>
                   {value}
                 </span>
               </div>
@@ -1202,11 +1209,24 @@ function DeveloperCard() {
           {t("common.are-picked-up-automatically-within-a-few-seconds")}
         </p>
         <div className="mt-3">
+          {/* Guarded and reported like every other button: a failed reload left
+              the card claiming the config was fresh while the store kept the
+              stale one, and the failure never surfaced. */}
           <Btn
-            onClick={async () => {
-              const fresh = await api.reloadConfig();
-              useStore.setState({ cfg: fresh });
-            }}
+            disabled={reloadPending.has("reload-config")}
+            onClick={() =>
+              void runReload("reload-config", async () => {
+                const fresh = await api.reloadConfig();
+                useStore.setState({ cfg: fresh });
+              }, (e) =>
+                useStore
+                  .getState()
+                  .toast(
+                    "error",
+                    t("common.reload-failed-{error}", { error: truncateError(e) }),
+                  ),
+              )
+            }
           >
             <IconRefresh className="h-4 w-4" />
             {t("common.reload-now")}
@@ -1216,6 +1236,4 @@ function DeveloperCard() {
     </Card>
   );
 }
-
-/** Scene name input + save button. */
 

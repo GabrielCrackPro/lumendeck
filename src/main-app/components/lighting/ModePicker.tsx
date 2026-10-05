@@ -8,42 +8,39 @@
 // and is tested against it.
 
 import { ModePreview } from "../ModePreview";
-import { IconCheck } from "../icons";
+import {
+  IconCheck,
+  IconGrid,
+  IconModeAmbient,
+  IconModeAudio,
+  IconModeBreathe,
+  IconModeCycle,
+  IconModePulse,
+  IconModeStatic,
+  IconModeWave,
+  type Glyph,
+} from "../icons";
 import { RGB_MODES } from "@shared/constants";
 import { t } from "../../i18n";
 import type { Rgb } from "../rgbStrip";
 import type { AudioLevel, RgbMode } from "@shared/types";
 
-/** Per-mode line icon, stroke-based like the rest of the set. */
-function ModeIcon({ mode, className }: { mode: RgbMode; className?: string }) {
-  const common = {
-    className,
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.8,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    viewBox: "0 0 24 24",
-  };
-  switch (mode) {
-    case "ambient":
-      return <svg {...common}><circle cx="12" cy="12" r="4" /><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2" /></svg>;
-    case "zone":
-      return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M12 3v18M3 12h9" /></svg>;
-    case "pulse":
-      return <svg {...common}><path d="M3 12h4l2-6 4 12 2-6h6" /></svg>;
-    case "static":
-      return <svg {...common}><circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" /></svg>;
-    case "cycle":
-      return <svg {...common}><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4" /></svg>;
-    case "wave":
-      return <svg {...common}><path d="M2 12c2.5-5 5.5-5 8 0s5.5 5 8 0M2 12c2.5 5 5.5 5 8 0" /></svg>;
-    case "breathe":
-      return <svg {...common}><circle cx="12" cy="12" r="3" /><circle cx="12" cy="12" r="7" opacity="0.5" /><circle cx="12" cy="12" r="10" opacity="0.2" /></svg>;
-    case "audioReactive":
-      return <svg {...common}><path d="M3 12v-2m4 2v-4m4 4v-6m4 6v-4m4 4v-2" /><path d="M3 12h18" /></svg>;
-  }
-}
+/**
+ * Per-mode icon, from the app's icon set — the glyphs live in `icons.tsx` with
+ * everything else so they get the same hover animation and reduced-motion
+ * handling as the rest, which is exactly what the private hand-drawn set they
+ * replaced never had.
+ */
+const MODE_ICONS: Record<RgbMode, Glyph> = {
+  ambient: IconModeAmbient,
+  zone: IconGrid,
+  pulse: IconModePulse,
+  static: IconModeStatic,
+  cycle: IconModeCycle,
+  wave: IconModeWave,
+  breathe: IconModeBreathe,
+  audioReactive: IconModeAudio,
+};
 
 export interface ModePickerProps {
   mode: RgbMode;
@@ -96,11 +93,12 @@ export function ModePicker(props: ModePickerProps) {
             {group.modes.map((m) => {
               const id = m.id as RgbMode;
               const active = mode === id;
+              const ModeGlyph = MODE_ICONS[id];
               return (
                 <button
                   key={id}
                   onClick={() => onPick(id)}
-                  title={t(m.hint)}
+                  data-tip={t(m.hint)}
                   aria-pressed={active}
                   className={`group flex w-full flex-col overflow-hidden rounded-xl border text-left transition-all duration-200 active:scale-[0.98] ${
                     active
@@ -129,7 +127,7 @@ export function ModePicker(props: ModePickerProps) {
                         attention the way a filled badge did. */}
                     {active && (
                       <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[rgb(var(--glow))] text-black/85 shadow-[0_2px_8px_rgb(var(--glow)/0.5)]">
-                        <IconCheck className="h-2.5 w-2.5" />
+                        <IconCheck className="h-3 w-3" />
                       </span>
                     )}
                   </span>
@@ -140,8 +138,7 @@ export function ModePicker(props: ModePickerProps) {
                         : "border-transparent bg-[var(--panel-strong)] group-hover:bg-[var(--panel)]"
                     }`}
                   >
-                    <ModeIcon
-                      mode={id}
+                    <ModeGlyph
                       className={`h-4 w-4 shrink-0 ${
                         active
                           ? "text-[rgb(var(--glow))]"

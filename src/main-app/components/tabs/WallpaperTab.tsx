@@ -4,9 +4,9 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Btn, Slider, Toggle, TextInput, NumberField, Section, InfoNote, chipStyle, ItemTitle, displayName, EmptyState } from "../ui";
+import { Card, Btn, Dropdown, Slider, Toggle, TextInput, NumberField, Section, InfoNote, chipStyle, ItemTitle, displayName, EmptyState } from "../ui";
 import { Modal } from "../Modal";
-import { IconImage, IconGlobe, IconFolder, IconPlus, IconTrash, IconClipboard, IconClose } from "../icons";
+import { IconSettings, IconImage, IconGlobe, IconFolder, IconPlus, IconTrash, IconClipboard, IconClose } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
 import type { Config, EntryOptions, GalleryEntry, WallpaperCollection, ZoneDef } from "@shared/types";
 import { api } from "../../ipc";
@@ -71,10 +71,20 @@ export default function WallpaperTab() {
   // import buttons off, so the two cannot import over each other.
   const [dropBusy, setDropBusy] = useState(false);
   const busy = pending.size > 0 || dropBusy;
-  // The add dialog is two steps rather than two dialogs. Picking "From URL" used
-  // to dismiss the picker and open a second, differently-shaped form underneath
-  // the vault grid — two layouts, two focuses, and a cancel that left you
-  // guessing which one you were in.
+
+  // Both import toggles read from one value so the dropdown can represent the
+  // current state as a single selection.
+  const importSettings =
+    cfg
+      ? cfg.wallpaper.applyAfterImport && cfg.wallpaper.indexAfterImport
+          ? "both"
+          : cfg.wallpaper.applyAfterImport
+            ? "apply"
+            : cfg.wallpaper.indexAfterImport
+              ? "index"
+              : "apply"
+      : "apply";
+
   const [addStep, setAddStep] = useState<null | "sources" | "url">(null);
   const [urlDraft, setUrlDraft] = useState("");
   const [urlNameDraft, setUrlNameDraft] = useState("");
@@ -422,6 +432,8 @@ export default function WallpaperTab() {
    *  the same reason as above: a config predating the field has no value, and
    *  the answer for it is the same as for one that says true. */
   const indexesOnImport = autoIndexEnabled(wall);
+  if(indexesOnImport){} else {}
+
 
   /**
    * Download a link into the vault.
@@ -1049,53 +1061,35 @@ export default function WallpaperTab() {
             {/* One control, four sources. They were four peer buttons in a row,
                 which made the toolbar's only create action the widest thing on
                 screen and left search with the leftover space. */}
-            {/* Whether an import takes over the screens. It used to always do,
-                which meant dropping a folder of twenty wallpapers silently
-                changed the wallpaper on every display — and there was no way
-                to say "not right now". */}
-            <button
-              onClick={() =>
-                save((c) => (c.wallpaper.applyAfterImport = !appliesOnImport))
+            {/* Both of these answer "what happens when I import". They are grouped
+                under one menu so the import row keeps one slot for "add" and one
+                slot for "what happens to new wallpapers". */}
+            <Dropdown
+              icon={<IconSettings className="h-4 w-4" />}
+              ariaLabel={t("gallery.import-settings")}
+              title={t("gallery.import-settings")}
+              value={importSettings}
+              onChange={(v) =>
+                save((c) => {
+                  if (v === "apply") {
+                    c.wallpaper.applyAfterImport = true;
+                    c.wallpaper.indexAfterImport = false;
+                  } else if (v === "index") {
+                    c.wallpaper.applyAfterImport = false;
+                    c.wallpaper.indexAfterImport = true;
+                  } else {
+                    c.wallpaper.applyAfterImport = true;
+                    c.wallpaper.indexAfterImport = true;
+                  }
+                })
               }
-              aria-pressed={appliesOnImport}
-              title={t("gallery.apply-after-import")}
-              className={`hidden shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors sm:flex ${
-                appliesOnImport
-                  ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]"
-                  : "border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text-faint)] hover:text-[var(--text-dim)]"
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  appliesOnImport ? "bg-[rgb(var(--glow))]" : "bg-[var(--line-strong)]"
-                }`}
-              />
-              {t("gallery.apply-after-import")}
-            </button>
-            {/* Its sibling rather than a fourth chip in the filter panel: both of
-                these answer "what happens when I import", and a user who turned
-                one off has almost certainly been surprised by the other too. The
-                same pill shape, and hidden at the same breakpoint so the row
-                either has both or neither. */}
-            <button
-              onClick={() =>
-                save((c) => (c.wallpaper.indexAfterImport = !indexesOnImport))
-              }
-              aria-pressed={indexesOnImport}
-              title={t("gallery.index-after-import")}
-              className={`hidden shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors sm:flex ${
-                indexesOnImport
-                  ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]"
-                  : "border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text-faint)] hover:text-[var(--text-dim)]"
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  indexesOnImport ? "bg-[rgb(var(--glow))]" : "bg-[var(--line-strong)]"
-                }`}
-              />
-              {t("gallery.index-after-import")}
-            </button>
+              options={[
+                { id: "apply", label: t("gallery.apply-after-import") },
+                { id: "index", label: t("gallery.index-after-import") },
+                { id: "both", label: t("gallery.apply-and-measure-after-import") },
+              ]}
+              className="hidden shrink-0 items-center sm:flex"
+            />
             <Btn variant="primary" disabled={busy} onClick={() => setAddStep("sources")}>
               <IconPlus className="h-4 w-4" />
               {t("gallery.add-source")}

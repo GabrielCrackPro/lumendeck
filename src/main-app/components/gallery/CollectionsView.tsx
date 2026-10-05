@@ -180,7 +180,7 @@ export function CollectionsView({
                     away from what the collection actually holds. */}
                 <span
                   className="shrink-0 font-mono text-[10px] tabular-nums text-[var(--text-faint)]"
-                  title={stale ? t("gallery.count-includes-missing-files") : undefined}
+                  data-tip={stale ? t("gallery.count-includes-missing-files") : undefined}
                 >
                   {count}
                 </span>
@@ -214,7 +214,7 @@ function CoverGlyph({
   return (
     <div
       className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[var(--panel-strong)] to-[var(--panel)]"
-      title={label}
+      data-tip={label}
     >
       <Icon className="h-7 w-7 text-[var(--text-faint)]" />
     </div>

@@ -1,11 +1,8 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
-import { api } from "../ipc";
 import { IconPause, IconCheck, IconAlert, IconInfo } from "./icons";
-import { DEFAULT_GLOW } from "@shared/constants";
-import { readableOnTheme } from "../accent";
-import { useEffectiveTheme } from "../theme";
+import { useAccent } from "../useAccent";
 import TitleBar from "./TitleBar";
 import { AppMark, ComboCaps } from "./ui";
 import Sidebar, {
@@ -43,101 +40,15 @@ const StickersTab = lazy(() => import("./tabs/StickersTab"));
 const GeneralTab = lazy(() => import("./tabs/GeneralTab"));
 
 /**
- * Resolve the UI accent glow. Priority: the wallpaper's own dominant color
- * (the UI breathes with the wallpaper — the whole point of the app), then the
- * user's explicit device pick, then static color, then the default.
- * Every branch passes through readableOnTheme(): source colors are chosen for
- * hardware/screens, not for legibility on the dashboard, so a near-black
- * wallpaper tone or a dim static shade gets lifted to a readable shade of
- * the same hue instead of smearing into the panels.
+ * The colour the `--glow` variable is painted with.
+ *
+ * The decision behind it — which source wins, and therefore what the Overview's
+ * provenance chip should say — lives in `useAccent`, shared with the tab that
+ * names the source. This wrapper stays so the call site keeps reading as "the
+ * glow", which is all Shell does with it.
  */
 function useGlow() {
-  const deviceColors = useStore((s) => s.deviceColors);
-  const mode = useStore((s) => s.cfg?.rgb.mode);
-  const staticColor = useStore((s) => s.cfg?.rgb.staticColor);
-  const excluded = useStore((s) => s.cfg?.rgb.excludedDevices);
-  const devices = useStore((s) => s.rgb.devices);
-  const accentDevice = useStore((s) => s.cfg?.rgb.accentDevice);
-  const accentLive = useStore((s) => s.cfg?.general.accentLive);
-  // The *resolved* theme, not the preference: readableOnTheme below corrects
-  // the accent against a surface, so "system" on a light OS has to resolve to
-  // light or the whole UI is tinted against the wrong background. This used to
-  // fall back to "dark", which was invisible while dark was the default and
-  // wrong for every light-mode user the moment it was not.
-  const themePref = useStore((s) => s.cfg?.general.theme);
-  const theme = useEffectiveTheme(themePref);
-  const autoShade = useStore((s) => s.cfg?.general.accentAutoShade ?? 1);
-  // AMOLED is a separate surface, not a darker dark: .dark.amoled drops --bg
-  // to #000000. The readability pass has to be told, or an accent tuned
-  // against graphite is left short of the contrast floor on true black.
-  const amoled = useStore((s) => s.cfg?.general.amoled ?? false);
-  const wallpaperColor = useStore((s) => s.wallpaperColor);
-  // The user's Windows accent color, seeded once via IPC and kept live by the
-  // backend watcher (SYSTEM_ACCENT). This is the deep fallback for every
-  // config-less case, so a fresh install themes itself from the OS instead of
-  // wearing a hardcoded blue, and mid-session OS accent changes retheme the
-  // dashboard without a restart.
-  const sysAccent = useStore((s) => s.systemAccent);
-  useEffect(() => {
-    if (sysAccent) return;
-    let disposed = false;
-    api.systemAccent().then((c) => {
-      if (!disposed && c) useStore.getState().setSystemAccent(c);
-    }).catch(() => {});
-    return () => {
-      disposed = true;
-    };
-  }, [sysAccent]);
-  // Prefer a wallpaper color that is visibly non-black: a dark scene must not
-  // tint the whole UI unreadably dark. Smooth toward it; the broadcast is
-  // already rate-limited (1/s, meaningful deltas only) backend-side.
-  const wpColor =
-    wallpaperColor && wallpaperColor.some((v) => v > 24)
-      ? wallpaperColor
-      : null;
-  return useMemo<[number, number, number]>(() => {
-    // One readability pass for every source: the raw color keeps its identity
-    // (hue, character) when it already clears the contrast floor; otherwise it
-    // steps toward white/black until the accent is legible on this theme.
-    // Strength is user-tunable (Settings > Appearance); 0 = raw colors.
-    const pick = (c: [number, number, number]) =>
-      readableOnTheme(c, theme, Math.max(0, Math.min(1, autoShade)), amoled);
-    const fallback =
-      mode === "static" || mode === "breathe" ? staticColor : undefined;
-    // Wallpaper color leads when present: the interface IS the wallpaper's
-    // mood. (wallpaperPaused frames freeze too — fine, color stays coherent.)
-    if (accentLive && wpColor) return pick(wpColor);
-    // Default: UI accent is calm — the OS accent leads (staticColor carries
-    // a factory default that would otherwise always win and pin the UI to
-    // that blue regardless of the user's Windows theme).
-    if (!accentLive) {
-      return pick(sysAccent ?? staticColor ?? fallback ?? DEFAULT_GLOW);
-    }
-    // "Off" (-1): freeze the accent to the configured static color.
-    if (accentDevice === -1) {
-      return pick(staticColor ?? fallback ?? sysAccent ?? DEFAULT_GLOW);
-    }
-    // Manual pick wins outright (even if black — the user chose it).
-    if (accentDevice != null) {
-      const picked = deviceColors[accentDevice]?.rgb;
-      if (picked) return pick(picked);
-    }
-    // Otherwise prefer a device actually in the loop: the keyboard first,
-    // then any non-excluded device, so an excluded/black device never tints
-    // the whole interface black.
-    const excludedSet = new Set(excluded ?? []);
-    const activeIds = devices
-      .filter((d) => !excludedSet.has(d.id))
-      .sort((a, b) => {
-        const kb = (x: typeof a) => (/keyboard/i.test(x.typeName) ? 0 : 1);
-        return kb(a) - kb(b);
-      })
-      .map((d) => d.id);
-    const live =
-      activeIds.map((id) => deviceColors[id]?.rgb).find((c) => c != null) ??
-      Object.values(deviceColors).find((c) => c.rgb.some((v) => v > 0))?.rgb;
-    return pick(live ?? wpColor ?? fallback ?? sysAccent ?? DEFAULT_GLOW);
-  }, [deviceColors, mode, staticColor, excluded, devices, accentDevice, accentLive, wpColor, sysAccent, theme, autoShade, amoled]);
+  return useAccent().rgb;
 }
 
 /** Full-window boot splash shown until the backend hands us the config. */

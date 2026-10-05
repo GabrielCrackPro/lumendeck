@@ -1,0 +1,57 @@
+/* Micro motion for gallery overlays and active tiles.
+   Kept as custom utilities because these values are specific to the gallery and
+   would pollute the house motion scale if added to index.css for one surface. */
+
+@utility drag-affordance-interactive {
+  /* A dragged tile should read as "in flight" before it leaves the grid. The
+     rest of the card still uses the house lift; this just sharpens the drag
+     affordance on top of it. */
+  @media (hover: hover) {
+    &:active {
+      transform: scale(0.99);
+    }
+  }
+}
+
+@utility live-pulse {
+  /* The live pill breathes once on mount so "this is the one that's on" is not
+     a static chip that can be confused with the selection ring. */
+  animation: livePulse var(--motion-slow) var(--ease-standard) both;
+}
+
+@keyframes livePulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(var(--glow) / 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgb(var(--glow) / 0);
+  }
+}
+
+@utility overlay-icon {
+  /* Overlay buttons share one icon treatment so the play glyph does not look
+     like a different control from the rest of the cluster. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@utility overlay-action-play {
+  /* The primary action on a tile is "apply this wallpaper" - it earns the only
+     lift in the cluster so it does not read as one button among four. */
+  transition: transform var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+  @media (hover: hover) {
+    &:hover {
+      transform: translateY(-1px);
+    }
+  }
+}
+
+@utility overlay-action-danger {
+  /* Destructive actions in the overlay cluster keep the shared icon treatment
+     but do not lift - the contrast is the affordance. */
+  transition: background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}

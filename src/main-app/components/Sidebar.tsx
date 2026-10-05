@@ -11,6 +11,7 @@ import {
   IconSticker,
   IconZap,
 } from "./icons";
+import { anim } from "./icons";
 import { t } from "../i18n";
 
 export type TabId = "overview" | "rgb" | "wallpaper" | "stickers" | "general";
@@ -206,6 +207,7 @@ function NavItem({
   onClick: () => void;
 }) {
   const Icon = item.icon;
+  const IconAdapted = anim(Icon, "rail");
   // Collapsed, the label is gone — so the tooltip has to carry it. It used to
   // show only the blurb ("At a glance"), which told a hovering user nothing
   // about which of five identical icons they were pointing at.
@@ -223,7 +225,7 @@ function NavItem({
         collapsed ? "px-3" : "px-2.5"
       } ${
         active
-          ? "bg-[rgb(var(--glow)/0.13)] text-[rgb(var(--glow))] shadow-[inset_0_0_0_1px_rgb(var(--glow)/0.18)]"
+          ? "bg-[rgb(var(--glow)/0.13)] text-[rgb(var(--glow))] shadow-[inset_0_0_0_1px_rgb(var(--glow)/0.18)] rail-active"
           : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
       }`}
     >
@@ -231,7 +233,7 @@ function NavItem({
       {active && (
         <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-sm bg-[rgb(var(--glow))]" />
       )}
-      <Icon className={`h-[17px] w-[17px] shrink-0 ${active ? "" : "opacity-80"}`} />
+      <IconAdapted className={`h-[17px] w-[17px] shrink-0 ${active ? "" : "opacity-80"}`} />
       <span
         style={{ transitionDelay: `${index * 24}ms` }}
         className={`min-w-0 flex-1 truncate text-[13px] font-medium tracking-tight transition-[opacity,transform,filter] duration-200 ease-out ${
@@ -343,10 +345,11 @@ function RailFooter({
         )}
         aria-label={t(collapsed ? "nav.expand-sidebar" : "nav.collapse-sidebar")}
         aria-expanded={!collapsed}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)] rail-toggle"
       >
+        <span className="absolute inset-0 m-auto h-5 w-5 rounded-full rail-toggle-fan" />
         <IconRailCollapse
-          className={`h-[14px] w-[14px] transition-transform duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
+          className={`relative h-[14px] w-[14px] transition-transform duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
             collapsed ? "rotate-180" : ""
           }`}
         />

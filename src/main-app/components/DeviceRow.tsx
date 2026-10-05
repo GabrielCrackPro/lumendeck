@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { IconChevronDown, IconCheck, IconClose, IconDevice, IconPencil, deviceKind } from "./icons";
 import { rgbToHex } from "../utilities";
-import type { DeviceColor, RgbDeviceInfo } from "@shared/types";
+import type { RgbDeviceInfo } from "@shared/types";
 import { t } from "../i18n";
 import { AliasHint, CopyHexButton, SwitchBtn } from "./ui";
 import { useStore } from "../store";
@@ -139,20 +139,24 @@ export function deviceName(
  */
 export function DeviceRow({
   device,
-  live,
   muted,
   onToggleMute,
   onRename,
   deviceNames = {},
 }: {
   device: RgbDeviceInfo;
-  live?: DeviceColor;
   muted: boolean;
   onToggleMute: () => void;
   /** Omit to render the row read-only, with no rename affordance. */
   onRename?: (name: string) => void;
   deviceNames?: Record<string, string>;
 }) {
+  // Selected here rather than passed in, and this is the whole reason:
+  // `deviceColors` is a fresh object on every coalesced frame (~12Hz), so
+  // holding it anywhere higher put the whole screen — media card, profile
+  // list, shortcuts — on that cadence to repaint one colour bar. One row, one
+  // key: a frame repaints the row whose pixels changed and nothing else.
+  const live = useStore((s) => s.deviceColors[device.id]);
   const name = deviceName(device, deviceNames);
   // Whether the name on screen is the user's, rather than the driver's. Drives
   // the "renamed" hint, which is the only thing distinguishing the two.
@@ -270,11 +274,11 @@ export function DeviceRow({
             />
             <button
               onClick={cancelRename}
-              title={t("common.cancel")}
+              data-tip={t("common.cancel")}
               aria-label={t("common.cancel")}
               className="shrink-0 rounded p-1 text-[var(--text-faint)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
             >
-              <IconClose className="h-3.5 w-3.5" />
+              <IconClose className="h-3 w-3" />
             </button>
           </>
         ) : (
@@ -368,7 +372,7 @@ export function DeviceRow({
                   style={{ background: lights }}
                 />
                 <IconChevronDown
-                  className={`disclose-chevron h-3.5 w-3.5 shrink-0 text-[var(--text-faint)] ${
+                  className={`disclose-chevron h-4 w-4 shrink-0 text-[var(--text-faint)] ${
                     open ? "rotate-180" : ""
                   }`}
                 />
@@ -490,7 +494,7 @@ export function DeviceRow({
               {onRename && (
                 <button
                   onClick={startRename}
-                  title={t("lighting.rename-device", { name })}
+                  data-tip={t("lighting.rename-device", { name })}
                   aria-label={t("lighting.rename-device", { name })}
                   className="ml-auto flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-[11px] text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
                 >

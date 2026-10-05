@@ -43,3 +43,35 @@ export function lightsGradient(
   }
   return `linear-gradient(90deg, ${stops.join(", ")})`;
 }
+
+/**
+ * The colour a reactive-mode preview samples, chosen the way the accent is.
+ *
+ * This used to be `Object.values(deviceColors)[0]` — whatever device the store
+ * map happened to list first, which could be a muted device or a mouse when a
+ * keyboard was lit. The preview's job is to show what the lights are doing, so
+ * it samples the same device the accent would: the keyboard first, then any
+ * device in the loop, then — as a last resort the accent chain also keeps —
+ * any device that has ever reported a non-black colour.
+ */
+export function previewLiveColor(
+  deviceColors: Readonly<Record<number, { rgb: Rgb }>>,
+  devices: readonly { id: number; typeName: string }[],
+  excluded: readonly number[],
+): Rgb | null {
+  const excludedSet = new Set(excluded);
+  const inLoop = devices
+    .filter((d) => !excludedSet.has(d.id))
+    .sort((a, b) => {
+      const kb = (x: { typeName: string }) => (/keyboard/i.test(x.typeName) ? 0 : 1);
+      return kb(a) - kb(b);
+    });
+  for (const d of inLoop) {
+    const c = deviceColors[d.id]?.rgb;
+    if (c) return c;
+  }
+  for (const c of Object.values(deviceColors)) {
+    if (c.rgb.some((v) => v > 0)) return c.rgb;
+  }
+  return null;
+}

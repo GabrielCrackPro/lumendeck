@@ -6,6 +6,10 @@ import {
   condenseWindowShortcuts,
   splitAccelerator,
   globalHotkeyState,
+  attentionItems,
+  greetingKeyForHour,
+  recencyBucket,
+  recencyValue,
 } from "./overviewCards";
 import { HOTKEY_ACTIONS, type HotkeyActionId } from "@shared/constants";
 import type { HotkeyConfig, SceneProfile, StickerDef } from "@shared/types";
@@ -307,5 +311,98 @@ describe("globalHotkeyState", () => {
     );
     expect(s.boundCount).toBe(1);
     expect(s.bound[0]!.id).toBe("toggleDashboard");
+  });
+});
+
+describe("attentionItems", () => {
+  const ok = { rgbConnected: true, wallpaperPaused: false, lightingEnabled: true };
+
+  it("says nothing when nothing wants doing", () => {
+    expect(attentionItems(ok)).toEqual([]);
+  });
+
+  it("reports every problem at once, not just the first", () => {
+    // The old strip suppressed "lighting off" whenever anything else was
+    // wrong, so a machine with OpenRGB down and the lights off was told about
+    // one of the two and nothing about the other.
+    expect(attentionItems({ rgbConnected: false, wallpaperPaused: true, lightingEnabled: false }).map((i) => i.id)).toEqual([
+      "openrgb-offline",
+      "wallpaper-paused",
+      "lighting-off",
+    ]);
+  });
+
+  it("puts the offline engine first", () => {
+    // It is the reason the rest may be consequences rather than choices, and
+    // the one that is not fixed from this screen.
+    const ids = attentionItems({ rgbConnected: false, wallpaperPaused: false, lightingEnabled: false }).map((i) => i.id);
+    expect(ids[0]).toBe("openrgb-offline");
+  });
+
+  it("offers the click that fixes each item", () => {
+    const items = attentionItems({ rgbConnected: false, wallpaperPaused: true, lightingEnabled: false });
+    expect(items[0]!.action).toEqual({ kind: "navigate", tab: "rgb" });
+    expect(items[1]!.action).toEqual({ kind: "navigate", tab: "wallpaper" });
+    // The master switch is on this very screen; sending someone to another tab
+    // to find it is the thing this strip is replacing.
+    expect(items[2]!.action).toEqual({ kind: "toggle-lighting" });
+  });
+
+  it("keeps a paused wallpaper an issue even when the engine is fine", () => {
+    expect(attentionItems({ ...ok, wallpaperPaused: true }).map((i) => i.id)).toEqual([
+      "wallpaper-paused",
+    ]);
+  });
+});
+
+describe("greetingKeyForHour", () => {
+  it("keeps the late-night salutation before five", () => {
+    expect(greetingKeyForHour(0)).toBe("overview.up-late");
+    expect(greetingKeyForHour(4)).toBe("overview.up-late");
+  });
+
+  it("flips to morning at five", () => {
+    expect(greetingKeyForHour(5)).toBe("overview.good-morning");
+    expect(greetingKeyForHour(11)).toBe("overview.good-morning");
+  });
+
+  it("flips to afternoon at noon", () => {
+    expect(greetingKeyForHour(12)).toBe("overview.good-afternoon");
+    expect(greetingKeyForHour(17)).toBe("overview.good-afternoon");
+  });
+
+  it("flips to evening at six and holds it through the last hour", () => {
+    expect(greetingKeyForHour(18)).toBe("overview.good-evening");
+    expect(greetingKeyForHour(23)).toBe("overview.good-evening");
+  });
+});
+
+describe("recency", () => {
+  it("calls anything inside five seconds now", () => {
+    expect(recencyBucket(0)).toBe("now");
+    expect(recencyBucket(4_999)).toBe("now");
+  });
+
+  it("moves to seconds, then minutes, then hours", () => {
+    expect(recencyBucket(5_000)).toBe("seconds");
+    expect(recencyBucket(59_999)).toBe("seconds");
+    expect(recencyBucket(60_000)).toBe("minutes");
+    expect(recencyBucket(3_599_999)).toBe("minutes");
+    expect(recencyBucket(3_600_000)).toBe("hours");
+  });
+
+  it("does not print a raw second count for a change from yesterday", () => {
+    expect(recencyValue(43_200_000)).toEqual({ value: 12, unit: "hours" });
+  });
+
+  it("reports the number in the unit the bucket implies", () => {
+    expect(recencyValue(9_400)).toEqual({ value: 9, unit: "seconds" });
+    expect(recencyValue(125_000)).toEqual({ value: 2, unit: "minutes" });
+    expect(recencyValue(7_260_000)).toEqual({ value: 2, unit: "hours" });
+  });
+
+  it("treats a clock that went backwards as now rather than as nonsense", () => {
+    expect(recencyBucket(-5_000)).toBe("now");
+    expect(recencyBucket(Number.NaN)).toBe("now");
   });
 });

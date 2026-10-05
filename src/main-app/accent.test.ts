@@ -3,6 +3,7 @@ import {
   contrastRatio,
   readableOnTheme,
   relativeLuminance,
+  resolveAccent,
   surfaceRgb,
 } from "./accent";
 import { formatHex } from "./components/colorHex";
@@ -270,5 +271,137 @@ describe("readableOnTheme", () => {
         }
       }
     }
+  });
+});
+
+describe("resolveAccent", () => {
+  // Strength 0 makes the readability pass an identity, so assertions on the
+  // returned rgb are assertions on the source colour, not on the pass.
+  const base = {
+    deviceColors: {},
+    mode: "none",
+    staticColor: undefined,
+    excludedDevices: [],
+    devices: [],
+    accentDevice: null,
+    accentLive: true,
+    wallpaperColor: null,
+    sysAccent: null,
+    theme: "dark" as const,
+    autoShade: 0,
+    amoled: false,
+  };
+  const RED: RGB = [220, 30, 30];
+  const device = (id: number, rgb: RGB) => ({ id, rgb });
+
+  it("follows a visibly non-black wallpaper colour while live", () => {
+    const out = resolveAccent({ ...base, wallpaperColor: RED });
+    expect(out.source).toBe("wallpaper");
+    expect(out.rgb).toEqual(RED);
+  });
+
+  it("does not name the wallpaper when its colour is too dark to lead", () => {
+    // A near-black wallpaper colour is ignored by the colour chain; the chip
+    // used to read `wallpaperColor != null` and name it anyway.
+    const out = resolveAccent({ ...base, wallpaperColor: [2, 2, 2] });
+    expect(out.source).toBe("fallback");
+  });
+
+  it("does not name a device that has never reported a colour", () => {
+    // The lie the mirror told: `devices.length > 0` made a connected-but-silent
+    // device into "follows a device" while the chain fell through to the
+    // default.
+    const out = resolveAccent({
+      ...base,
+      devices: [{ id: 7, typeName: "Keyboard" }],
+      deviceColors: {},
+    });
+    expect(out.source).toBe("fallback");
+  });
+
+  it("falls through a silent chosen device to a lit one", () => {
+    const out = resolveAccent({
+      ...base,
+      accentDevice: 7,
+      devices: [
+        { id: 7, typeName: "Keyboard" },
+        { id: 9, typeName: "Mouse" },
+      ],
+      deviceColors: { 9: device(9, RED) },
+    });
+    expect(out.source).toBe("device");
+    expect(out.rgb).toEqual(RED);
+  });
+
+  it("prefers the keyboard over other lit devices", () => {
+    const mouse: RGB = [10, 200, 10];
+    const out = resolveAccent({
+      ...base,
+      devices: [
+        { id: 3, typeName: "Mouse" },
+        { id: 5, typeName: "RGB Keyboard" },
+      ],
+      deviceColors: { 3: device(3, mouse), 5: device(5, RED) },
+    });
+    expect(out.rgb).toEqual(RED);
+  });
+
+  it("prefers a device in the loop over an excluded one", () => {
+    // The comment on the original chain promises that an excluded device never
+    // tints the interface when a device in the loop is lit; the deep fallback
+    // over every known colour still exists for when nothing else has reported.
+    const excludedRed: RGB = [220, 30, 30];
+    const inLoopGreen: RGB = [10, 200, 10];
+    const out = resolveAccent({
+      ...base,
+      devices: [
+        { id: 3, typeName: "Mouse" },
+        { id: 5, typeName: "Keyboard" },
+      ],
+      excludedDevices: [3],
+      deviceColors: { 3: device(3, excludedRed), 5: device(5, inLoopGreen) },
+    });
+    expect(out.source).toBe("device");
+    expect(out.rgb).toEqual(inLoopGreen);
+  });
+
+  it("reports Windows as the source when live following is off", () => {
+    const out = resolveAccent({
+      ...base,
+      accentLive: false,
+      sysAccent: RED,
+      wallpaperColor: RED,
+    });
+    expect(out.source).toBe("windows");
+    expect(out.rgb).toEqual(RED);
+  });
+
+  it("reports a frozen accent as frozen, not as Windows", () => {
+    const out = resolveAccent({
+      ...base,
+      accentLive: true,
+      accentDevice: -1,
+      staticColor: RED,
+    });
+    expect(out.source).toBe("static");
+    expect(out.rgb).toEqual(RED);
+  });
+
+  it("names the factory default rather than blaming a source that is fine", () => {
+    const out = resolveAccent(base);
+    expect(out.source).toBe("fallback");
+  });
+
+  it("does not call an unseeded session Windows before the OS accent lands", () => {
+    // sysAccent arrives a moment after mount; before that, "follows Windows"
+    // would point at a switch that was never involved.
+    const out = resolveAccent({
+      ...base,
+      accentLive: false,
+      sysAccent: null,
+      staticColor: RED,
+    });
+    expect(out.source).toBe("fallback");
+    expect(out.rgb).toEqual(RED);
   });
 });

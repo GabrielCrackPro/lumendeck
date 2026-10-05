@@ -2,6 +2,7 @@ import { memo, useEffect, useState, type DragEvent, type ReactNode } from "react
 import { IconCheck, IconInfo, IconPencil, IconPlay, IconStar, IconTrash } from "../icons";
 import { OVERLAY_ICON_BTN } from "../ui";
 import { t } from "../../i18n";
+import "./galleryMotion.css";
 import { GALLERY_KIND_LABEL } from "./kindLabels";
 import { hasTileMeta, tileMetaFor } from "./tileMeta";
 import type { VaultIndex } from "./vaultIndex";
@@ -116,7 +117,7 @@ function GalleryCardImpl({
       onClick={(e) => onSelect({ shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey })}
       draggable={draggable}
       onDragStart={onDragStart}
-      className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] outline-none transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow))] ${near ? "tile-revealed" : "tile-reveal"} ${
+      className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] outline-none transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[var(--shadow)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow))]  ${near ? "tile-revealed" : "tile-reveal"} ${
         active
           ? "border-[rgb(var(--glow)/0.7)] shadow-[0_14px_36px_-14px_rgb(var(--glow)/0.55)] ring-2 ring-[rgb(var(--glow)/0.22)]"
           : selected
@@ -131,8 +132,6 @@ function GalleryCardImpl({
           transient or about the picture itself, and covering a wallpaper with
           its own name is the one thing a wallpaper gallery should not do. */}
       <div className="relative aspect-video w-full overflow-hidden">
-        {/* Zoomed, and clipped by the media box, so the badges above stay put
-            while the picture moves under them. */}
         <div className="absolute inset-0 transition-transform duration-500 group-hover:scale-[1.05]">
           {thumbFor(entry)}
         </div>
@@ -151,10 +150,13 @@ function GalleryCardImpl({
           survives: every combination of live, ticked, unhealthy and hovering
           is reachable. Corner 1 is the tick, corner 2 the display badges,
           corner 3 the status stack, corner 4 the actions. */}
-      <div className="pointer-events-none absolute bottom-2 left-2 z-10 flex flex-col items-start gap-1">
+      {/* Status stack, top-left. One pill per transient state, stacked so a
+          wallpaper that is both live and rotating does not paint one label over
+          the other. */}
+      <div className="pointer-events-none absolute left-2 top-2 z-10 flex flex-col items-start gap-1">
         {active && (
-          <div className="live-pop flex items-center gap-1 rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-semibold text-[#06121f] shadow-[0_0_14px_rgb(var(--glow)/0.7)]">
-            <span className="h-1 w-1 rounded-full bg-[#06121f]" />
+          <div className="flex items-center gap-1 rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-semibold text-[var(--on-accent)] shadow-[0_0_14px_rgb(var(--glow)/0.7)] live-pulse">
+            <span className="h-1 w-1 rounded-full bg-[var(--on-accent)]" />
             {t("shell.live")}
           </div>
         )}
@@ -164,8 +166,8 @@ function GalleryCardImpl({
             between a vault that surprises you and one you can predict. */}
         {active && rotating && (
           <div
-            className="live-pop rounded-full bg-black/60 px-2 py-0.5 font-mono text-[9px] font-semibold text-white/80 backdrop-blur"
-            title={rotating}
+            className="rounded-full bg-black/60 px-2 py-0.5 font-mono text-[9px] font-semibold text-white/80 backdrop-blur"
+            data-tip={rotating}
           >
             {t("gallery.rotating-every-{n}-min", { n: rotating })}
           </div>
@@ -173,7 +175,7 @@ function GalleryCardImpl({
 
         {health && (
           <span
-            title={t(health === "missing" ? "gallery.file-is-missing" : "gallery.duplicated-entry")}
+            data-tip={t(health === "missing" ? "gallery.file-is-missing" : "gallery.duplicated-entry")}
             className="rounded bg-amber-500/90 px-1.5 py-px font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-black"
           >
             {t(health === "missing" ? "gallery.missing-short" : "gallery.duplicate-short")}
@@ -181,21 +183,35 @@ function GalleryCardImpl({
         )}
       </div>
 
-        {/* Which displays show this entry. Always visible -- it is state, not
-            an action, and hiding it behind hover made multi-monitor setups
-            unreadable. */}
-        {runningOn.length > 0 && (
-          <div className="pointer-events-none absolute right-2 top-2 z-10 flex gap-1">
-            {runningOn.map((n) => (
-              <span
-                key={n}
-                className="flex h-5 min-w-5 items-center justify-center rounded-md bg-[rgb(var(--glow))] px-1 font-mono text-[10px] font-bold text-[#06121f] shadow-[0_0_10px_rgb(var(--glow)/0.6)]"
-              >
-                {n}
-              </span>
-            ))}
-          </div>
-        )}
+      {/* Display badges, top-right. Always visible state, not an action, so hiding
+          them behind hover made multi-monitor setups unreadable. */}
+      {runningOn.length > 0 && (
+        <div className="pointer-events-none absolute right-2 top-2 z-10 flex gap-1">
+          {runningOn.map((n) => (
+            <span
+              key={n}
+              className="flex h-5 min-w-5 items-center justify-center rounded-md bg-[rgb(var(--glow))] px-1 font-mono text-[10px] font-bold text-[var(--on-accent)] shadow-[0_0_10px_rgb(var(--glow)/0.6)]"
+            >
+              {n}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Display badges, top-right. Always visible state, not an action, so hiding
+          them behind hover made multi-monitor setups unreadable. */}
+      {runningOn.length > 0 && (
+        <div className="pointer-events-none absolute right-2 top-2 z-10 flex gap-1">
+          {runningOn.map((n) => (
+            <span
+              key={n}
+              className="flex h-5 min-w-5 items-center justify-center rounded-md bg-[rgb(var(--glow))] px-1 font-mono text-[10px] font-bold text-[var(--on-accent)] shadow-[0_0_10px_rgb(var(--glow)/0.6)]"
+            >
+              {n}
+            </span>
+          ))}
+        </div>
+      )}
 
         {/* Actions. Shown on hover, on keyboard focus, and whenever the card is
             selected — the old hover-only version left rename and delete
@@ -217,7 +233,7 @@ function GalleryCardImpl({
               instead of being something you do by pointing at a picture. */}
           <button
             aria-label={t("gallery.apply-{name}-everywhere", { name: entry.name })}
-            title={t("gallery.apply-everywhere-hint")}
+            data-tip={t("gallery.apply-everywhere-hint")}
             onClick={(e) => {
               e.stopPropagation();
               // Deliberately does not touch the selection. This used to select
@@ -227,9 +243,9 @@ function GalleryCardImpl({
               // to get it back.
               onApplyAll();
             }}
-            className={`${OVERLAY_BTN} hover:!bg-[rgb(var(--glow))] hover:text-[#06121f]`}
+            className={`${OVERLAY_BTN} hover:!bg-[rgb(var(--glow))] hover:text-[var(--on-accent)] overlay-action-play`}
           >
-            <IconPlay className="h-4 w-4" />
+            <IconPlay className="h-4 w-4 overlay-icon" />
           </button>
           <button
             aria-label={t("gallery.entry-details", { name: entry.name })}
@@ -257,9 +273,9 @@ function GalleryCardImpl({
               e.stopPropagation();
               onRemove();
             }}
-            className={`${OVERLAY_BTN} hover:!bg-red-500`}
+            className={`${OVERLAY_BTN} hover:!bg-red-500 overlay-action-danger`}
           >
-            <IconTrash className="h-4 w-4" />
+            <IconTrash className="h-4 w-4 overlay-icon" />
           </button>
         </div>
 
@@ -284,7 +300,7 @@ function GalleryCardImpl({
           }}
           className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-md border backdrop-blur transition-opacity duration-150 ${
             checked
-              ? "border-transparent bg-[rgb(var(--glow))] text-[#06121f] opacity-100"
+              ? "border-transparent bg-[rgb(var(--glow))] text-[var(--on-accent)] opacity-100"
               : "border-white/40 bg-black/45 text-transparent opacity-40 hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
           }`}
         >
@@ -333,7 +349,7 @@ function GalleryCardImpl({
         {collections.length > 0 && (
           <span
             className="h-1.5 w-1.5 shrink-0 rounded-full bg-[rgb(var(--glow))]"
-            title={collections.map((c) => c.name).join(", ")}
+            data-tip={collections.map((c) => c.name).join(", ")}
           />
         )}
       </div>

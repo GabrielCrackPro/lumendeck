@@ -51,6 +51,7 @@ pub mod volume;
 pub mod wallpaper_bg;
 pub mod win32;
 pub mod window_chrome;
+pub mod window_constraints;
 pub mod window_utils;
 pub mod workerw;
 
@@ -652,8 +653,14 @@ pub fn run() {
                 tauri::WebviewUrl::App("main-app.html".into()),
             )
             .title(main_window_title())
-            .inner_size(1100.0, 760.0)
-            .min_inner_size(900.0, 640.0)
+            .inner_size(
+                window_constraints::DEFAULT_LOGICAL_WIDTH,
+                window_constraints::DEFAULT_LOGICAL_HEIGHT,
+            )
+            .min_inner_size(
+                window_constraints::min_inner_size().0,
+                window_constraints::min_inner_size().1,
+            )
             .resizable(true)
             .decorations(false)
             .visible(false)
@@ -664,6 +671,62 @@ pub fn run() {
                 main_window_builder = main_window_builder.icon(icon.clone())?;
             }
             let main_window = main_window_builder.build()?;
+
+            // Saved geometry is already on the window here: the window-state
+            // plugin restored it in `on_window_ready`, before this setup
+            // hook ran. A size saved before the minimum rose -- or onto a
+            // monitor that has since changed DPI -- comes back below what
+            // the UI can lay out, and `WM_GETMINMAXINFO` only constrains
+            // user drags, never programmatic `set_size`. So the restored
+            // rect is re-checked against the same policy the builder
+            // stated, and everything this app sets afterwards is clamped by
+            // the resize arm below.
+            fn apply_constraints(win: &tauri::WebviewWindow) -> tauri::Result<()> {
+                use window_constraints::RestoredSize;
+                let scale = win.scale_factor().unwrap_or(1.0);
+                let monitor = win.current_monitor()?.or_else(|| {
+                    // Not on any monitor yet (early startup): measure
+                    // against the primary rather than skipping the check.
+                    // Windows puts the primary monitor's origin at (0,0).
+                    win.available_monitors().ok().and_then(|ms| {
+                        ms.into_iter()
+                            .find(|m| m.position().x == 0 && m.position().y == 0)
+                    })
+                });
+                let work_area = monitor
+                    .map(|m| {
+                        let area = m.work_area();
+                        (
+                            area.position.x,
+                            area.position.y,
+                            area.size.width,
+                            area.size.height,
+                        )
+                    })
+                    // No monitor reported (headless, CI): assume the
+                    // position is fine so a saved size is clamped but not
+                    // discarded for lack of a monitor to judge it by.
+                    .unwrap_or((i32::MIN, i32::MIN, u32::MAX, u32::MAX));
+                let pos = win.outer_position().ok().map(|p| (p.x, p.y));
+                let size = win.inner_size().ok().map(|s| (s.width, s.height));
+                match window_constraints::plan_restore(size, pos, scale, work_area) {
+                    RestoredSize::Clamp(w, h) => {
+                        win.set_size(tauri::LogicalSize::new(w, h))?;
+                    }
+                    // Invisible on every monitor: do not guess which one
+                    // the user meant. Windows will place the window on a
+                    // display that exists, and the resize arm below keeps
+                    // the size legal from there.
+                    RestoredSize::Defaults => {
+                        log::info!("startup: saved window geometry unusable; using defaults");
+                    }
+                }
+                Ok(())
+            }
+            if let Err(e) = apply_constraints(&main_window) {
+                log::debug!("window constraints not applied at startup: {e}");
+            }
+
             // Frameless windows lose the rounded corners Windows gives
             // decorated ones for free; ask DWM for them back. Non-fatal.
             crate::window_chrome::apply(&main_window);
@@ -758,6 +821,27 @@ pub fn run() {
                     // After the minimize arm above, so a minimize-to-tray does
                     // not record the icon-sized rect Windows reports mid-restore.
                     tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                        // A user dragging the edge cannot produce a size
+                        // under the minimum -- `WM_GETMINMAXINFO` stops that
+                        // -- so one arriving here came from a programmatic
+                        // set_size or a DPI change resizing the window under
+                        // us. It is brought back to the floor against the
+                        // same policy as everywhere else; legal sizes are
+                        // left untouched and cost one comparison.
+                        if let (Ok(size), Ok(scale)) =
+                            (win_handle.inner_size(), win_handle.scale_factor())
+                        {
+                            let lw = size.width as f64 / scale;
+                            let lh = size.height as f64 / scale;
+                            if lw + 0.5 < window_constraints::MIN_LOGICAL_WIDTH
+                                || lh + 0.5 < window_constraints::MIN_LOGICAL_HEIGHT
+                            {
+                                let (w, h) =
+                                    window_constraints::clamp_to_min(lw, lh);
+                                let _ =
+                                    win_handle.set_size(tauri::LogicalSize::new(w, h));
+                            }
+                        }
                         schedule_window_state_save();
                     }
                     _ => {}

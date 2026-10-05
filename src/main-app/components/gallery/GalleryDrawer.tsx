@@ -165,8 +165,8 @@ export function GalleryDrawer({
               {t("gallery.details")}
             </span>
             {isActive && (
-              <span className="flex shrink-0 items-center gap-1 rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-semibold text-[#06121f]">
-                <span className="h-1 w-1 rounded-full bg-[#06121f]" />
+              <span className="flex shrink-0 items-center gap-1 rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-semibold text-[var(--on-accent)]">
+                <span className="h-1 w-1 rounded-full bg-[var(--on-accent)]" />
                 {t("shell.live")}
               </span>
             )}

@@ -59,3 +59,43 @@ export function deviceWindow<T>(
     collapsible: true,
   };
 }
+
+/** The LED figures a device list reports, all derived from the same walk. */
+export interface LedCounts {
+  /** Every LED across all devices, muted or not. */
+  total: number;
+  /** LEDs the engine actually writes: unmuted devices only. */
+  active: number;
+  /** How many devices are muted. */
+  muted: number;
+  /** How many devices are not muted. */
+  unmuted: number;
+}
+
+/**
+ * Sum the LED counts of a device list, respecting the mute set.
+ *
+ * One function rather than a reduce per figure because the figures were
+ * derived twice — Overview and the lighting tab each walked the device list
+ * with their own exclusion filter, and the two copies were one edit apart from
+ * disagreeing about what "active" means. Mutually consistent by construction:
+ * `active + (muted devices' LEDs) == total`.
+ */
+export function ledCounts(
+  devices: readonly { id: number; leds: number }[],
+  excluded: readonly number[],
+): LedCounts {
+  const excludedSet = new Set(excluded);
+  let total = 0;
+  let active = 0;
+  let muted = 0;
+  for (const d of devices) {
+    total += d.leds;
+    if (excludedSet.has(d.id)) {
+      muted += 1;
+    } else {
+      active += d.leds;
+    }
+  }
+  return { total, active, muted, unmuted: devices.length - muted };
+}

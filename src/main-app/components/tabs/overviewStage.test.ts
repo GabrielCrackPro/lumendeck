@@ -1,29 +1,44 @@
 import { describe, expect, it } from "vitest";
 
 /**
- * The Overview tab's source, read at build time.
+ * The Now playing card's source, read at build time.
  *
  * Through `import.meta.glob` rather than `node:fs`, as tabNav.test.ts does and
- * for the same reason: these assertions are about markup that only exists in the
- * render tree, and this environment deliberately has no DOM to render it.
+ * for the same reason: these assertions are about markup that only exists in
+ * the render tree, and this environment deliberately has no DOM to render it.
+ *
+ * The markup moved from OverviewTab.tsx into overview/MediaCard.tsx when the
+ * tab was split; the assertions did not. The tab now renders `<MediaCardBody>`,
+ * so bounding the card's own file is what keeps these assertions about the
+ * same pixels they were always about.
  */
-const OVERVIEW_SRC = import.meta.glob("./OverviewTab.tsx", {
+const MEDIA_SRC = import.meta.glob("../overview/MediaCard.tsx", {
   query: "?raw",
   import: "default",
   eager: true,
-})["./OverviewTab.tsx"];
+})["../overview/MediaCard.tsx"];
 
-function overviewSource(): string {
-  if (typeof OVERVIEW_SRC !== "string") {
-    throw new Error("OverviewTab.tsx was not globbed; cannot assert on its markup");
+function mediaCardSource(): string {
+  if (typeof MEDIA_SRC !== "string") {
+    throw new Error("MediaCard.tsx was not globbed; cannot assert on its markup");
   }
-  return OVERVIEW_SRC;
+  return MEDIA_SRC;
+}
+
+/** The wallpaper stage alone, for assertions about what sits over the picture. */
+function wallpaperStage(src: string): string {
+  const start = src.indexOf("function WallpaperStage");
+  const end = src.indexOf("function EqBars");
+  if (start < 0 || end < 0 || end < start) {
+    throw new Error("could not bound the wallpaper stage");
+  }
+  return src.slice(start, end);
 }
 
 /** The Now playing card's span of the file: the stage, player and transport. */
 function nowPlayingSection(src: string): string {
   const start = src.indexOf("function WallpaperStage");
-  const end = src.indexOf("export default function OverviewTab");
+  const end = src.indexOf("export default function MediaCardBody");
   if (start < 0 || end < 0 || end < start) {
     throw new Error("could not bound the Now playing section");
   }
@@ -36,7 +51,7 @@ describe("Now playing wallpaper stage", () => {
     // most visible mismatch on the card. Nine sites were native: the wallpaper
     // name, the two overlay controls, the album art, the title, the source app,
     // the volume row, shuffle and repeat.
-    const section = nowPlayingSection(overviewSource());
+    const section = nowPlayingSection(mediaCardSource());
     expect(section).not.toMatch(/\btitle=\{t\(/);
     expect(section).not.toMatch(/\btitle=\{media\./);
     expect(section).not.toMatch(/\btitle=\{`/);
@@ -47,7 +62,7 @@ describe("Now playing wallpaper stage", () => {
     // The chip is `truncate`, so the tooltip is the only way to read a long
     // filename in full. Losing it would make the name unrecoverable, not merely
     // less pretty.
-    expect(nowPlayingSection(overviewSource())).toContain(
+    expect(nowPlayingSection(mediaCardSource())).toContain(
       "data-tip={wallpaperName}",
     );
   });
@@ -61,76 +76,59 @@ describe("Now playing wallpaper stage", () => {
     // The volume row is deliberately absent: it has a visible text label beside
     // it further down the card, so an `aria-label` there would duplicate a
     // string the user can already read.
-    const src = nowPlayingSection(overviewSource());
+    const src = nowPlayingSection(mediaCardSource());
     expect(src).toContain('aria-label={t("common.change-wallpaper")}');
     expect(src).toContain('data-tip={t("common.change-wallpaper")}');
     expect(src).toContain("aria-label={t(muted ? \"common.unmute\" : \"common.mute\")}");
   });
 
-  it("reveals the hover-only controls on keyboard focus, not hover alone", () => {
-    // `opacity-0` does not remove a button from the tab order, so without
-    // `focus-within` these two are reachable by Tab and completely invisible
-    // while focused — the one state a control must never be in.
-    expect(nowPlayingSection(overviewSource())).toContain(
-      "focus-within:opacity-100",
+  it("draws the wallpaper name and its actions at rest, not on hover", () => {
+    // The name and the two wallpaper actions used to be chrome over the
+    // picture, revealed by hover and by focus-within. That treatment is right
+    // for artwork and wrong for a name: a label that vanishes when the pointer
+    // leaves is a hover hint, and the one thing a reader could not do without
+    // it was answer "which wallpaper is this" while looking at it.
+    const stage = wallpaperStage(mediaCardSource());
+    expect(stage).toContain("data-tip={wallpaperName}");
+    expect(stage).not.toMatch(/group-hover\/stage/);
+    expect(stage).not.toMatch(/group-focus-within\/stage/);
+    expect(stage).not.toMatch(/focus-within:opacity-100/);
+  });
+
+  it("keeps nothing hidden at rest over the picture", () => {
+    // With the chrome gone there is no reason for the top scrim either: it
+    // existed to make a chip legible against a bright frame, and it darkened
+    // the top third of an image the user chose for the rest of the time.
+    //
+    // Scoped to the stage on purpose. The progress bar further down this same
+    // card hides its scrub thumb until hover, which is correct — a thumb that
+    // was always visible would sit on top of the elapsed line.
+    const stage = wallpaperStage(mediaCardSource());
+    expect(stage).not.toMatch(/opacity-0/);
+    expect(stage).not.toMatch(/bg-\[linear-gradient/);
+  });
+
+  it("sits the name beside the actions rather than under them", () => {
+    // `flex-1 truncate` is what replaces the width reservation the overlay
+    // needed: the name takes the room the two buttons are not using, so a
+    // longer filename still has somewhere to go.
+    expect(wallpaperStage(mediaCardSource())).toContain(
+      'className="min-w-0 flex-1 truncate',
     );
   });
 
-  it("hides the wallpaper name at rest and brings it back on hover", () => {
-    // The card is called "Now playing and live wallpaper". A permanently drawn
-    // chip over the picture meant the wallpaper was never shown unobstructed.
-    expect(nowPlayingSection(overviewSource())).toMatch(
-      /className="absolute left-3 top-3[^"]*opacity-0[^"]*group-hover\/stage:opacity-100/,
-    );
+  it("keeps the name a label rather than a fake control", () => {
+    // It is not a button and never was; a hover state on it would promise an
+    // action it does not have.
+    const stage = wallpaperStage(mediaCardSource());
+    expect(stage).toMatch(/data-tip=\{wallpaperName\}[\s\S]{0,200}?<\/span>/);
+    expect(stage).not.toMatch(/<button[^>]*onClick=\{onChange\}[^>]*data-tip=\{wallpaperName\}/);
   });
 
-  it("still shows the name to a keyboard user, who has no hover", () => {
-    // The chip is not focusable, so hover-only would delete the wallpaper name
-    // for keyboard users entirely rather than merely hiding it. Revealing on
-    // focus anywhere in the stage means Tab to Pause or Change brings the name
-    // with it. This is the assertion that stops "hover-only" from being read as
-    // "mouse-only".
-    expect(nowPlayingSection(overviewSource())).toContain(
-      "group-focus-within/stage:opacity-100",
-    );
-  });
-
-  it("fades the top scrim in with the name, not permanently", () => {
-    // The gradient exists to make the chip legible against a bright frame.
-    // Left always-on it darkens the top third of the wallpaper — usually the
-    // part the user chose — for nothing, most of the time.
-    expect(nowPlayingSection(overviewSource())).toMatch(
-      /bg-\[linear-gradient[^\n]*opacity-0[^\n]*group-hover\/stage:opacity-100/,
-    );
-  });
-
-  it("gives all three pieces of chrome the same reveal, so none is left behind", () => {
-    // Chip, scrim and the two buttons fade together. A fourth element that kept
-    // `opacity-0` with only the hover half of the pair would stay invisible to
-    // keyboard users while the rest of the chrome appeared.
-    const section = nowPlayingSection(overviewSource());
-    const reveals = section.match(/group-hover\/stage:opacity-100/g) ?? [];
-    const focusReveals = section.match(/group-focus-within\/stage:opacity-100/g) ?? [];
-    expect(reveals).toHaveLength(3);
-    expect(focusReveals).toHaveLength(2);
-  });
-
-  it("reserves room for the overlay controls when capping the name width", () => {
-    // The chip is capped so the two buttons at top-right never overlap it. The
-    // `100%-6.5rem` is that reservation; if the controls grew wider and this did
-    // not, the wallpaper name would slide underneath them.
-    expect(nowPlayingSection(overviewSource())).toContain(
-      "max-w-[calc(100%-6.5rem)]",
-    );
-  });
-
-  it("keeps the name chip a label rather than a fake control", () => {
-    // It has a pill background, so a hover state would promise an action it does
-    // not have. It stays a `div` with a `span` inside.
-    const src = nowPlayingSection(overviewSource());
-    expect(src).toMatch(
-      /<div className="absolute left-3 top-3[^"]*"[\s\S]{0,400}?<span/,
-    );
-    expect(src).not.toMatch(/<button[^>]*onClick=\{onChange\}[^>]*data-tip=\{wallpaperName\}/);
+  it("says when the wallpaper is paused, rather than only going still", () => {
+    // A frozen picture is otherwise indistinguishable from a still frame, and
+    // the old card reported a paused wallpaper three other ways on three other
+    // screens.
+    expect(wallpaperStage(mediaCardSource())).toContain('{t("common.paused")}');
   });
 });

@@ -665,6 +665,47 @@ input[type="color"]::-webkit-color-swatch {
   animation: livePop var(--motion-base) var(--ease-emphasized) both;
 }
 
+/* The active rail row breathes rather than sits: a quiet, slow pulse in the
+   accent that keeps the selection visible without asserting itself. It is the
+   same idea as the engine's live dot — something is on — but scaled down to a
+   row that is already marked and one shade of accent shy of drawing the eye.
+   Slower than lpulse on purpose: a row is a resting state, not a beat. */
+@keyframes railGlow {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 1px rgb(var(--glow) / 0.18);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1px rgb(var(--glow) / 0.28);
+  }
+}
+.rail-active {
+  animation: railGlow 2.4s ease-in-out infinite;
+}
+
+/* idle accent fan: a brief shimmer across the rail's accent edge when it folds
+   but the accent has not yet moved on. This is the only part of the collapse that
+   is about the accent itself rather than the rail — everything else is geometry.
+   The fan runs once and dies; if the accent keeps firing after it ends, that is fine
+   because the rail is gone and the eye is no longer on it. */
+@keyframes accentFan {
+  0% {
+    opacity: 0;
+    transform: scaleX(0.4);
+  }
+  40% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(1.15);
+  }
+}
+.rail-accent-fan {
+  animation: accentFan 0.7s ease-out both;
+}
+
 /* A collection chip while a tile is in flight. Slow on purpose: this runs for
    as long as the drag does, and anything faster reads as a glitch. */
 @keyframes dropArm {

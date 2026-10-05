@@ -223,36 +223,82 @@ export function Card({
 }
 
 /** Small status pill / chip. */
+/** One chip look per tone, shared by the label and the button below. */
+const CHIP_DOT: Record<ChipTone, string> = {
+  ok: "bg-emerald-400",
+  warn: "bg-amber-400",
+  danger: "bg-red-400",
+  idle: "bg-[var(--text-faint)]",
+  accent: "bg-[rgb(var(--glow))]",
+};
+
+const CHIP_FRAME: Record<ChipTone, string> = {
+  ok: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+  warn: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+  danger: "border-red-500/30 bg-red-500/10 text-red-300",
+  idle: "border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-dim)]",
+  accent: "border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.1)] text-[rgb(var(--glow))]",
+};
+
+export type ChipTone = "ok" | "warn" | "danger" | "idle" | "accent";
+
 export function Chip({
   tone = "idle",
   children,
   pulse,
 }: {
-  tone?: "ok" | "warn" | "danger" | "idle" | "accent";
+  tone?: ChipTone;
   children: ReactNode;
   pulse?: boolean;
 }) {
-  const dot = {
-    ok: "bg-emerald-400",
-    warn: "bg-amber-400",
-    danger: "bg-red-400",
-    idle: "bg-[var(--text-faint)]",
-    accent: "bg-[rgb(var(--glow))]",
-  }[tone];
-  const frame = {
-    ok: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-    warn: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-    danger: "border-red-500/30 bg-red-500/10 text-red-300",
-    idle: "border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-dim)]",
-    accent: "border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.1)] text-[rgb(var(--glow))]",
-  }[tone];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] ${frame}`}
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] ${CHIP_FRAME[tone]}`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${dot} ${pulse ? "animate-[lpulse_2s_ease-in-out_infinite]" : ""}`} />
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${CHIP_DOT[tone]} ${pulse ? "animate-[lpulse_2s_ease-in-out_infinite]" : ""}`}
+      />
       {children}
     </span>
+  );
+}
+
+/**
+ * A chip you can press.
+ *
+ * The Overview attention strip found it had things to say that each had a fix
+ * one click away, and a non-interactive span cannot carry a click. This is that
+ * same chip as a button, sharing the tone maps above rather than restating
+ * them: a status chip and a button that look identical but are built from two
+ * copies of the same classes is exactly the drift the design system exists to
+ * stop.
+ */
+export function ChipButton({
+  tone = "idle",
+  children,
+  onClick,
+  title,
+  disabled,
+}: {
+  tone?: ChipTone;
+  children: ReactNode;
+  onClick: () => void;
+  /** Tooltip. The label says what is wrong; this says what pressing does. */
+  title?: string;
+  /** Held while the write it would trigger is already in flight. */
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      data-tip={title}
+      className={`inline-flex select-none items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] transition-[color,background-color,border-color,transform] focus-glow hover:brightness-125 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 ${CHIP_FRAME[tone]}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${CHIP_DOT[tone]}`} />
+      {children}
+    </button>
   );
 }
 

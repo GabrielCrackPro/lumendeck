@@ -184,7 +184,9 @@ pub struct GeneralConfig {
     pub pause_on_battery_saver: bool,
     pub pause_on_fullscreen: bool,
     pub wallpaper_enabled: bool,
-    /// UI accent follows live device colors (true) or frozen to the static color (false).
+    /// UI accent follows the live scene (wallpaper, then a device, then the static
+    /// color) rather than being frozen to the Windows accent or the static colour.
+    /// On by default so the dashboard reflects the wallpaper the user picked.
     pub accent_live: bool,
     /// Decode wallpaper video in software (for machines whose hardware
     /// decoder misbehaves). Costs CPU and destabilizes 4K pipelines — the
@@ -384,7 +386,7 @@ impl Default for GeneralConfig {
             pause_on_battery_saver: false,
             pause_on_fullscreen: true,
             wallpaper_enabled: true,
-            accent_live: false,
+            accent_live: true,
             software_video_decode: false,
             accent_sync_enabled: false,
             accent_sync_armed: false,

@@ -193,7 +193,7 @@ export function NowShowingCard({
           {/* Name and facts along the bottom. The scrim is what keeps white text
               legible over a bright frame without dimming the whole picture. */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-[linear-gradient(0deg,rgb(0_0_0/0.85),transparent)] px-3 pb-2.5 pt-8">
-            <div className="truncate text-[13px] font-semibold text-white/95" title={name}>
+            <div className="truncate text-[13px] font-semibold text-white/95" data-tip={name}>
               {name}
             </div>
             <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px] leading-none text-white/70">
@@ -311,7 +311,7 @@ export function NowShowingCard({
                         key={hex}
                         type="button"
                         onClick={() => void copy(hex)}
-                        title={t("common.copy-colour-{hex}", { hex })}
+                        data-tip={t("common.copy-colour-{hex}", { hex })}
                         className="group flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--panel)] py-1 pl-1 pr-2 transition-colors hover:border-[rgb(var(--glow)/0.45)] hover:bg-[var(--panel-strong)] focus-glow"
                       >
                         {/* Big enough to recognise as a colour rather than a

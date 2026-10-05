@@ -707,6 +707,61 @@ async fn engine_loop(
             latest.retain(|s| s.received_ms >= cutoff);
         }
 
+        // Broadcast the wallpaper's dominant color to the frontend so the UI
+        // accent can follow the wallpaper even when RGB sync is turned off.
+        // The old path lived inside the device-push section, which is gated on
+        // `cfg.enabled` — that is the bug: `accentLive` is a UI concern,
+        // independent of whether the lights are on.
+        if !latest.is_empty() {
+            let accent = latest
+                .iter()
+                .find(|s| s.id == "all" && s.primary)
+                .or_else(|| latest.iter().find(|s| s.id == "all"))
+                .map(|s| s.rgb)
+                .or_else(|| palette::dominant_over_samples(&latest));
+            if let Some(c) = accent {
+                if c != [0, 0, 0] {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    let mut push = false;
+                    {
+                        let mut last = LAST_UI_COLOR
+                            .lock()
+                            .expect("ui color mutex poisoned");
+                        match *last {
+                            Some((ts, prev)) => {
+                                let delta = c
+                                    .iter()
+                                    .zip(prev.iter())
+                                    .map(|(a, b)| a.abs_diff(*b))
+                                    .max()
+                                    .unwrap_or(0);
+                                if now_ms - ts >= 1000 && delta >= 12 {
+                                    *last = Some((now_ms, c));
+                                    push = true;
+                                }
+                            }
+                            None => {
+                                *last = Some((now_ms, c));
+                                push = true;
+                            }
+                        }
+                    }
+                    if push {
+                        if let Some(app) = crate::app_handle() {
+                            crate::events::emit_all(
+                                &app,
+                                crate::events::WALLPAPER_COLOR,
+                                &c,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         // Sync audio source from config.
         audio::set_source(&cfg.audio_source);
 

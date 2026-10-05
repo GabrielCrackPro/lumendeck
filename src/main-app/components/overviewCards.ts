@@ -193,3 +193,113 @@ export function globalHotkeyState(
     dormant: bound.length > 0 && !enabled,
   };
 }
+// ---------- what wants doing, and where the accent came from ----------
+
+/** What clicking an attention chip does. */
+export type AttentionAction =
+  /** Go to the tab that fixes it. */
+  | { kind: "navigate"; tab: string }
+  /** The switch is on this screen; do not make anyone go looking for it. */
+  | { kind: "toggle-lighting" };
+
+/**
+ * What each attention item says. Named as a map so the checker can see the
+ * keys: they are returned as data and rendered by the caller, so nothing calls
+ * `t()` with a literal.
+ */
+export const ATTENTION_LABELS = {
+  offline: "overview.openrgb-offline",
+  paused: "overview.wallpaper-paused",
+  lightingOff: "common.lighting-off",
+} as const;
+
+export interface AttentionItem {
+  /** Stable identity, so React keys the chip and not its label. */
+  id: string;
+  /** Catalog key for the label. */
+  key: string;
+  action: AttentionAction;
+}
+
+/**
+ * Everything on this machine that wants doing, in the order it wants doing.
+ *
+ * This replaces a chain of `if`s that could only ever report one problem: the
+ * old strip suppressed "lighting off" whenever anything else was wrong, so a
+ * machine with OpenRGB down *and* the wallpaper paused was told about the pause
+ * and nothing about the reason the lights had gone with it. Every condition is
+ * now independent and every item carries the click that fixes it — a strip that
+ * can tell you something is wrong but not do anything about it is a notification
+ * with the actions left off.
+ */
+export function attentionItems(state: {
+  rgbConnected: boolean;
+  wallpaperPaused: boolean;
+  lightingEnabled: boolean;
+}): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  // Offline first: it is the reason the lighting item below may be lying about
+  // being a choice rather than a consequence, and it is the only one of the
+  // three that is not fixed from this screen.
+  if (!state.rgbConnected) {
+    items.push({
+      id: "openrgb-offline",
+      key: ATTENTION_LABELS.offline,
+      action: { kind: "navigate", tab: "rgb" },
+    });
+  }
+  if (state.wallpaperPaused) {
+    items.push({
+      id: "wallpaper-paused",
+      key: ATTENTION_LABELS.paused,
+      action: { kind: "navigate", tab: "wallpaper" },
+    });
+  }
+  if (!state.lightingEnabled) {
+    items.push({
+      id: "lighting-off",
+      key: ATTENTION_LABELS.lightingOff,
+      action: { kind: "toggle-lighting" },
+    });
+  }
+  return items;
+}
+
+/**
+ * Which salutation this hour earns, as the catalog key the unnamed form reads.
+ *
+ * Pure so the boundaries (5, 12, 18) can be pinned by tests, and so the hook
+ * that re-reads the clock and the first render cannot pick different keys —
+ * picking the key twice is how a greeting ends up saying "Good evening" to
+ * someone at ten in the morning.
+ */
+export function greetingKeyForHour(hour: number) {
+  if (hour < 5) return "overview.up-late" as const;
+  if (hour < 12) return "overview.good-morning" as const;
+  if (hour < 18) return "overview.good-afternoon" as const;
+  return "overview.good-evening" as const;
+}
+
+/**
+ * How long ago something happened, as a catalog key suffix.
+ *
+ * A dashboard that reports state but never history leaves one question
+ * unanswerable without a log: did that press do anything. Four buckets, because
+ * past an hour the precise minute stops mattering and past a day nobody is
+ * reading it — the coarsest bucket still has to exist, or a change from
+ * yesterday renders as "43200s ago".
+ */
+export function recencyBucket(elapsedMs: number): "now" | "seconds" | "minutes" | "hours" {
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 5_000) return "now";
+  if (elapsedMs < 60_000) return "seconds";
+  if (elapsedMs < 3_600_000) return "minutes";
+  return "hours";
+}
+
+/** The number to put in the bucket, and the unit it is in. */
+export function recencyValue(elapsedMs: number): { value: number; unit: "seconds" | "minutes" | "hours" } {
+  const bucket = recencyBucket(elapsedMs);
+  if (bucket === "seconds") return { value: Math.floor(elapsedMs / 1000), unit: "seconds" };
+  if (bucket === "minutes") return { value: Math.floor(elapsedMs / 60_000), unit: "minutes" };
+  return { value: Math.floor(elapsedMs / 3_600_000), unit: "hours" };
+}

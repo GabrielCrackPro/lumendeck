@@ -88,6 +88,17 @@ import { MemoryStickIcon } from "@animateicons/react/lucide/memory-stick-icon";
 import { HardDriveIcon } from "@animateicons/react/lucide/hard-drive-icon";
 import { ScanLineIcon } from "@animateicons/react/lucide/scan-line-icon";
 import { BoxIcon } from "@animateicons/react/lucide/box-icon";
+// The lighting-mode glyphs. Each was a hand-drawn SVG living in ModePicker.tsx,
+// which is how icons drift off the set — a private glyph set nobody's hover
+// rules or reduced-motion handling reach. Every mode has a Lucide noun that
+// reads the same, so they are library glyphs like everything else.
+import { SunMediumIcon } from "@animateicons/react/lucide/sun-medium-icon";
+import { ActivityIcon } from "@animateicons/react/lucide/activity-icon";
+import { CircleDotIcon } from "@animateicons/react/lucide/circle-dot-icon";
+import { RainbowIcon } from "@animateicons/react/lucide/rainbow-icon";
+import { ChartSplineIcon } from "@animateicons/react/lucide/chart-spline-icon";
+import { WindIcon } from "@animateicons/react/lucide/wind-icon";
+import { AudioLinesIcon } from "@animateicons/react/lucide/audio-lines-icon";
 
 type P = SVGProps<SVGSVGElement>;
 
@@ -244,7 +255,7 @@ export function hoverRootFor(node: {
  * card that re-parents its icon — a list row reused for a different device —
  * does not keep triggering the row it used to live in.
  */
-function useHoverRoot(
+export function useHoverRoot(
   handleRef: RefObject<IconHandle | null>,
   enabled: boolean,
 ) {
@@ -289,7 +300,12 @@ type LibraryIcon = ForwardRefExoticComponent<
  * because the library's own default is `true` and nothing here would stop it.
  * A caller that explicitly passes `false` still wins.
  */
-function anim(C: LibraryIcon, name: string) {
+export function anim(C: Glyph, name: string) {
+  // Every icon that reaches `anim` is itself `anim`-created, so it is a
+  // forwardRef component with the IconHandle contract — `Glyph` is the public
+  // shape (`className` only), but the ref forwarding is real. Cast rather than
+  // widen the whole file's icon table to the forwardRef shape.
+  const Cff = (C as unknown) as LibraryIcon;
   const Out = (props: IconProps) => {
     const {
       className,
@@ -302,7 +318,7 @@ function anim(C: LibraryIcon, name: string) {
     const iconRef = useHoverRoot(handleRef, isAnimated);
     return (
       <span ref={iconRef} className="contents">
-        <C
+        <Cff
           ref={handleRef}
           size={size}
           isAnimated={isAnimated}
@@ -381,6 +397,14 @@ export const IconNext = anim(ChevronRightIcon, "IconNext");
 export const IconPrevious = anim(ChevronLeftIcon, "IconPrevious");
 export const IconChevronRight = anim(ChevronRightIcon, "IconChevronRight");
 export const IconChevronDown = anim(ChevronDownIcon, "IconChevronDown");
+// Lighting-mode glyphs, one per entry of RGB_MODES (see ModePicker).
+export const IconModeAmbient = anim(SunMediumIcon, "IconModeAmbient");
+export const IconModePulse = anim(ActivityIcon, "IconModePulse");
+export const IconModeStatic = anim(CircleDotIcon, "IconModeStatic");
+export const IconModeCycle = anim(RainbowIcon, "IconModeCycle");
+export const IconModeWave = anim(ChartSplineIcon, "IconModeWave");
+export const IconModeBreathe = anim(WindIcon, "IconModeBreathe");
+export const IconModeAudio = anim(AudioLinesIcon, "IconModeAudio");
 export const IconPencil = anim(PencilIcon, "IconPencil");
 export const IconShuffle = anim(ShuffleIcon, "IconShuffle");
 export const IconRepeat = anim(RepeatIcon, "IconRepeat");

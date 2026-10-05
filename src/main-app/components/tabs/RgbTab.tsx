@@ -7,8 +7,53 @@ import { LiveStage } from "../lighting/LiveStage";
 import { ModePicker } from "../lighting/ModePicker";
 import { IconRefresh, IconZap } from "../icons";
 import { RGB_MODES, ANIMATION_MODES } from "@shared/constants";
-import type { AudioLevel, DeviceColor, RgbMode } from "@shared/types";
+import type { RgbMode } from "@shared/types";
+import { ledCounts } from "../deviceList";
+import { previewLiveColor } from "../deviceLights";
+import { usePending } from "../../pending";
 import { t } from "../../i18n";
+
+type StoreState = ReturnType<typeof useStore.getState>;
+
+const selectAudioLevel = (s: StoreState) => s.audioLevel;
+const selectDeviceColors = (s: StoreState) => s.deviceColors;
+
+/**
+ * Mirror a frame-rate store slice into component state at a human rate.
+ *
+ * Subscribing this tab directly to `deviceColors` or `audioLevel` re-renders
+ * the whole tree ~35x/second to move one colour bar. Both consumers only need
+ * a slow-moving representative value, so changes are latched by identity and
+ * copied into state on a 2Hz timer — and the timer only exists once a change
+ * has arrived, so a tray-only session burns no interval at all.
+ *
+ * The two mirrors this replaced were two hand copies of the same dance, which
+ * is how they came to differ for no defensible reason: one copied the value at
+ * change time, the other at tick time. This copies at tick time — never older
+ * than the old ones, and one implementation to reason about.
+ */
+function useThrottledStoreSlice<T>(select: (s: StoreState) => T, ms = 500): T {
+  const [value, setValue] = useState(() => select(useStore.getState()));
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let changed = false;
+    const un = useStore.subscribe((s, prev) => {
+      if (select(s) !== select(prev)) changed = true;
+      if (timer == null) {
+        timer = setInterval(() => {
+          if (!changed) return;
+          changed = false;
+          setValue(select(useStore.getState()));
+        }, ms);
+      }
+    });
+    return () => {
+      un();
+      if (timer) clearInterval(timer);
+    };
+  }, [select, ms]);
+  return value;
+}
 
 export default function RgbTab() {
   // Perf: deviceColors and audioLevel both update at frame rate. Subscribing
@@ -22,48 +67,11 @@ export default function RgbTab() {
       save: s.save,
     })),
   );
-  const [audioLevel, setAudioLevelLive] = useState(useStore.getState().audioLevel);
-  useEffect(() => {
-    let timer: ReturnType<typeof setInterval> | null = null;
-    let pending: AudioLevel | null = null;
-    const un = useStore.subscribe((s, prev) => {
-      if (s.audioLevel !== prev.audioLevel) pending = s.audioLevel;
-      if (timer == null) {
-        timer = setInterval(() => {
-          if (pending) {
-            setAudioLevelLive(pending);
-            pending = null;
-          }
-        }, 500);
-      }
-    });
-    return () => {
-      un();
-      if (timer) clearInterval(timer);
-    };
-  }, []);
-  const [deviceColors, setDeviceColorsLive] = useState<Record<number, DeviceColor>>(
-    useStore.getState().deviceColors,
-  );
-  useEffect(() => {
-    let timer: ReturnType<typeof setInterval> | null = null;
-    let dirty = false;
-    const un = useStore.subscribe((s, prev) => {
-      if (s.deviceColors !== prev.deviceColors) dirty = true;
-      if (timer == null) {
-        timer = setInterval(() => {
-          if (dirty) {
-            setDeviceColorsLive(useStore.getState().deviceColors);
-            dirty = false;
-          }
-        }, 500);
-      }
-    });
-    return () => {
-      un();
-      if (timer) clearInterval(timer);
-    };
-  }, []);
+  // One IPC call can be refused twice as easily as fired twice: the retry
+  // button reads its own in-flight state like every other guarded control.
+  const { pending: retryPending, run: runRetry } = usePending();
+  const audioLevel = useThrottledStoreSlice(selectAudioLevel);
+  const deviceColors = useThrottledStoreSlice(selectDeviceColors);
   // Lighting-only profiles used to have a save/apply card at the foot of this
   // tab. It is gone, and so is the data behind it: a snapshot that captures a
   // mode and a colour is half a config, and the half that misses the wallpaper
@@ -75,15 +83,15 @@ export default function RgbTab() {
   const rgbCfg = cfg.rgb;
   const isAnimated = (ANIMATION_MODES as ReadonlySet<RgbMode>).has(rgbCfg.mode);
 
-  const ledTotal = rgb.devices.reduce((n, d) => n + d.leds, 0);
-  const activeLeds = rgb.devices
-    .filter((d) => !rgbCfg.excludedDevices.includes(d.id))
-    .reduce((n, d) => n + d.leds, 0);
-  const mutedCount = rgb.devices.filter((d) =>
-    rgbCfg.excludedDevices.includes(d.id),
-  ).length;
+  const counts = ledCounts(rgb.devices, rgbCfg.excludedDevices);
+  const ledTotal = counts.total;
+  const activeLeds = counts.active;
+  const mutedCount = counts.muted;
   const activeMode = RGB_MODES.find((m) => m.id === rgbCfg.mode);
-  const liveWallpaperColor = Object.values(deviceColors)[0]?.rgb ?? null;
+  // The preview samples the device the accent would — keyboard first, in the
+  // loop — not whatever the store map lists first, which could be a muted
+  // device whose colour the engine is not even writing.
+  const liveWallpaperColor = previewLiveColor(deviceColors, rgb.devices, rgbCfg.excludedDevices);
 
   return (
     <div className="stagger space-y-5">
@@ -146,7 +154,6 @@ export default function RgbTab() {
                     <DeviceRow
                       key={d.id}
                       device={d}
-                      live={deviceColors[d.id]}
                       muted={muted}
                       onToggleMute={() =>
                         save((c) => {
@@ -192,7 +199,10 @@ export default function RgbTab() {
                     )}
                   </div>
                 </div>
-                <Btn onClick={() => useStore.getState().load()}>
+                <Btn
+                  disabled={retryPending.has("retry")}
+                  onClick={() => runRetry("retry", () => useStore.getState().load())}
+                >
                   <IconRefresh className="h-4 w-4" />
                   {t("common.retry")}
                 </Btn>
@@ -257,7 +267,7 @@ export default function RgbTab() {
             <div className="mt-3 border-t border-[var(--line)] pt-3">
               <Toggle
                 label={t("common.night-dimming")}
-                description="Cap LED brightness during a daily window (e.g. 22:00 to 07:00) so the lights don't glare in the dark."
+                description={t("common.cap-led-brightness-during-a-nightly-window")}
                 checked={!!rgbCfg.nightStart && !!rgbCfg.nightEnd}
                 onChange={(v) =>
                   save((c) => {
@@ -461,7 +471,7 @@ export default function RgbTab() {
                             background:
                               audioLevel.pulse > 0.05
                                 ? "rgb(var(--glow))"
-                                : "linear-gradient(90deg, rgb(var(--glow)), rgb(167 139 250))",
+                                : "linear-gradient(90deg, rgb(var(--glow)), rgb(var(--glow) / 0.35))",
                             boxShadow:
                               audioLevel.pulse > 0.05
                                 ? `0 0 12px rgb(var(--glow) / ${(0.25 + audioLevel.pulse * 0.5).toFixed(2)})`
@@ -480,7 +490,7 @@ export default function RgbTab() {
                         )}
                       </div>
                       {audioLevel.deviceName && (
-                        <div className="mt-1 truncate text-[11px] text-[var(--text-dim)]" title={audioLevel.deviceName}>
+                        <div className="mt-1 truncate text-[11px] text-[var(--text-dim)]" data-tip={audioLevel.deviceName}>
                           {audioLevel.deviceName}
                         </div>
                       )}
@@ -500,7 +510,7 @@ export default function RgbTab() {
                       max={0.95}
                       step={0.05}
                       value={rgbCfg.audioSmoothing}
-                      format={(v) => (v === 0 ? "snap" : `${Math.round(v * 100)}%`)}
+                      format={(v) => (v === 0 ? t("common.snap") : `${Math.round(v * 100)}%`)}
                       onChange={(v) => save((c) => (c.rgb.audioSmoothing = v))}
                     />
                   </>
@@ -523,7 +533,7 @@ export default function RgbTab() {
                     max={0.95}
                     step={0.05}
                     value={rgbCfg.mixer.smoothing}
-                    format={(v) => (v === 0 ? "snap" : `${Math.round(v * 100)}%`)}
+                    format={(v) => (v === 0 ? t("common.snap") : `${Math.round(v * 100)}%`)}
                     onChange={(v) => save((c) => (c.rgb.mixer.smoothing = v))}
                   />
                 )}

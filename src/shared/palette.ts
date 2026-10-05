@@ -64,6 +64,13 @@ export const THEME_BLOCKS: readonly ThemeBlock[] = [
       // every source has been ruled out — a second literal here would be free
       // to disagree with the fallback the user actually ends up looking at.
       glow: DEFAULT_GLOW.join(" "),
+      // Ink for text and dots sitting ON a filled accent. A literal at every
+      // call site (a dozen copies of #06121f across the gallery) had no
+      // guaranteed relationship to --glow, which is dynamic — it follows the
+      // wallpaper — so the contrast was luck. One token names the role; a
+      // future theme that needs a different ink declares it in its own block
+      // and every pill, badge and chip picks it up.
+      "on-accent": "#06121f",
       bg: "#e9e7e0",
       panel: "rgba(255, 255, 254, 0.78)",
       "panel-strong": "rgba(255, 255, 255, 0.96)",
