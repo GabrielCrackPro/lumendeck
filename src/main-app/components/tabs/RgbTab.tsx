@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Toggle, Slider, Btn, ColorInput, Section, Segmented, InfoNote, IconBox } from "../ui";
+import { Card, Toggle, Slider, Btn, Chip, ColorInput, EmptyState, Section, Segmented, Select, InfoNote, IconBox } from "../ui";
 import { DeviceRow } from "../DeviceRow";
 import { LiveStage } from "../lighting/LiveStage";
+import { AudioLevelMeter } from "../lighting/AudioLevelMeter";
 import { ModePicker } from "../lighting/ModePicker";
-import { IconRefresh, IconZap } from "../icons";
+import { IconBulb, IconRefresh, IconZap } from "../icons";
 import { RGB_MODES, ANIMATION_MODES } from "@shared/constants";
 import type { RgbMode } from "@shared/types";
 import { ledCounts } from "../deviceList";
@@ -15,22 +16,22 @@ import { t } from "../../i18n";
 
 type StoreState = ReturnType<typeof useStore.getState>;
 
-const selectAudioLevel = (s: StoreState) => s.audioLevel;
 const selectDeviceColors = (s: StoreState) => s.deviceColors;
 
 /**
  * Mirror a frame-rate store slice into component state at a human rate.
  *
- * Subscribing this tab directly to `deviceColors` or `audioLevel` re-renders
- * the whole tree ~35x/second to move one colour bar. Both consumers only need
- * a slow-moving representative value, so changes are latched by identity and
- * copied into state on a 2Hz timer — and the timer only exists once a change
- * has arrived, so a tray-only session burns no interval at all.
+ * Subscribing this tab directly to `deviceColors` re-renders the whole tree
+ * ~35x/second to move one colour bar. The consumer only needs a slow-moving
+ * representative value, so changes are latched by identity and copied into
+ * state on a 2Hz timer — and the timer only exists once a change has arrived,
+ * so a tray-only session burns no interval at all.
  *
- * The two mirrors this replaced were two hand copies of the same dance, which
- * is how they came to differ for no defensible reason: one copied the value at
- * change time, the other at tick time. This copies at tick time — never older
- * than the old ones, and one implementation to reason about.
+ * `deviceColors` is the only slice through here now. The audio level used to
+ * be mirrored too, until it turned out the meter and the mode tiles need the
+ * temporal detail the mirror throws away — both read the store directly in
+ * their own components instead, which is cheap because those subtrees are
+ * small and this tab is not.
  */
 function useThrottledStoreSlice<T>(select: (s: StoreState) => T, ms = 500): T {
   const [value, setValue] = useState(() => select(useStore.getState()));
@@ -55,11 +56,77 @@ function useThrottledStoreSlice<T>(select: (s: StoreState) => T, ms = 500): T {
   return value;
 }
 
+/**
+ * The tab's three enumerable settings, as presets rather than tracks.
+ *
+ * All three were sliders, and a slider is the wrong promise for each: nobody
+ * tunes an idle timeout or a frame interval by feel, the sane answers are a
+ * handful of specific numbers, and a 30–3600s track is a blind drag in which a
+ * pixel near the top is twelve seconds. A dropdown states the choices, takes
+ * one click, and cannot land between them.
+ *
+ * The labels are unit strings, not catalog keys — the same words the sliders'
+ * own readouts printed, and identical in both languages.
+ */
+const IDLE_TIMEOUT_OPTIONS = [
+  { id: "30", label: "30 s" },
+  { id: "60", label: "1 min" },
+  { id: "120", label: "2 min" },
+  { id: "300", label: "5 min" },
+  { id: "600", label: "10 min" },
+  { id: "900", label: "15 min" },
+  { id: "1800", label: "30 min" },
+  { id: "3600", label: "1 h" },
+];
+
+const IDLE_CHECK_OPTIONS = [
+  { id: "1", label: "1 s" },
+  { id: "2", label: "2 s" },
+  { id: "5", label: "5 s" },
+  { id: "10", label: "10 s" },
+  { id: "30", label: "30 s" },
+  { id: "60", label: "60 s" },
+];
+
+const WRITE_INTERVAL_OPTIONS = [
+  { id: "30", label: "30 ms" },
+  { id: "60", label: "60 ms" },
+  { id: "120", label: "120 ms" },
+  { id: "250", label: "250 ms" },
+  { id: "500", label: "500 ms" },
+  { id: "1000", label: "1000 ms" },
+];
+
+/**
+ * The presets, plus the stored value when it is off-list.
+ *
+ * A config written before these were presets can hold anything in range (45
+ * minutes, say), and `Dropdown` falls back to printing the raw number for a
+ * value it does not recognise — in seconds, a number nobody chose.
+ */
+function presetOptions(
+  presets: { id: string; label: string }[],
+  current: string,
+  format: (v: number) => string,
+): { id: string; label: string }[] {
+  if (!current || presets.some((p) => p.id === current)) return presets;
+  return [...presets, { id: current, label: format(Number(current)) }];
+}
+
+/** The words the idle slider's readout printed: `30 s`, `10 min`, `1 min 30 s`. */
+function formatIdle(v: number): string {
+  if (v < 60) return `${v} s`;
+  const m = Math.floor(v / 60);
+  const s = v % 60;
+  return s > 0 ? `${m} min ${s} s` : `${m} min`;
+}
+
 export default function RgbTab() {
-  // Perf: deviceColors and audioLevel both update at frame rate. Subscribing
-  // the whole tab to them re-renders ~35x/sec; both consumers only need the
-  // first device's representative color (a slow-moving value), so mirror
-  // them into state at 2Hz instead.
+  // Perf: deviceColors updates at frame rate. Subscribing the whole tab to it
+  // re-renders ~35x/sec; the only consumer needs a slow-moving representative
+  // colour, so mirror it into state at 2Hz instead. The audio level is not
+  // mirrored — the meter and the mode tiles read it directly, in components
+  // small enough to take the full rate.
   const { cfg, rgb, save } = useStore(
     useShallow((s) => ({
       cfg: s.cfg,
@@ -70,7 +137,6 @@ export default function RgbTab() {
   // One IPC call can be refused twice as easily as fired twice: the retry
   // button reads its own in-flight state like every other guarded control.
   const { pending: retryPending, run: runRetry } = usePending();
-  const audioLevel = useThrottledStoreSlice(selectAudioLevel);
   const deviceColors = useThrottledStoreSlice(selectDeviceColors);
   // Lighting-only profiles used to have a save/apply card at the foot of this
   // tab. It is gone, and so is the data behind it: a snapshot that captures a
@@ -146,7 +212,17 @@ export default function RgbTab() {
               ) : undefined
             }
           >
-            {rgb.connected ? (
+            {/* Connected with nothing enumerated yet: without this branch the
+                card renders as a blank panel, which reads as a bug rather than
+                as hardware the SDK has not reported. The same copy the
+                Overview's engine card uses, so the two cannot drift. */}
+            {rgb.connected && rgb.devices.length === 0 && (
+              <EmptyState
+                icon={<IconBulb className="h-6 w-6" />}
+                title={t("common.connected-but-no-devices-reported-yet")}
+              />
+            )}
+            {rgb.connected && rgb.devices.length > 0 && (
               <ul className="space-y-2">
                 {rgb.devices.map((d) => {
                   const muted = rgbCfg.excludedDevices.includes(d.id);
@@ -176,7 +252,8 @@ export default function RgbTab() {
                   );
                 })}
               </ul>
-            ) : (
+            )}
+            {!rgb.connected && (
               <div className="space-y-3.5 text-sm text-[var(--text-dim)]">
                 <div className="flex items-start gap-3 panel-inset p-3.5">
                   <span className="mt-0.5">
@@ -200,10 +277,19 @@ export default function RgbTab() {
                   </div>
                 </div>
                 <Btn
-                  disabled={retryPending.has("retry")}
+                  // The only action in this state, so it takes the accent. It
+                  // pends rather than greys out: "disabled with no explanation"
+                  // is precisely what a connection retry feels like, and the
+                  // spinner is the app saying it is trying.
+                  variant="primary"
+                  pending={retryPending.has("retry")}
                   onClick={() => runRetry("retry", () => useStore.getState().load())}
                 >
-                  <IconRefresh className="h-4 w-4" />
+                  {/* Dropped while pending — Btn draws its own spinner beside
+                      the label, and arc-plus-icon reads as two controls. */}
+                  {!retryPending.has("retry") && (
+                    <IconRefresh className="h-4 w-4" />
+                  )}
                   {t("common.retry")}
                 </Btn>
               </div>
@@ -238,28 +324,25 @@ export default function RgbTab() {
             />
             {rgbCfg.idleTimeoutSec > 0 && (
               <>
-                <Slider
+                <Select
                   label={t("common.idle-timeout")}
-                  min={30}
-                  max={3600}
-                  step={30}
-                  value={rgbCfg.idleTimeoutSec}
-                  format={(v) => {
-                    if (v < 60) return `${v}s`;
-                    const m = Math.floor(v / 60);
-                    const s = v % 60;
-                    return s > 0 ? `${m}m ${s}s` : `${m} min`;
-                  }}
-                  onChange={(v) => save((c) => (c.rgb.idleTimeoutSec = v))}
+                  value={String(rgbCfg.idleTimeoutSec)}
+                  options={presetOptions(
+                    IDLE_TIMEOUT_OPTIONS,
+                    String(rgbCfg.idleTimeoutSec),
+                    formatIdle,
+                  )}
+                  onChange={(v) => save((c) => (c.rgb.idleTimeoutSec = Number(v)))}
                 />
-                <Slider
+                <Select
                   label={t("common.check-interval")}
-                  min={1}
-                  max={60}
-                  step={1}
-                  value={rgbCfg.idleCheckIntervalSec}
-                  format={(v) => `${v}s`}
-                  onChange={(v) => save((c) => (c.rgb.idleCheckIntervalSec = v))}
+                  value={String(rgbCfg.idleCheckIntervalSec)}
+                  options={presetOptions(
+                    IDLE_CHECK_OPTIONS,
+                    String(rgbCfg.idleCheckIntervalSec),
+                    (v) => `${v} s`,
+                  )}
+                  onChange={(v) => save((c) => (c.rgb.idleCheckIntervalSec = Number(v)))}
                 />
               </>
             )}
@@ -355,9 +438,7 @@ export default function RgbTab() {
                       : "lighting.reactive-mode",
                   )}
                 </span>
-                {!rgbCfg.enabled && (
-                  <span className="rounded-md border border-amber-500/25 bg-amber-500/10 px-1.5 py-px font-mono text-[10px] uppercase text-amber-300">{t("common.off")}</span>
-                )}
+                {!rgbCfg.enabled && <Chip tone="warn">{t("common.off")}</Chip>}
               </span>
             }
           >
@@ -368,7 +449,6 @@ export default function RgbTab() {
               speed={rgbCfg.animationSpeed}
               brightness={rgbCfg.mixer.brightness}
               saturation={rgbCfg.mixer.saturation}
-              audio={audioLevel}
               cycleSpread={rgbCfg.cycleSpread}
               waveDirection={rgbCfg.waveDirection}
               onPick={(m) => save((c) => (c.rgb.mode = m))}
@@ -458,42 +538,7 @@ export default function RgbTab() {
                         onChange={(v) => save((c) => { c.rgb.audioSource = v; })}
                       />
                     </div>
-                    <div className="py-2.5">
-                      <div className="kicker mb-2">{t("common.audio-level")}</div>
-                      <div className="relative h-3 overflow-hidden rounded-full bg-[var(--panel)]">
-                        <div                           className="absolute inset-y-0 left-0 rounded-full transition-[width] var(--motion-instant) var(--ease-standard)"
-                          style={{
-                            width: `${Math.round(audioLevel.volume * 100)}%`,
-                            // The transient is a decaying envelope, not a flag,
-                            // so the flash fades with the hit instead of
-                            // snapping off on the next frame.
-                            background:
-                              audioLevel.pulse > 0.05
-                                ? "rgb(var(--glow))"
-                                : "linear-gradient(90deg, rgb(var(--glow)), rgb(var(--glow) / 0.35))",
-                            boxShadow:
-                              audioLevel.pulse > 0.05
-                                ? `0 0 12px rgb(var(--glow) / ${(0.25 + audioLevel.pulse * 0.5).toFixed(2)})`
-                                : undefined,
-                          }}
-                        />
-                      </div>
-                      <div className="mt-1.5 flex items-center justify-between">
-                        <span className="font-mono text-[10px] text-[var(--text-faint)]">
-                          {Math.round(audioLevel.volume * 100)}%
-                        </span>
-                        {audioLevel.pulse > 0.25 && (
-                          <span className="font-mono text-[10px] text-[rgb(var(--glow))]">
-                            {t("common.beat")}
-                          </span>
-                        )}
-                      </div>
-                      {audioLevel.deviceName && (
-                        <div className="mt-1 truncate text-[11px] text-[var(--text-dim)]" data-tip={audioLevel.deviceName}>
-                          {audioLevel.deviceName}
-                        </div>
-                      )}
-                    </div>
+                    <AudioLevelMeter />
                     <Slider
                       label={t("common.audio-sensitivity")}
                       min={0.1}
@@ -575,14 +620,15 @@ export default function RgbTab() {
                     collision is how the update watcher nearly got wired to it.
                     The label now names the LEDs. */}
                 {!isAnimated && (
-                  <Slider
+                  <Select
                     label={t("common.led-write-interval")}
-                    min={30}
-                    max={1000}
-                    step={10}
-                    value={rgbCfg.minUpdateMs}
-                    format={(v) => `${v} ms`}
-                    onChange={(v) => save((c) => (c.rgb.minUpdateMs = v))}
+                    value={String(rgbCfg.minUpdateMs)}
+                    options={presetOptions(
+                      WRITE_INTERVAL_OPTIONS,
+                      String(rgbCfg.minUpdateMs),
+                      (v) => `${v} ms`,
+                    )}
+                    onChange={(v) => save((c) => (c.rgb.minUpdateMs = Number(v)))}
                   />
                 )}
               </div>

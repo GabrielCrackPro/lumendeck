@@ -23,7 +23,7 @@ import {
 import { RGB_MODES } from "@shared/constants";
 import { t } from "../../i18n";
 import type { Rgb } from "../rgbStrip";
-import type { AudioLevel, RgbMode } from "@shared/types";
+import type { RgbMode } from "@shared/types";
 
 /**
  * Per-mode icon, from the app's icon set — the glyphs live in `icons.tsx` with
@@ -49,7 +49,6 @@ export interface ModePickerProps {
   speed: number;
   brightness: number;
   saturation: number;
-  audio: AudioLevel;
   cycleSpread: number;
   waveDirection: 1 | -1;
   onPick: (mode: RgbMode) => void;
@@ -100,7 +99,7 @@ export function ModePicker(props: ModePickerProps) {
                   onClick={() => onPick(id)}
                   data-tip={t(m.hint)}
                   aria-pressed={active}
-                  className={`group flex w-full flex-col overflow-hidden rounded-xl border text-left transition-all var(--motion-base) var(--ease-standard) active:scale-[0.98] ${
+                  className={`group flex w-full flex-col overflow-hidden rounded-xl border text-left transition-all duration-[var(--motion-base)] ease-[var(--ease-standard)] active:scale-[0.98] ${
                     active
                       ? "border-[rgb(var(--glow)/0.55)] shadow-[0_10px_30px_-12px_rgb(var(--glow)/0.6)] ring-1 ring-[rgb(var(--glow)/0.3)]"
                       : "border-[var(--line)] hover:border-[var(--line-strong)] hover:shadow-[0_4px_16px_-8px_rgb(var(--glow)/0.35)]"
@@ -117,7 +116,6 @@ export function ModePicker(props: ModePickerProps) {
                       brightness={props.brightness}
                       saturation={props.saturation}
                       active={active}
-                      audioVolume={props.audio.volume}
                       cycleSpread={props.cycleSpread}
                       waveDirection={props.waveDirection}
                     />

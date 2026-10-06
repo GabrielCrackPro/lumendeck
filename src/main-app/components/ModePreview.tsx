@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useStore } from "../store";
 import type { RgbMode } from "@shared/types";
 import { averageColor, stripFrame, STRIP_LEDS, type Rgb } from "./rgbStrip";
 import { emitterColor, ledRadius, paintLedGlow, previewDpr, roundRectPath } from "./ledPaint";
@@ -14,7 +15,6 @@ export interface ModePreviewProps {
   saturation: number;
   /** Active tiles run at full frame rate; inactive ones are throttled. */
   active: boolean;
-  audioVolume?: number;
   cycleSpread?: number;
   waveDirection?: 1 | -1;
 }
@@ -42,18 +42,26 @@ export function ModePreview({
   brightness,
   saturation,
   active,
-  audioVolume,
   cycleSpread = 360,
   waveDirection = 1,
 }: ModePreviewProps) {
   const ref = useRef<HTMLCanvasElement | null>(null);
 
-  // Perf: `audioVolume` updates at 25-40Hz through the store. As an effect
-  // dependency it would tear down and rebuild this draw loop on every tick and
-  // re-render the whole tab. The loop reads the ref instead, so the animation
-  // stays in sync with the audio engine at no React cost.
-  const audioRef = useRef(audioVolume);
-  audioRef.current = audioVolume;
+  // Perf: `audioLevel` updates at 25-40Hz through the store. As an effect
+  // dependency on the value itself it would tear down and rebuild this draw
+  // loop on every tick and re-render the tab. The loop reads the ref instead —
+  // and it is this subscription, not a prop, that writes it: a value routed
+  // through the picker arrived at whatever rate the tab mirrored it (2Hz),
+  // which is the chunky pulsing the audio tile used to have. One subscription
+  // per tile writes one number and renders nothing.
+  const audioRef = useRef(useStore.getState().audioLevel.volume);
+  useEffect(
+    () =>
+      useStore.subscribe((s) => {
+        audioRef.current = s.audioLevel.volume;
+      }),
+    [],
+  );
 
   useEffect(() => {
     const canvas = ref.current;
