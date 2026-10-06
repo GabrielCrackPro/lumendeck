@@ -207,7 +207,7 @@ function Toasts() {
             {t.progress != null && (
               <div className="h-1 w-full bg-[var(--panel-sunken)]">
                 <div
-                  className="h-full bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow)/0.7)] transition-[width] var(--motion-base) var(--ease-standard)"
+                  className="h-full bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow)/0.7)] transition-[width] duration-[var(--motion-base)] ease-[var(--ease-standard)]"
                   style={{ width: `${Math.max(2, Math.min(100, t.progress))}%` }}
                 />
               </div>
@@ -607,6 +607,8 @@ export default function Shell() {
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
           onNavigate={(t) => setTab(t as TabId)}
+          currentTab={tab}
+          onShowShortcuts={() => setShortcutsOpen(true)}
         />
       </Suspense>
 

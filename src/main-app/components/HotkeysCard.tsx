@@ -1,43 +1,33 @@
 import { useCallback, useEffect, useState } from "react";
 import { useStore } from "../store";
 import { api } from "../ipc";
-import { Card, InfoNote, Btn, Toggle, Slider, ColorInput } from "./ui";
+import { Card, InfoNote, Btn, Toggle, Slider, ColorInput, ComboCaps } from "./ui";
+import { splitAccelerator } from "./overviewCards";
 import { HOTKEY_ACTIONS, type HotkeyActionId } from "@shared/constants";
 import { HOTKEY_BLINK_COLOR } from "@shared/tokens";
 import { IconKeyboard } from "./icons";
 import type { HotkeyConfig } from "@shared/types";
-import { acceleratorFromEvent, isSafeAccelerator, parseAccelerator } from "../eq";
+import { acceleratorFromEvent, isSafeAccelerator } from "../eq";
 import { truncateError } from "../utilities";
 import { t } from "../i18n";
 
-/** Pretty labels for the modifier tokens, so the binding reads like a menu. */
-const MODIFIER_LABELS: Record<string, string> = {
-  Ctrl: "Ctrl",
-  Alt: "Alt",
-  Shift: "Shift",
-  Super: "Win",
-};
-
-/** Render an accelerator as individual key chips. */
+/**
+ * Render an accelerator as individual key caps.
+ *
+ * Through `splitAccelerator` rather than a private labelling map, so a combo
+ * reads identically here and on the Overview card ("Super" printed as "Win"
+ * in both) and the mapping has one home to drift from.
+ */
 function ComboChips({ accelerator }: { accelerator: string }) {
-  const parsed = parseAccelerator(accelerator);
-  if (!parsed) {
+  const caps = splitAccelerator(accelerator);
+  if (caps.length === 0) {
+    // Unparseable: echo the raw text in red rather than cap it. Caps claim a
+    // binding the grammar would not accept.
     return (
       <span className="font-mono text-[11px] text-red-300">{accelerator}</span>
     );
   }
-  return (
-    <span className="flex items-center gap-1">
-      {[...parsed.modifiers, parsed.key].map((token, i) => (
-        <kbd
-          key={`${token}-${i}`}
-          className="rounded-md border border-[var(--line-strong)] bg-[var(--panel-strong)] px-1.5 py-0.5 font-mono text-[10.5px] leading-none text-[var(--text)]"
-        >
-          {MODIFIER_LABELS[token] ?? token}
-        </kbd>
-      ))}
-    </span>
-  );
+  return <ComboCaps keys={caps} />;
 }
 
 /**

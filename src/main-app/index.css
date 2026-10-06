@@ -155,6 +155,36 @@ body {
     var(--bg);
 }
 
+/* ---------- theme cross-fade ----------
+   The palette is a class on <html>, so a theme switch was a single-frame snap:
+   one frame dark, the next light. `.theme-anim` rides on <html> for the length
+   of one swap and App.tsx removes it when that swap has run, so the cross-fade
+   exists only while it is wanted -- a standing rule on every element would drag
+   every hover, focus and press state out to this duration too.
+
+   Colours only, deliberately: transform and opacity are left out so a control
+   that happens to be mid-animation during a theme change is not re-timed by a
+   rule that knows nothing about it.
+
+   Inside `no-preference` because the rule is `!important`, and a class beats
+   the reduced-motion wildcard's bare `*` -- the media query, not the wildcard,
+   is what keeps the swap instant for someone who asked for no motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .theme-anim,
+  .theme-anim *,
+  .theme-anim *::before,
+  .theme-anim *::after {
+    transition:
+      background-color var(--motion-slow) var(--ease-standard),
+      border-color var(--motion-slow) var(--ease-standard),
+      color var(--motion-slow) var(--ease-standard),
+      fill var(--motion-slow) var(--ease-standard),
+      stroke var(--motion-slow) var(--ease-standard),
+      box-shadow var(--motion-slow) var(--ease-standard),
+      outline-color var(--motion-slow) var(--ease-standard) !important;
+  }
+}
+
 /* film grain over everything (kept subtle so panels read clean) */
 .grain::after {
   content: "";
@@ -643,8 +673,12 @@ input[type="color"]::-webkit-color-swatch {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(400%); }
 }
+/* `linear`, not an easing token: the sweep has no arrival to ease into, and
+   every eased version stalls at each end of a loop whose restart is already a
+   discontinuity. The duration stays on the scale -- it is the travel that has
+   no curve, on purpose. */
 .saving-bar {
-  animation: saveSweep var(--motion-slower) cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: saveSweep var(--motion-slower) linear infinite;
 }
 
 /* staggered reveal for card grids */
@@ -842,7 +876,7 @@ input[type="color"]::-webkit-color-swatch {
 @keyframes palPanel {
   from {
     opacity: 0;
-    transform: translateY(-14px) scale(0.97);
+    transform: translateY(-6px) scale(0.97);
   }
   to {
     opacity: 1;
@@ -869,17 +903,39 @@ input[type="color"]::-webkit-color-swatch {
     transform: none;
   }
 }
+/* The field spans the whole query band, so the global 2px focus ring draws a
+   box around the band instead of pointing at anything — the caret is the
+   focus signal here, and every button around the field keeps its ring. */
+.pal-panel input:focus-visible {
+  outline: none;
+}
 .pal-overlay {
   animation: palOverlay var(--motion-fast) var(--ease-standard) both;
 }
 .pal-panel {
-  animation: palPanel var(--motion-base) var(--ease-standard) both;
+  /* 160ms and a 6px rise — the palette's entry (and the rows below it) is
+     the one place this file meets the palette-motion numbers (150–200ms,
+     4–8px of travel) rather than the house 220ms/14px: on a panel this
+     small the longer travel read as lag, not weight. */
+  animation: palPanel var(--motion-fast) var(--ease-standard) both;
 }
 .pal-swap {
   animation: palSwap var(--motion-base) var(--ease-standard) both;
 }
+/* `backwards`, not `both`: a forwards fill keeps pinning `transform: none`
+   over the row after it lands, and an animation origin beats normal
+   declarations — so `.pal-cmd:active`'s press-scale would silently never
+   fire. The wait-before-start half, which is all the delay needs, is exactly
+   what `backwards` provides.
+
+   `content-visibility` is the other half of surviving a big vault: a
+   thousand-row submenu paints only the rows near the viewport. The
+   intrinsic size keeps the scrollbar honest before a row has ever rendered,
+   and `auto` remembers the real height after. */
 .pal-row {
-  animation: palRow var(--motion-base) var(--ease-standard) both;
+  animation: palRow var(--motion-fast) var(--ease-standard) backwards;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 48px;
 }
 
 /* ---------- vault drawer ----------
@@ -999,7 +1055,9 @@ input[type="color"]::-webkit-color-swatch {
     transform var(--motion-instant) var(--ease-standard);
 }
 .pal-cmd:active {
-  transform: scale(0.985);
+  /* 0.99, the step the design guide assigns large list rows — 0.95 belongs to
+     small controls and reads as the row jumping away. */
+  transform: scale(0.99);
 }
 
 @keyframes trackSwap {
