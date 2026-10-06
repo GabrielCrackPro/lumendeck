@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "./Modal";
 import { ConfigAvatar } from "./ConfigAvatar";
-import { Btn, Chip, EmptyState, ItemTitle, ICON_BTN, ICON_BTN_IDLE } from "./ui";
-import { IconClose, IconImage, IconPencil, IconPlus, IconTrash, IconUser } from "./icons";
+import { Btn, EmptyState, ItemTitle, ICON_BTN, ICON_BTN_IDLE } from "./ui";
+import { IconCheck, IconClose, IconImage, IconPencil, IconPlus, IconTrash, IconUser } from "./icons";
 import { configName, isDuplicateConfigName, wallpaperSourceLabel } from "./configPicker";
 import { t } from "../i18n";
 import type { SceneProfile } from "@shared/types";
@@ -152,25 +152,27 @@ function ConfigRow({
         >
           <IconPencil className="h-3.5 w-3.5" />
         </button>
-        <button
-          type="button"
-          // Disabled rather than hidden: a button that disappears with no
-          // explanation reads as a bug, and this one is available again the
-          // moment a second profile exists.
-          title={canDelete ? t("common.delete") : t("common.keep-one-profile")}
-          aria-label={canDelete ? t("common.delete") : t("common.keep-one-profile")}
-          disabled={!canDelete}
-          className={`${ICON_BTN} ${ICON_BTN_IDLE}`}
-          onClick={() => onDelete(scene)}
-        >
-          <IconTrash className="h-3.5 w-3.5" />
-        </button>
+        {/* The last profile has nothing to delete, so the control is not drawn
+            rather than drawn disabled: a greyed trash can advertises an action
+            the app refuses, and on the only row there is nothing the count
+            cannot say for itself. It comes back with the second profile. */}
+        {canDelete && (
+          <button
+            type="button"
+            title={t("common.delete")}
+            aria-label={t("common.delete")}
+            className={`${ICON_BTN} ${ICON_BTN_IDLE}`}
+            onClick={() => onDelete(scene)}
+          >
+            <IconTrash className="h-3.5 w-3.5" />
+          </button>
+        )}
         {isActive ? (
-          // A word, not a colour: the tinted row and the accent glyph said the
-          // same thing twice without ever saying it in text, and this is the
-          // row a user is scanning for. Pops in when an apply lands.
-          <span className="pop-on shrink-0">
-            <Chip tone="accent">{t("common.applied")}</Chip>
+          <span
+            className="pop-on flex h-7 w-7 items-center justify-center rounded-md text-[rgb(var(--glow))]"
+            title={t("common.applied")}
+          >
+            <IconCheck className="h-4 w-4" />
           </span>
         ) : (
           <Btn
