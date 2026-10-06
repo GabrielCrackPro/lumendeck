@@ -22,12 +22,33 @@ import { GLOW_TEXT_DARK } from "@shared/constants";
 const FIRST_FRAME_GRACE_MS = 2500;
 const MIN_SPLASH_MS = 700; // avoids a jarring flash of the splash
 
+/**
+ * How long `.theme-anim` rides on <html> — one cross-fade of the palette,
+ * then off again (index.css says why it cannot be permanent).
+ */
+const THEME_FADE_MS = 380;
+
+/**
+ * Whether the palette has been applied once already.
+ *
+ * The first application lands a frame after the first paint, where a fade
+ * would show the wrong palette as a *transition* rather than as the frame it
+ * already was — so only the switches after it animate.
+ */
+let paletteSeeded = false;
+
 type Stage = 0 | 1 | 2 | 3;
-const STAGE_LABEL: Record<Stage, string> = {
-  0: "connecting to the engine",
-  1: "reading your setup",
-  2: "waking the lights",
-  3: "polishing the glass",
+/**
+ * Catalog keys, one per boot stage — the words the splash reads out while the
+ * loading bar fills. Keys rather than copy: this is user-facing text, and a
+ * Spanish build was booting in English because the checker cannot see a bare
+ * `{STAGE_LABEL[stage]}` expression.
+ */
+const STAGE_LABEL_KEYS: Record<Stage, string> = {
+  0: "shell.connecting-to-the-engine",
+  1: "shell.reading-your-setup",
+  2: "shell.waking-the-lights",
+  3: "shell.polishing-the-glass",
 };
 
 /**
@@ -167,20 +188,49 @@ export default function App() {
     const root = document.documentElement;
     const theme = cfg?.general.theme ?? "system";
     const amoled = cfg?.general.amoled ?? false;
-    // AMOLED only applies to the dark theme — light stays unchanged.
-    root.classList.toggle("amoled", amoled && theme !== "light");
+
+    // The palette is one class flip, which would otherwise snap between two
+    // complete themes in a single frame. `.theme-anim` cross-fades every colour
+    // property for the length of the swap and is removed again when it has
+    // run, so nothing else in the app inherits this duration.
+    let timer = 0;
+    const key = (dark: boolean, black: boolean) => `${dark}|${black}`;
+    const apply = (dark: boolean, black: boolean) => {
+      const before = key(
+        root.classList.contains("dark"),
+        root.classList.contains("amoled"),
+      );
+      // AMOLED only applies to the dark theme — light stays unchanged.
+      root.classList.toggle("dark", dark);
+      root.classList.toggle("amoled", black);
+      const animate = paletteSeeded && before !== key(dark, black);
+      if (!animate) return;
+      root.classList.add("theme-anim");
+      window.clearTimeout(timer);
+      timer = window.setTimeout(
+        () => root.classList.remove("theme-anim"),
+        THEME_FADE_MS,
+      );
+    };
     // "system" follows the OS preference live; dark/light are explicit.
     if (theme === "system") {
       const mq = window.matchMedia("(prefers-color-scheme: light)");
-      const apply = () => {
-        root.classList.toggle("dark", !mq.matches);
-        root.classList.toggle("amoled", amoled && !mq.matches);
+      const onSystem = () => apply(!mq.matches, amoled && !mq.matches);
+      onSystem();
+      paletteSeeded = true;
+      mq.addEventListener("change", onSystem);
+      return () => {
+        mq.removeEventListener("change", onSystem);
+        window.clearTimeout(timer);
+        root.classList.remove("theme-anim");
       };
-      apply();
-      mq.addEventListener("change", apply);
-      return () => mq.removeEventListener("change", apply);
     }
-    root.classList.toggle("dark", theme !== "light");
+    apply(theme !== "light", amoled && theme !== "light");
+    paletteSeeded = true;
+    return () => {
+      window.clearTimeout(timer);
+      root.classList.remove("theme-anim");
+    };
   }, [cfg?.general.theme, cfg?.general.amoled]);
 
   // Theme must be known before ANY chrome paints: applying it after the
@@ -203,7 +253,6 @@ export default function App() {
 
 /** Boot splash: the LumenDeck LED mark with live staging readout. */
 function Splash({ stage, streaming }: { stage: Stage; streaming: boolean }) {
-  const steps = [0, 1, 2, 3];
   const pct = ((stage + 1) / 4) * 100;
   return (
     <div className="grain relative flex h-screen items-center justify-center overflow-hidden">
@@ -213,21 +262,27 @@ function Splash({ stage, streaming }: { stage: Stage; streaming: boolean }) {
         <div className="flex flex-col items-center">
           <AppWordmark size={44} />
           <div className="kicker mt-1.5 h-4 transition-all" key={stage}>
-            {STAGE_LABEL[stage]}
+            {t(STAGE_LABEL_KEYS[stage])}
           </div>
         </div>
-        {/* segmented progress: one block per readiness stage */}
-        <div className="flex gap-1.5">
-          {steps.map((s) => (
-            <span
-              key={s}
-              className={`h-1 w-10 rounded-full transition-all var(--motion-slow) var(--ease-standard) ${
-                s <= stage
-                  ? "bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow))]"
-                  : "bg-[var(--line-strong)]"
-              }`}
-            />
-          ))}
+        {/* One track easing toward this stage's share, with a sweep that keeps
+            moving while the stage is still running. Four blocks said "3 of 4
+            done" and then sat dead still for as long as the stage took — the
+            one thing a loading bar has to say is that it is still working. */}
+        <div
+          role="progressbar"
+          aria-label={t(STAGE_LABEL_KEYS[stage])}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(pct)}
+          className="h-1.5 w-60 overflow-hidden rounded-full bg-[var(--panel-strong)] shadow-[inset_0_1px_2px_rgb(0_0_0/0.35)]"
+        >
+          <div
+            className="relative h-full overflow-hidden rounded-full bg-[rgb(var(--glow))] shadow-[0_0_12px_rgb(var(--glow)/0.7)] transition-[width] duration-[var(--motion-slow)] ease-[var(--ease-standard)]"
+            style={{ width: `${pct}%` }}
+          >
+            <span className="saving-bar absolute inset-y-0 left-0 w-1/3 bg-white/30" />
+          </div>
         </div>
         <div className="font-mono text-[10px] tabular-nums text-[var(--text-faint)]">
           {pct.toFixed(0)}%
