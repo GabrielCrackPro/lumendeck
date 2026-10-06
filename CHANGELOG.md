@@ -6,6 +6,9 @@ and it lands under that release's heading.
 
 ## 0.2.38 — 2026-10-06
 
+### Added
+- **ui:** give the profile picker and header avatar real affordances (`fb5515c`)
+
 ### Changed
 - normalize all motion to the shared scale and add entrances where missing (`8d132b6`)
 
