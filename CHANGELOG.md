@@ -7,7 +7,15 @@ and it lands under that release's heading.
 ## 0.2.40 — 2026-10-06
 
 ### Added
+- **palette:** scoring, frecent ranking, a preview pane, and search modes (`984d8c5`)
+- **theme:** cross-fade theme swaps instead of snapping in one frame (`51acaad`)
+- **profiles:** stop drawing controls the app refuses (`f26396d`)
+- **ui:** rebuild the segmented control around a sliding thumb (`7d3418b`)
 - **profiles:** header save, readable row facts, and an Applied label (`6e35d63`)
+
+### Fixed
+- **rgb:** read the audio level at capture rate instead of the 2 Hz mirror (`6065f63`)
+- **motion:** apply the house motion tokens in transitions (`a221041`)
 
 ## 0.2.39 — 2026-10-06
 
