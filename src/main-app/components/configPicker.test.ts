@@ -5,6 +5,7 @@ import {
   canDeleteProfile,
   configPendingKey,
   applyingConfigKey,
+  wallpaperSourceLabel,
 } from "./configPicker";
 
 describe("configName", () => {
@@ -27,6 +28,34 @@ describe("configName", () => {
     // The trap in a trim-based check: " " is empty and "Night gaming" is not,
     // but a name made of non-breaking space is a real attempt at a name.
     expect(configName("Night gaming", "fallback")).toBe("Night gaming");
+  });
+});
+
+describe("wallpaperSourceLabel", () => {
+  it("names local media by its filename", () => {
+    expect(wallpaperSourceLabel("media://loop-4k.mp4")).toBe("loop-4k.mp4");
+    expect(wallpaperSourceLabel("C:\\Users\\gab\\Pictures\\dusk.jpg")).toBe("dusk.jpg");
+    expect(wallpaperSourceLabel("/home/gab/shot.png")).toBe("shot.png");
+  });
+
+  it("reads the localhost form the media protocol uses", () => {
+    expect(wallpaperSourceLabel("media://localhost/C:/x.jpg")).toBe("x.jpg");
+  });
+
+  it("names a web source by its host, not its path", () => {
+    // The page is what was chosen; the path under it is usually incidental,
+    // and a full URL would never fit the line it has to sit in.
+    expect(wallpaperSourceLabel("https://example.com/a/b?x=1")).toBe("example.com");
+  });
+
+  it("keeps a shader preset id as it is", () => {
+    expect(wallpaperSourceLabel("aurora")).toBe("aurora");
+  });
+
+  it("prints something rather than nothing when it cannot read one", () => {
+    expect(wallpaperSourceLabel("")).toBe("");
+    // A source with separators but no name degrades to its last non-empty part.
+    expect(wallpaperSourceLabel("media://")).toBe("media:");
   });
 });
 

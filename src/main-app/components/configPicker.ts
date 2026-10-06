@@ -59,6 +59,37 @@ export function configName(raw: string, fallback: string): string {
 }
 
 /**
+ * What the wallpaper half of a config row reads.
+ *
+ * A config stores a source, not a title: a `media://` URL, an absolute path, a
+ * web URL or a shader preset id. The `kind` stored beside it is the weaker
+ * fact — "video" says nothing about *which* video, and the configs that are
+ * hard to tell apart are almost always the same kind with different media
+ * behind them. So the row leads with whatever names the thing: the hostname
+ * for a web source, where the page is the identity rather than the path, and
+ * the final path segment otherwise — a filename for local media, the preset id
+ * for a shader, which has no separators to lose.
+ *
+ * Query and fragment are stripped first so a web source cannot arrive as a
+ * query string, and an unrecognised value is returned as it came in rather than
+ * replaced with an empty label: a row that names nothing is worse than a row
+ * that names something odd.
+ */
+export function wallpaperSourceLabel(source: string): string {
+  const clean = source.split(/[?#]/)[0] ?? source;
+  if (/^https?:\/\//i.test(clean)) {
+    try {
+      const host = new URL(clean).hostname;
+      if (host) return host;
+    } catch {
+      // Not a URL the parser accepts — fall through and show its last segment.
+    }
+  }
+  const segment = clean.split(/[\\/]/).filter(Boolean).pop();
+  return segment || clean;
+}
+
+/**
  * Whether this name is already taken, ignoring case and surrounding space.
  *
  * Case-insensitive because the list is read at a glance: "Night" and "night"

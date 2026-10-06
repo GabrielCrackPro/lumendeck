@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "./Modal";
 import { ConfigAvatar } from "./ConfigAvatar";
-import { Btn, EmptyState, ItemTitle, ICON_BTN, ICON_BTN_IDLE } from "./ui";
-import { IconCheck, IconClose, IconImage, IconPencil, IconTrash, IconUser } from "./icons";
-import { configName, isDuplicateConfigName } from "./configPicker";
+import { Btn, Chip, EmptyState, ItemTitle, ICON_BTN, ICON_BTN_IDLE } from "./ui";
+import { IconClose, IconImage, IconPencil, IconPlus, IconTrash, IconUser } from "./icons";
+import { configName, isDuplicateConfigName, wallpaperSourceLabel } from "./configPicker";
 import { t } from "../i18n";
 import type { SceneProfile } from "@shared/types";
 
@@ -121,11 +121,13 @@ function ConfigRow({
             ? t("common.profile-name-empty")
             : rejected === "duplicate"
               ? t("common.profile-name-taken-{name}", { name: draft.trim() })
-              : `${scene.wallpaper.kind} · ${scene.rgb.mode}${
-                scene.stickers.length > 0
-                  ? ` · ${t("common.{n}-stickers", { n: scene.stickers.length })}`
-                  : ""
-              }`}
+              : `${wallpaperSourceLabel(scene.wallpaper.source)} · ${
+                  scene.rgb.enabled ? scene.rgb.mode : t("common.off")
+                }${
+                  scene.stickers.length > 0
+                    ? ` · ${t("common.{n}-stickers", { n: scene.stickers.length })}`
+                    : ""
+                }`}
         </div>
       </div>
 
@@ -164,11 +166,11 @@ function ConfigRow({
           <IconTrash className="h-3.5 w-3.5" />
         </button>
         {isActive ? (
-          <span
-            className="pop-on flex h-7 w-7 items-center justify-center rounded-md text-[rgb(var(--glow))]"
-            title={t("common.applied")}
-          >
-            <IconCheck className="h-4 w-4" />
+          // A word, not a colour: the tinted row and the accent glyph said the
+          // same thing twice without ever saying it in text, and this is the
+          // row a user is scanning for. Pops in when an apply lands.
+          <span className="pop-on shrink-0">
+            <Chip tone="accent">{t("common.applied")}</Chip>
           </span>
         ) : (
           <Btn
@@ -287,6 +289,23 @@ export function ConfigPickerModal({
       onClose={onClose}
       onBack={mode === "save" ? () => setMode("browse") : undefined}
       backLabel={t("common.back")}
+      // Header, not a bar under the list: this dialog's own command, and only
+      // where it leads somewhere new — in the save step the back arrow is the
+      // way out and a second save control would only be a second way to lose
+      // the name being typed.
+      headerAction={
+        mode === "browse" ? (
+          <button
+            type="button"
+            onClick={() => setMode("save")}
+            title={t("common.save-profile")}
+            aria-label={t("common.save-profile")}
+            className="shrink-0 rounded px-1.5 text-[var(--text-faint)] t-fast hover:text-[rgb(var(--glow))]"
+          >
+            <IconPlus className="h-4 w-4" />
+          </button>
+        ) : undefined
+      }
     >
       {mode === "save" ? (
         <div className="body-enter p-2">
@@ -362,12 +381,6 @@ export function ConfigPickerModal({
               })}
             </ul>
           )}
-
-          <div className="border-t border-[var(--line)] pt-2">
-            <Btn variant="primary" className="w-full" onClick={() => setMode("save")}>
-              {t("settings.capture-current-look")}
-            </Btn>
-          </div>
         </div>
       )}
     </Modal>

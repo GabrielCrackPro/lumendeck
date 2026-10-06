@@ -30,6 +30,7 @@ export function Modal({
   onClose,
   onBack,
   backLabel,
+  headerAction,
   children,
   className,
 }: {
@@ -43,6 +44,16 @@ export function Modal({
   onBack?: () => void;
   /** Required alongside `onBack`: the arrow alone names nothing. */
   backLabel?: string;
+  /**
+   * A minimal control that belongs to the dialog rather than to its content,
+   * drawn beside the close button at the same quiet weight.
+   *
+   * The profiles picker's save lives here: a full-width primary button under a
+   * three-row list is more chrome than the list it acts on, and the header is
+   * where the dialog's own commands belong. A caller passes `undefined` to hide
+   * it for a step where it would be a second route to the same place.
+   */
+  headerAction?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {
@@ -142,13 +153,16 @@ export function Modal({
             )}
             <h2 className="kicker min-w-0 truncate !text-[var(--text-dim)]">{title}</h2>
           </div>
-          <button
-            onClick={onClose}
-            aria-label={t("common.close")}
-            className="shrink-0 rounded px-1.5 text-[var(--text-faint)] transition-colors hover:text-[var(--text)]"
-          >
-            ✕
-          </button>
+          <div className="flex shrink-0 items-center gap-0.5">
+            {headerAction}
+            <button
+              onClick={onClose}
+              aria-label={t("common.close")}
+              className="shrink-0 rounded px-1.5 text-[var(--text-faint)] t-fast hover:text-[var(--text)]"
+            >
+              ✕
+            </button>
+          </div>
         </header>
         <div className="p-2">{children}</div>
       </div>
