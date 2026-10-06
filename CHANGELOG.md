@@ -12,6 +12,7 @@ and it lands under that release's heading.
 ## 0.2.38 — 2026-10-06
 
 ### Added
+- **profiles:** header save, readable row facts, and an Applied label (`a966e6a`)
 - **ui:** give the profile picker and header avatar real affordances (`fb5515c`)
 
 ### Changed
