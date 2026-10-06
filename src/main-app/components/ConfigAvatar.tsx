@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { IconUser } from "./icons";
 import { avatarInitial } from "./avatarInit";
@@ -22,6 +22,7 @@ export function ConfigAvatar({
   onClick,
   label,
   live,
+  overlay,
 }: {
   /** The config currently applied, or null when the machine is on none. */
   scene: SceneProfile | null;
@@ -47,6 +48,14 @@ export function ConfigAvatar({
    * there would claim something about a setup the machine is not running.
    */
   live?: boolean;
+  /**
+   * A scrim and glyph drawn over the mark while it is actionable, so the button
+   * says what it does before it is pressed — the header's chevron for "switch
+   * profile", the picker's image mark for "change this picture". Ignored by the
+   * non-button shell: a change affordance over an identity that cannot change
+   * is a lie, and the Settings list renders that shape.
+   */
+  overlay?: ReactNode;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const logo = scene?.logo ?? null;
@@ -92,6 +101,17 @@ export function ConfigAvatar({
         )}
       </span>
 
+      {/* The overlay belongs to the button, not to the row around it: `group/av`
+          is named so an ancestor that happens to be a `group` (every list row in
+          the app is one) cannot fire this from a hover two levels up. It sits
+          under the status dot, which is the one part of the mark that must
+          never be covered — the dot is machine state, the face is profile state. */}
+      {overlay && onClick && (
+        <span className="t-fast pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover/av:opacity-100 group-focus-visible/av:opacity-100">
+          {overlay}
+        </span>
+      )}
+
       {/* The dot sits on the avatar rather than beside it in the header. The
           words it replaced said "live" or "attention" in a 10px uppercase
           label, which is a sentence about the machine competing with the tab
@@ -103,7 +123,7 @@ export function ConfigAvatar({
           title={t(live ? "overview.live" : "overview.attention")}
           className={`absolute -right-0.5 -bottom-0.5 block h-2.5 w-2.5 rounded-full ring-2 ring-[var(--panel-sunken)] ${
             live
-              ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"
+              ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)] pulse-base"
               : "bg-amber-400"
           }`}
         />
@@ -120,7 +140,7 @@ export function ConfigAvatar({
       onClick={onClick}
       aria-haspopup="dialog"
       aria-label={announced}
-      className={`${frame} hover-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.5)] active:scale-95`}
+      className={`${frame} group/av hover-glow focus-glow active:scale-95`}
       style={{ width: size, height: size }}
     >
       {inner}

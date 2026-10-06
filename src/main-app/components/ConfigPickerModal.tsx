@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Modal } from "./Modal";
 import { ConfigAvatar } from "./ConfigAvatar";
 import { Btn, EmptyState, ItemTitle, ICON_BTN, ICON_BTN_IDLE } from "./ui";
-import { IconCheck, IconClose, IconPencil, IconTrash, IconUser } from "./icons";
+import { IconCheck, IconClose, IconImage, IconPencil, IconTrash, IconUser } from "./icons";
 import { configName, isDuplicateConfigName } from "./configPicker";
 import { t } from "../i18n";
 import type { SceneProfile } from "@shared/types";
@@ -64,7 +64,7 @@ function ConfigRow({
 
   return (
     <div
-      className={`group flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+      className={`group flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left t-fast ${
         isActive
           ? "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.1)]"
           : "border-transparent hover:border-[var(--line)] hover:bg-[var(--panel-strong)]"
@@ -79,6 +79,9 @@ function ConfigRow({
         size={36}
         onClick={() => void onChooseLogo(scene.id)}
         label={scene.logo ? t("common.replace-image") : t("common.set-image")}
+        // The hover scrim, so the circle announces that it is the image control
+        // rather than a picture you can only learn by clicking.
+        overlay={<IconImage className="h-4 w-4" />}
       />
 
       <div className="min-w-0 flex-1">
@@ -96,8 +99,10 @@ function ConfigRow({
             }}
             aria-label={t("common.rename-profile")}
             aria-invalid={rejected != null || undefined}
-            className={`w-full rounded border bg-[var(--panel-strong)] px-2 py-1 text-sm text-[var(--text)] focus:outline-none ${
-              rejected ? "border-red-500/60" : "border-[var(--line)]"
+            className={`w-full rounded-lg border bg-[var(--panel-strong)] px-3 py-2 text-sm text-[var(--text)] outline-none transition-colors ${
+              rejected
+                ? "border-red-500/60 focus:border-red-500/80"
+                : "border-[var(--line)] focus:border-[rgb(var(--glow)/0.5)]"
             }`}
           />
         ) : (
@@ -106,7 +111,12 @@ function ConfigRow({
         {/* What the config actually holds. A name alone cannot tell "Work"
             from "Work, dimmed", and this is the row that decides which one
             gets applied. */}
-        <div className="truncate font-mono text-[10px] text-[var(--text-faint)]">
+        <div
+          className="hint truncate"
+          // The refusal replaces the summary line, so it has to be announced
+          // rather than only redrawn — the name field stays open and focused.
+          role={rejected ? "alert" : undefined}
+        >
           {rejected === "empty"
             ? t("common.profile-name-empty")
             : rejected === "duplicate"
@@ -155,14 +165,17 @@ function ConfigRow({
         </button>
         {isActive ? (
           <span
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[rgb(var(--glow))]"
+            className="pop-on flex h-7 w-7 items-center justify-center rounded-md text-[rgb(var(--glow))]"
             title={t("common.applied")}
           >
             <IconCheck className="h-4 w-4" />
           </span>
         ) : (
           <Btn
-            variant="ghost"
+            // Contained rather than ghost: this row's whole point is switching
+            // to it, and a text-only button reads as a secondary affordance
+            // beside three icon buttons that are themselves boxed.
+            variant="default"
             onClick={() => onApply(scene.id)}
             pending={isApplying}
             className="shrink-0"
@@ -276,7 +289,7 @@ export function ConfigPickerModal({
       backLabel={t("common.back")}
     >
       {mode === "save" ? (
-        <div className="p-2">
+        <div className="body-enter p-2">
           <p className="mb-2.5 text-xs leading-relaxed text-[var(--text-dim)]">
             {t("common.capture-the-whole-look-wallpaper-per-monitor-ove")}
           </p>
@@ -292,6 +305,18 @@ export function ConfigPickerModal({
             aria-invalid={duplicate != null || undefined}
             className="w-full rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)] focus:outline-none"
           />
+          {/* The field's blank state names itself: configName falls back to a
+              dated default, and a placeholder disappears the moment typing
+              starts — so the actual name the save will get is stated here. */}
+          {name.trim().length === 0 && duplicate == null && (
+            <p className="hint mt-1.5">
+              {t("common.leave-blank-to-use-{name}", {
+                name: t("common.profile-{date}", {
+                  date: new Date().toLocaleDateString(),
+                }),
+              })}
+            </p>
+          )}
           {duplicate && (
             <p role="alert" className="mt-1.5 text-xs text-red-400">
               {t("common.profile-name-taken-{name}", { name: duplicate })}

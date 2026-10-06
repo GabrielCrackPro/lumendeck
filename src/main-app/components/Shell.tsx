@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store";
-import { IconPause, IconCheck, IconAlert, IconInfo } from "./icons";
+import { IconPause, IconCheck, IconAlert, IconInfo, IconChevronDown } from "./icons";
 import { useAccent } from "../useAccent";
 import TitleBar from "./TitleBar";
 import { AppMark, ComboCaps } from "./ui";
@@ -244,6 +244,9 @@ function HeaderConfigAvatar() {
       <ConfigAvatar
         scene={picker.activeScene}
         onClick={picker.openBrowse}
+        // A caret over the face on hover: the one cue that this mark opens a
+        // switcher rather than being the profile's portrait.
+        overlay={<IconChevronDown className="h-4 w-4" />}
         live={isLiveStatus({
           rgbConnected,
           rgbEnabled,

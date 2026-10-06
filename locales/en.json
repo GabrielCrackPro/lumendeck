@@ -411,6 +411,7 @@
     "remove-image": "Remove image",
     "rename-profile": "Rename profile",
     "profile-name-empty": "Give this profile a name.",
+    "leave-blank-to-use-{name}": "Leave it blank to use {{name}}.",
     "keep-one-profile": "Keep at least one profile",
     "profile-applied-now": "Applied now",
     "capture-current-look": "Capture current look",
