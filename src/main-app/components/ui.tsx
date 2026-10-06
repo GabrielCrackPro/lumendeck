@@ -148,7 +148,7 @@ export function Section({
         }`}
       >
         <IconChevronDown
-          className={`h-4 w-4 shrink-0 text-[var(--text-faint)] transition-transform var(--motion-base) var(--ease-standard) ${
+          className={`h-4 w-4 shrink-0 text-[var(--text-faint)] transition-transform duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
             open ? "" : "-rotate-90"
           }`}
         />
@@ -302,7 +302,7 @@ export function ChipButton({
       onClick={onClick}
       disabled={disabled}
       data-tip={title}
-      className={`inline-flex select-none items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] transition-[color,background-color,border-color,transform] var(--motion-fast) var(--ease-standard) focus-glow hover:brightness-125 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 ${CHIP_FRAME[tone]}`}
+      className={`inline-flex select-none items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] transition-[color,background-color,border-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-standard)] focus-glow hover:brightness-125 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 ${CHIP_FRAME[tone]}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${CHIP_DOT[tone]}`} />
       {children}
@@ -343,7 +343,7 @@ function SwitchTrack({
       // collapsed to zero content width plus its 1px borders: a 2px sliver. The
       // absolutely-positioned knob escaped it and painted outside the card, so
       // the switch read as a thin line beside a floating white dot.
-      className={`pointer-events-none relative block h-[20px] w-[34px] shrink-0 rounded-full border transition-[background-color,border-color] var(--motion-base) var(--ease-standard) ${
+      className={`pointer-events-none relative block h-[20px] w-[34px] shrink-0 rounded-full border transition-[background-color,border-color] duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
         disabled
           ? checked
             ? "border-transparent bg-[rgb(var(--glow)/0.3)]"
@@ -365,7 +365,7 @@ function SwitchTrack({
         // using it made this knob fully transparent and the switch vanished.
         // The fallback keeps a future unresolved token from turning the
         // control invisible, which is the worst way for this to fail.
-        className={`absolute top-[2.5px] h-[14px] w-[14px] rounded-full bg-[var(--text)] shadow transition-[background-color,border-color,transform] var(--motion-base) var(--ease-standard) ${
+        className={`absolute top-[2.5px] h-[14px] w-[14px] rounded-full bg-[var(--text)] shadow transition-[background-color,border-color,transform] duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
           checked ? "left-[17px]" : "left-[2.5px]"
         } ${disabled ? "opacity-70" : ""}`}
       />
@@ -700,7 +700,7 @@ export function Dropdown<T extends string | number>({
           <span className="min-w-0 truncate">{current?.label ?? String(value)}</span>
           <svg
             viewBox="0 0 24 24"
-            className={`${chip || compact ? "h-3 w-3" : "h-4 w-4"} shrink-0 text-[var(--text-faint)] transition-transform var(--motion-base) var(--ease-standard) ${pop.shown ? "rotate-180" : ""}`}
+            className={`${chip || compact ? "h-3 w-3" : "h-4 w-4"} shrink-0 text-[var(--text-faint)] transition-transform duration-[var(--motion-base)] ease-[var(--ease-standard)] ${pop.shown ? "rotate-180" : ""}`}
           fill="none"
           stroke="currentColor"
           strokeWidth="1.8"
@@ -885,7 +885,7 @@ export function Btn({
       onClick={onClick}
       disabled={disabled || pending}
       aria-busy={pending || undefined}
-      className={`inline-flex select-none items-center justify-center gap-2 font-semibold transition-[color,background-color,border-color,transform] var(--motion-fast) var(--ease-standard) focus-glow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${sizing} ${styles} ${className ?? ""}`}
+      className={`inline-flex select-none items-center justify-center gap-2 font-semibold transition-[color,background-color,border-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-standard)] focus-glow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 ${sizing} ${styles} ${className ?? ""}`}
     >
       {pending && <IconSpinner className="h-3.5 w-3.5 shrink-0" />}
       {children}
@@ -903,7 +903,7 @@ export function Btn({
  * app has one "selected" look instead of ad-hoc variants per screen.
  */
 const CHIP_BASE =
-  "select-none border font-semibold transition-[color,background-color,border-color,transform] var(--motion-fast) var(--ease-standard) focus-glow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40";
+  "select-none border font-semibold transition-[color,background-color,border-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-standard)] focus-glow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40";
 const CHIP_ON =
   "border-[rgb(var(--glow)/0.5)] bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]";
 const CHIP_OFF =
@@ -921,7 +921,7 @@ export function chipStyle(on: boolean): string {
  * player.
  */
 export const ICON_BTN =
-  "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-[color,background-color,border-color,transform] var(--motion-fast) var(--ease-standard) select-none focus-glow active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100";
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-[color,background-color,border-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-standard)] select-none focus-glow active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100";
 export const ICON_BTN_IDLE =
   "border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)] hover:border-[var(--line-strong)] hover:text-[var(--text)]";
 export const ICON_BTN_ACTIVE = CHIP_ON;
@@ -934,7 +934,7 @@ export const ICON_BTN_PRIMARY =
  * used inside card headers. One token so every header action matches.
  */
 export const MINI_BTN =
-  "inline-flex select-none items-center gap-1 rounded-md border border-[var(--line)] px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] transition-[color,background-color,border-color,transform] var(--motion-fast) var(--ease-standard) focus-glow hover-glow active:scale-95";
+  "inline-flex select-none items-center gap-1 rounded-md border border-[var(--line)] px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] transition-[color,background-color,border-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-standard)] focus-glow hover-glow active:scale-95";
 
 /**
  * Icon button that sits on top of imagery (gallery thumbnails, collection
@@ -989,6 +989,24 @@ export function SelectChip({
 }
 
 /** Segmented control: a row of mutually exclusive options. */
+/**
+ * A segmented control: one choice from a short, closely related set.
+ *
+ * Track plus sliding thumb rather than a row of separate chips — the shape
+ * iOS, Notion's view switcher and Arc's sidebar all converged on. Two things
+ * it buys over chips: the choice reads as *one* control moving rather than one
+ * of N independent buttons lighting up, and mutual exclusivity is stated by
+ * construction, where a row of chips can read as filters you may combine.
+ *
+ * The thumb rides `transform` (positioned by index, so it is composited rather
+ * than laid out) with `--ease-emphasized` — the slight overshoot in the scale,
+ * which is what makes a pill *settle* instead of stop. Labels cross at the fast
+ * register; the wildcard in `index.css` collapses both for reduced motion.
+ *
+ * The thumb is hidden when nothing matches, which is a real state: the
+ * Overview's mode groups pass "" when the running mode belongs to the other
+ * group, and an empty track says so honestly.
+ */
 export function Segmented<T extends string>({
   options,
   value,
@@ -1003,23 +1021,45 @@ export function Segmented<T extends string>({
   /** Names the group; without it the buttons announce as bare options. */
   label?: string;
 }) {
+  const index = options.findIndex((o) => o.id === value);
   return (
     <div
-      className={`flex gap-2 ${className}`}
+      className={`relative flex rounded-full border border-[var(--line)] bg-[var(--panel-strong)] p-0.5 ${className}`}
       role="group"
       aria-label={label}
     >
-      {options.map((o) => (
-        <button
-          key={o.id}
-          type="button"
-          onClick={() => onChange(o.id)}
-          aria-pressed={value === o.id}
-          className={`flex-1 rounded-xl px-3 py-2 text-xs ${chipStyle(value === o.id)}`}
-        >
-          {o.label}
-        </button>
-      ))}
+      {index >= 0 && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0.5 left-0.5 rounded-full bg-[rgb(var(--glow))] shadow-[0_2px_12px_-4px_rgb(var(--glow)/0.7)]"
+          style={{
+            // Track padding is 2px a side, so the segments divide the content
+            // box; translateX percentages are of the thumb's own width, which
+            // makes index * 100% land exactly on segment N for any N.
+            width: `calc((100% - 4px) / ${options.length})`,
+            transform: `translateX(${index * 100}%)`,
+            transition: "transform var(--motion-base) var(--ease-emphasized)",
+          }}
+        />
+      )}
+      {options.map((o) => {
+        const on = o.id === value;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onChange(o.id)}
+            aria-pressed={on}
+            className={`relative min-w-0 flex-1 truncate rounded-full px-2.5 py-1.5 text-xs t-fast focus-glow ${
+              on
+                ? "font-semibold text-black"
+                : "text-[var(--text-dim)] hover:text-[var(--text)]"
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -1247,7 +1287,7 @@ export function ColorInput({
           aria-label={`${label} — ${t("common.edit-color")}`}
           aria-expanded={open}
           aria-haspopup="dialog"
-          className="group relative h-9 w-16 overflow-hidden rounded-xl border border-[var(--line-strong)] shadow-[0_6px_18px_-8px_rgb(0_0_0/0.5)] transition-[border-color,filter] var(--motion-fast) var(--ease-standard) hover:border-[var(--line-strong)] hover:brightness-110"
+          className="group relative h-9 w-16 overflow-hidden rounded-xl border border-[var(--line-strong)] shadow-[0_6px_18px_-8px_rgb(0_0_0/0.5)] transition-[border-color,filter] duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:border-[var(--line-strong)] hover:brightness-110"
           style={{
             background: `linear-gradient(135deg, ${hex} 0%, ${hex}CC 60%, rgb(0 0 0 / 0.35) 160%)`,
             boxShadow: `inset 0 0 18px -4px ${hex}CC, inset 0 0 0 1px rgb(255 255 255 / 0.12)`,
@@ -1874,7 +1914,7 @@ export function CollapsibleCard({
           {summary}
         </span>
         <IconChevronDown
-          className={`h-4 w-4 shrink-0 text-[var(--text-faint)] transition-transform var(--motion-base) var(--ease-standard) ${
+          className={`h-4 w-4 shrink-0 text-[var(--text-faint)] transition-transform duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
             open ? "" : "-rotate-90"
           }`}
         />
@@ -1908,18 +1948,23 @@ export function ItemTitle({
 /**
  * A key cap: one token of a combo, drawn as a key on a keyboard.
  *
- * Three call sites drew their own -- the Overview shortcut rows, the shortcut
- * overlay and the sidebar's Ctrl+K hint -- at three different sizes and radii,
- * so a combo in the card did not look like the same combo in the sheet it
- * opens. One shape now.
+ * The only place a `<kbd>` is drawn. Five call sites used to restyle it
+ * themselves -- the hotkey recorder's chips, the palette's row hints, the
+ * sidebar's Ctrl+K hint and the shortcut lists -- at four different sizes and
+ * radii, so the same combo read as a different object depending on which
+ * panel you met it in. One shape now; a new shortcut display composes this
+ * (or `ComboCaps`) rather than starting a fifth.
  *
  * `--radius-sm` is the smallest step on the scale and the right one here: a
  * cap is the smallest element in the app, and the next step up reads as a
  * rounded chip rather than a key.
+ *
+ * `shrink-0` so a crowded row gives way somewhere else, never by squeezing
+ * the cap: a compressed key stops reading as a key and wraps its legend.
  */
 export function KeyCap({ children }: { children: ReactNode }) {
   return (
-    <kbd className="rounded-[var(--radius-sm)] border border-[var(--line-strong)] bg-[var(--panel-strong)] px-1.5 py-0.5 font-mono text-[10px] leading-none text-[var(--text)]">
+    <kbd className="shrink-0 rounded-[var(--radius-sm)] border border-[var(--line-strong)] bg-[var(--panel-strong)] px-1.5 py-0.5 font-mono text-[10px] leading-none text-[var(--text)]">
       {children}
     </kbd>
   );

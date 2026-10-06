@@ -4,7 +4,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
-import { Card, Btn, Dropdown, Slider, Toggle, TextInput, NumberField, Section, InfoNote, chipStyle, ItemTitle, displayName, EmptyState } from "../ui";
+import { Card, Btn, Dropdown, Slider, Toggle, TextInput, NumberField, Section, InfoNote, chipStyle, ItemTitle, displayName, EmptyState, Segmented } from "../ui";
 import { Modal } from "../Modal";
 import { IconSettings, IconImage, IconGlobe, IconFolder, IconPlus, IconTrash, IconClipboard, IconClose } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
@@ -897,32 +897,24 @@ export default function WallpaperTab() {
           anchor="vault"
           title={t("common.vault")}
           right={
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-0.5 rounded-full border border-[var(--line)] bg-[var(--panel-strong)] p-0.5">
-                {(
-                  [
-                    ["wallpapers", "gallery.view-wallpapers", gallery.length],
-                    ["collections", "gallery.view-collections", collections.length],
-                  ] as const
-                ).map(([id, label, n]) => (
-                  <button
-                    key={id}
-                    onClick={() => {
-                      setMode(id);
-                      setLimit(GALLERY_PAGE);
-                    }}
-                    aria-pressed={mode === id}
-                    className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                      mode === id
-                        ? "bg-[rgb(var(--glow))] font-semibold text-[#06121f]"
-                        : "text-[var(--text-dim)] hover:text-[var(--text)]"
-                    }`}
-                  >
-                    {`${t(label)} · ${n}`}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <Segmented
+              label={t("gallery.view")}
+              value={mode}
+              onChange={(v) => {
+                setMode(v);
+                setLimit(GALLERY_PAGE);
+              }}
+              options={[
+                {
+                  id: "wallpapers" as const,
+                  label: `${t("gallery.view-wallpapers")} · ${gallery.length}`,
+                },
+                {
+                  id: "collections" as const,
+                  label: `${t("gallery.view-collections")} · ${collections.length}`,
+                },
+              ]}
+            />
           }
         >
           {unhealthyCount > 0 && (
@@ -1564,7 +1556,7 @@ export default function WallpaperTab() {
                         <div className="flex items-center gap-2">
                           <ItemTitle className="truncate">{pl.name}</ItemTitle>
                           {pl.enabled && (
-                            <span className="rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-bold text-[#06121f]">
+                            <span className="rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-bold text-black">
                               {t("common.running")}
                             </span>
                           )}
@@ -1806,14 +1798,14 @@ export default function WallpaperTab() {
                         c.wallpaper.kind = "shader";
                         c.wallpaper.source = s.id;
                       })
-                    }                     className={`group overflow-hidden rounded-2xl border text-left transition-all var(--motion-slow) var(--ease-standard) ${
+                    }                     className={`group overflow-hidden rounded-2xl border text-left transition-all duration-[var(--motion-slow)] ease-[var(--ease-standard)] ${
                       active
                         ? "border-[rgb(var(--glow)/0.7)] shadow-[0_10px_30px_-12px_rgb(var(--glow)/0.5)] ring-2 ring-[rgb(var(--glow)/0.2)]"
                         : "border-[var(--line)] hover:border-[var(--line-strong)]"
                     }`}
                   >
                     <div className="relative h-14 w-full overflow-hidden">
-                      <div                         className="h-full w-full transition-transform var(--motion-slow) var(--ease-standard) group-hover:scale-110"
+                      <div                         className="h-full w-full transition-transform duration-[var(--motion-slow)] ease-[var(--ease-standard)] group-hover:scale-110"
                         style={{ background: SHADER_ART[s.id] }}
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
