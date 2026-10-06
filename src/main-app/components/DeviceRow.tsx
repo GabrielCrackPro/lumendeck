@@ -224,7 +224,7 @@ export function DeviceRow({
       // composing with them: a muted device that has just been plugged in still
       // needs to be findable, and "the hardware is here" is a fact about the
       // device, not about its colour.
-      className={`min-w-0 overflow-hidden rounded-xl border transition-colors var(--motion-base) var(--ease-standard) ${
+      className={`min-w-0 overflow-hidden rounded-xl border transition-colors duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
         justArrived
           ? "border-emerald-400/50 bg-emerald-500/[0.07] shadow-[0_0_0_1px_rgb(16_185_129/0.25)]"
           : muted
@@ -304,7 +304,7 @@ export function DeviceRow({
                 else rather than keeping full accent, so "off" still reads.
               */}
               <span
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-[var(--panel)] transition-colors var(--motion-base) var(--ease-standard) ${
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-[var(--panel)] transition-colors duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
                   muted
                     ? "text-[var(--text-faint)]"
                     : "text-[rgb(var(--glow))]"
@@ -328,18 +328,6 @@ export function DeviceRow({
               </span>
 
               {/*
-                The persistent half of the connect notice. The toast says it
-                once and is gone in four seconds; this is the copy that is
-                still there when the user looks back at the dashboard after
-                plugging a keyboard in and getting on with something else.
-
-                Deliberately not `aria-hidden`, unlike the colour bar beside
-                it: the bar restates state the switch already announces, but
-                "just connected" is not otherwise available to anyone who does
-                not see the highlight. The same emerald vocabulary as the
-                success toast, so the two read as one event.
-              */}
-              {/*
                 The persistent half of the connect notice: the toast says it
                 once and is gone in four seconds, and this is what is still
                 there when the user looks back after plugging something in and
@@ -348,13 +336,14 @@ export function DeviceRow({
                 Not `aria-hidden`, unlike the colour bar below: the bar
                 restates state the switch already announces, but "just
                 connected" is not otherwise available to anyone who does not
-                see the highlight.
+                see the highlight. The same emerald vocabulary as the success
+                toast, so the two read as one event.
 
-                The label hides below `sm`. It is the one piece of copy in
-                this row that has no natural minimum width, and "Recién
-                conectado" is nearly twice the length of "Just connected" —
-                it was the widest thing competing with the switch. The border
-                and background already carry the meaning on a narrow row.
+                The label hides below `sm`. It is the one piece of copy in this
+                row that has no natural minimum width, and "Recién
+                conectado" is nearly twice the length of "Just connected" — it
+                was the widest thing competing with the switch. The border and
+                background already carry the meaning on a narrow row.
               */}
               {justArrived && (
                 <span className="hidden min-w-0 shrink items-center gap-1 truncate rounded-[var(--radius-sm)] bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 sm:flex">

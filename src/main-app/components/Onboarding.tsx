@@ -119,7 +119,7 @@ function Stepper({
             disabled={i >= step}
             aria-label={t(STEP_LABELS[i] ?? STEP_LABELS[0]!)}
             title={i < step ? t(STEP_LABELS[i] ?? STEP_LABELS[0]!) : undefined}
-            className={`h-1.5 rounded-full transition-all var(--motion-base) var(--ease-standard) ${
+            className={`h-1.5 rounded-full transition-all duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
               i === step
                 ? "w-7 bg-[rgb(var(--glow))] shadow-[0_0_10px_rgb(var(--glow)/0.7)]"
                 : i < step
@@ -215,14 +215,14 @@ function PickTile({
       onClick={onPick}
       disabled={disabled}
       title={entry.name}
-      className={`group relative flex w-full flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] text-left transition-all var(--motion-slow) var(--ease-standard) hover:-translate-y-0.5 hover:shadow-[var(--shadow)] disabled:pointer-events-none disabled:opacity-50 ${
+      className={`group relative flex w-full flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] text-left transition-all duration-[var(--motion-slow)] ease-[var(--ease-standard)] hover:-translate-y-0.5 hover:shadow-[var(--shadow)] disabled:pointer-events-none disabled:opacity-50 ${
         active
           ? "border-[rgb(var(--glow)/0.7)] ring-2 ring-[rgb(var(--glow)/0.22)]"
           : "border-[var(--line)] hover:border-[var(--line-strong)]"
       }`}
     >
       <div className="relative aspect-video w-full overflow-hidden">
-        <div className="absolute inset-0 transition-transform var(--motion-slow) var(--ease-standard) group-hover:scale-[1.05]">
+        <div className="absolute inset-0 transition-transform duration-[var(--motion-slow)] ease-[var(--ease-standard)] group-hover:scale-[1.05]">
           <GalleryThumb entry={entry} />
         </div>
         {active && !compact && (
@@ -1236,7 +1236,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       <button
                         key={m.id}
                         onClick={() => save((c) => (c.rgb.mode = m.id as RgbMode))}
-                        className={`rounded-xl border p-3.5 text-left transition-all var(--motion-fast) var(--ease-standard) active:scale-[0.98] ${
+                        className={`rounded-xl border p-3.5 text-left transition-all duration-[var(--motion-fast)] ease-[var(--ease-standard)] active:scale-[0.98] ${
                           active
                             ? "border-[rgb(var(--glow)/0.6)] bg-[rgb(var(--glow)/0.08)] ring-1 ring-[rgb(var(--glow)/0.3)]"
                             : "border-[var(--line)] hover:border-[var(--line-strong)]"
