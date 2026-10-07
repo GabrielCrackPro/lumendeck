@@ -36,6 +36,7 @@ pub mod logfmt;
 pub mod logtail;
 pub mod stickers;
 pub mod sys_theme;
+pub mod autostart;
 pub mod lock_screen;
 pub mod lock_screen_reg;
 pub mod sticker_windows;
@@ -62,7 +63,7 @@ compile_error!("LumenDeck currently targets Windows only.");
 /// light up the wallpaper and lighting and then get out of the way: the tray
 /// icon is the only window the user needs to see, so setup() builds the
 /// dashboard but leaves it hidden until they ask for it.
-const START_HIDDEN_ARG: &str = "--minimized";
+pub(crate) const START_HIDDEN_ARG: &str = "--minimized";
 
 /// True when this process was started by Windows at logon rather than by a
 /// double-click. Existing installs were registered without the flag, so
@@ -384,13 +385,6 @@ pub fn run() {
                 let _ = main.set_focus();
             }
         }))
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            // Windows runs the exe straight out of the Run key, so this flag
-            // is the only way setup() can tell a boot launch from a manual
-            // one. See START_HIDDEN_ARG below.
-            Some(vec![START_HIDDEN_ARG]),
-        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -555,19 +549,17 @@ pub fn run() {
                 crate::lock_screen_reg::release();
             }
 
-            // Apply autostart preference.
-            use tauri_plugin_autostart::ManagerExt;
-            let autostart = config_store::get().general.autostart;
-            let manager = app.autolaunch();
-            let result = if autostart {
-                manager.enable()
-            } else {
-                manager.disable()
-            };
-            if let Err(e) = result {
+            // Re-apply the autostart preference. This is also the repair for
+            // the setting's original bug: an entry written by an older build
+            // names whatever exe registered it, so boot ran a debug binary —
+            // console window, dashboard pointed at a Vite server that is not
+            // running. Re-applying on every launch rewrites the entry to the
+            // installed app, and the next boot starts that one.
+            if let Err(e) = crate::autostart::apply(
+                app.handle(),
+                config_store::get().general.autostart,
+            ) {
                 log::warn!("autostart: could not apply preference: {e}");
-            } else {
-                log::debug!("autostart: preference applied ({})", autostart);
             }
 
             // Tray icon.
