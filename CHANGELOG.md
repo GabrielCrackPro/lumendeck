@@ -9,6 +9,10 @@ and it lands under that release's heading.
 ### Added
 - **overview:** rebuild the Now playing card as one legible player (`06880ba`)
 
+### Fixed
+- **autostart:** register the installed exe at logon, not this build (`632a6c9`)
+- **lock-screen:** follow the wallpaper through WinRT, not a dead registry value (`f6efc75`)
+
 ## 0.2.41 — 2026-10-07
 
 ### Added
