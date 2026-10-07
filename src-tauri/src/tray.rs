@@ -246,9 +246,9 @@ pub fn handle(app: &tauri::AppHandle, id: &str) -> bool {
         }
         ID_RESTORE_WP => {
             let restored = crate::wallpaper_bg::restore_original_wallpaper();
-            // The lock screen is a separate registry value, so restoring the
-            // desktop leaves the lock screen showing our frame. Releasing it
-            // here too is what makes this button mean what it says.
+            // The lock screen is set independently of the desktop, so
+            // restoring the desktop leaves the lock screen on our frame.
+            // Releasing it here too is what makes this button mean what it says.
             crate::lock_screen_reg::release();
 
             if restored {

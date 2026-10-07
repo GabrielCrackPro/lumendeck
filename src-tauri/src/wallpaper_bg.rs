@@ -387,9 +387,12 @@ pub fn force_lock_screen_sync() {
     }
     let out = bg_path();
     if !out.is_file() {
-        // Nothing to point at yet. The next successful install picks it up, so
-        // this is a normal state on first run rather than a failure.
-        log::debug!("lock-screen: no background file yet, deferring");
+        // Nothing to point at yet — this runs on the enable transition, so it
+        // is one line saying the toggle has not landed *yet*, and the next
+        // frame the wallpaper installs picks it up. Info rather than debug:
+        // the user has just asked for something, and the default level would
+        // hide the only line that explains why nothing has happened.
+        log::info!("lock-screen: no background file yet, will follow the next frame");
         return;
     }
     set_lock_screen_wallpaper(&out);

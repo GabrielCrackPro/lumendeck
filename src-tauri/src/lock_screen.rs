@@ -1,6 +1,6 @@
 // Deciding what the Windows lock screen should say, as pure logic.
 //
-// The registry half of this cannot be tested on a machine that is not being
+// The Windows half of this cannot be tested on a machine that is not being
 // locked and unlocked, so the decision lives here and the caller carries it
 // out. Three inputs, one action, and the bug this exists to prevent is the
 // transition rather than any single state:
@@ -14,21 +14,25 @@
 // The "off but still ours" case is the whole point. Gating the write on the
 // toggle is not enough: it stops new writes but cannot undo the last one.
 
-/// Where we keep the user's original lock screen image, in the same key we
-/// write. A separate value name, so it never collides with what Windows reads.
+/// Where we keep the user's original lock screen image. Our own value, in a
+/// key we already had open — Windows has no say in this name.
 pub const ORIG_LOCK_SCREEN_VALUE: &str = "LumenDeckOriginalLockScreen";
 
-/// The value Windows reads for the lock screen image itself.
+/// Values written by the first version of this feature, which pointed the
+/// lock screen at a `LockScreenImage` string in the Personalization key.
+///
+/// Windows never read them: on Windows 11 24H2 that key holds no
+/// `LockScreenImage` at all, and nothing here ever wrote one either — the
+/// write succeeded into a value no component consumes, which is why the
+/// toggle logged success while the lock screen never moved. They are kept
+/// only so the leftovers can be deleted; see `drop_legacy_recipe`.
 pub const LOCK_SCREEN_IMAGE_VALUE: &str = "LockScreenImage";
 
-/// Companion DWORD. Windows reads this to decide *what kind* of image the
-/// value is: a user picture, Windows Spotlight, or nothing. Setting only the
-/// path leaves the type at whatever it was, and a machine sitting on Spotlight
-/// keeps showing Spotlight. 1 is the user-picture case.
+/// The companion DWORD the old recipe set alongside it. This is the value
+/// that outlived every release — `release()` deleted the image and the stash
+/// but never this — so it sat in the key claiming the lock screen was a user
+/// picture long after the toggle went off.
 pub const LOCK_SCREEN_TYPE_VALUE: &str = "LockScreenImageType";
-
-/// 1 = a picture the user picked, as opposed to Spotlight (2).
-pub const LOCK_SCREEN_TYPE_PICTURE: u32 = 1;
 
 /// What the lock screen should be told.
 #[derive(Debug, PartialEq, Eq)]
@@ -73,8 +77,20 @@ pub fn same_path(a: &str, b: &str) -> bool {
 }
 
 /// Decide the action for the current state.
-pub fn plan(state: &LockScreenState) -> LockScreenPlan {
+///
+/// `image` is the file we have been asked to install; it is only read on the
+/// `follows_wallpaper` path, so the release side may pass anything.
+pub fn plan(state: &LockScreenState, image: &str) -> LockScreenPlan {
     if state.follows_wallpaper {
+        // Already showing this exact file: leave it alone. The wallpaper
+        // republishes its background frame whenever the picture changes, and
+        // without this every republish would ask Windows to re-import the
+        // same image all over again.
+        if state.current_is_ours
+            && same_path(state.current.as_deref().unwrap_or_default(), image)
+        {
+            return LockScreenPlan::Leave;
+        }
         // Only stash on the way in: on every later write the backup already
         // exists, and re-stashing would capture our own value and make the
         // restore a no-op forever.
@@ -84,7 +100,7 @@ pub fn plan(state: &LockScreenState) -> LockScreenPlan {
             state.current.clone()
         };
         return LockScreenPlan::Adopt {
-            image: String::new(),
+            image: image.to_string(),
             backup,
         };
     }
@@ -105,6 +121,12 @@ mod tests {
 
     fn ours() -> String {
         r"C:\Users\Someone\AppData\Roaming\LumenDeck\wallpaper-bg.jpg".to_string()
+    }
+
+    /// A later file at a different path: what an adopt looks like when the
+    /// background snapshot moves, as opposed to being republished unchanged.
+    fn ours_two() -> String {
+        r"C:\Users\Someone\AppData\Roaming\LumenDeck\wallpaper-bg-2.jpg".to_string()
     }
 
     fn theirs() -> String {
@@ -128,17 +150,20 @@ mod tests {
     #[test]
     fn an_untouched_off_lock_screen_is_left_alone() {
         assert_eq!(
-            plan(&state(false, Some(&theirs()), None, false)),
+            plan(&state(false, Some(&theirs()), None, false), &ours()),
             LockScreenPlan::Leave
         );
-        assert_eq!(plan(&state(false, None, None, false)), LockScreenPlan::Leave);
+        assert_eq!(
+            plan(&state(false, None, None, false), &ours()),
+            LockScreenPlan::Leave
+        );
     }
 
     #[test]
     fn turning_the_toggle_off_releases_what_we_wrote() {
         // The transition the bug lives in: our value is still installed after
         // the user said no.
-        match plan(&state(false, Some(&ours()), None, true)) {
+        match plan(&state(false, Some(&ours()), None, true), &ours()) {
             LockScreenPlan::Release { original } => assert!(original.is_none()),
             other => panic!("expected Release, got {other:?}"),
         }
@@ -146,7 +171,7 @@ mod tests {
 
     #[test]
     fn turning_the_toggle_off_restores_the_users_image_when_we_have_one() {
-        match plan(&state(false, Some(&ours()), Some(&theirs()), true)) {
+        match plan(&state(false, Some(&ours()), Some(&theirs()), true), &ours()) {
             LockScreenPlan::Release { original } => assert_eq!(original.as_deref(), Some(theirs().as_str())),
             other => panic!("expected Release, got {other:?}"),
         }
@@ -158,34 +183,61 @@ mod tests {
         // once been on. Backing up on enable and restoring on disable must not
         // become "restore on any disable".
         assert_eq!(
-            plan(&state(false, Some(&theirs()), None, false)),
+            plan(&state(false, Some(&theirs()), None, false), &ours()),
             LockScreenPlan::Leave
         );
     }
 
     #[test]
     fn enabling_stashes_the_users_image_before_overwriting_it() {
-        match plan(&state(true, Some(&theirs()), None, false)) {
-            LockScreenPlan::Adopt { backup, .. } => assert_eq!(backup.as_deref(), Some(theirs().as_str())),
+        match plan(&state(true, Some(&theirs()), None, false), &ours()) {
+            LockScreenPlan::Adopt { image, backup } => {
+                assert_eq!(backup.as_deref(), Some(theirs().as_str()));
+                // The plan carries the file to install, not an empty string:
+                // the caller used to shadow it with its own argument, which is
+                // how an empty path could reach Windows and still log success.
+                assert_eq!(image, ours());
+            }
             other => panic!("expected Adopt, got {other:?}"),
         }
     }
 
     #[test]
     fn enabling_with_no_existing_value_has_nothing_to_stash() {
-        match plan(&state(true, None, None, false)) {
+        match plan(&state(true, None, None, false), &ours()) {
             LockScreenPlan::Adopt { backup, .. } => assert!(backup.is_none()),
             other => panic!("expected Adopt, got {other:?}"),
         }
     }
 
     #[test]
-    fn rewriting_while_already_ours_never_stashes_our_own_path() {
+    fn rewriting_with_a_different_file_never_stashes_our_own_path() {
         // The trap: capture `current` as the backup and the "original" becomes
         // wallpaper-bg.jpg, so turning the toggle off restores our own file and
         // the user is stuck with it.
-        match plan(&state(true, Some(&ours()), Some(&theirs()), true)) {
+        match plan(&state(true, Some(&ours()), Some(&theirs()), true), &ours_two()) {
             LockScreenPlan::Adopt { backup, .. } => assert_eq!(backup.as_deref(), Some(theirs().as_str())),
+            other => panic!("expected Adopt, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn installing_the_image_already_shown_does_nothing() {
+        // The wallpaper republishes its background frame whenever the picture
+        // changes, and every republish reaches this decision. Adopting again
+        // would re-import the same file through Windows each time — so the
+        // plan says Leave, which the caller must read as "nothing to do" and
+        // not as a failure.
+        assert_eq!(
+            plan(&state(true, Some(&ours()), Some(&theirs()), true), &ours()),
+            LockScreenPlan::Leave
+        );
+        // A *new* file while we hold the lock screen is still an adopt, and
+        // it must keep the stash from the first takeover.
+        match plan(&state(true, Some(&ours()), Some(&theirs()), true), &ours_two()) {
+            LockScreenPlan::Adopt { backup, .. } => {
+                assert_eq!(backup.as_deref(), Some(theirs().as_str()))
+            }
             other => panic!("expected Adopt, got {other:?}"),
         }
     }
@@ -210,7 +262,7 @@ mod tests {
         s.current_is_ours = same_path(s.current.as_deref().unwrap(), &ours());
         assert!(s.current_is_ours);
         assert!(matches!(
-            plan(&s),
+            plan(&s, &ours()),
             LockScreenPlan::Release { .. }
         ));
     }

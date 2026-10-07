@@ -544,11 +544,13 @@ pub fn run() {
             // display change does not start a second sampler.
             crate::perf::start();
 
-            // Repair the lock screen on startup. Builds before the toggle had a
-            // release path could leave `LockScreenImage` pointing at us with the
-            // feature off, which means the user's lock screen silently shows our
-            // wallpaper and nothing they set. Only acts when the value is ours,
-            // so a user's own image is never touched.
+            // Repair the lock screen on startup. A build whose release never
+            // completed — a failure, or a quit between the two halves — leaves
+            // Windows still showing our frame with the feature off, so the
+            // user's lock screen silently shows our wallpaper and nothing they
+            // set. Only acts when Windows reports the image as ours, so a
+            // user's own picture is never touched. It also clears the
+            // `LockScreenImageType` residue the old registry recipe left behind.
             if !config_store::get().general.lock_screen_follows_wallpaper {
                 crate::lock_screen_reg::release();
             }
