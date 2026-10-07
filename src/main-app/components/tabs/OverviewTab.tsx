@@ -273,12 +273,13 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
         // the same independence rather than having to remember.
         className="grid min-w-0 items-start gap-5 xl:grid-cols-12"
       >
-        {/* Now playing — spans 5. Wallpaper stage on top, media + transport
-            below, wallpaper context strip last. */}
+        {/* Now playing — spans 5. The wallpaper is the card: its own strip
+            docked at the top edge, the player docked at the bottom. */}
         <Card
           title={t("overview.now-playing")}
           icon={<IconWave />}
           className="xl:col-span-5"
+          noShadow
           right={
             <Chip tone={media ? (media.playing ? "ok" : "idle") : "idle"} pulse={!!media?.playing}>
               {t(

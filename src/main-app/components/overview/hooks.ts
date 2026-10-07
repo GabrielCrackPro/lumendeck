@@ -181,9 +181,9 @@ function useFps(): number {
 }
 
 /**
- * Wraps the row holding the Now playing and Lighting Engine cards with a
- * subtle audio-reactive glow, and drives the equalizer beside the artwork
- * from the same loop.
+ * Wraps the row holding the Now playing and Lighting Engine cards with the
+ * audio custom properties both cards read, and drives the equalizer beside
+ * the artwork from the same loop.
  *
  * The rAF loop feeds the level stream into `EqEngine` and writes the result
  * straight to CSS custom properties on the DOM node — nothing up the tree

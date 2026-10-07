@@ -5,7 +5,9 @@ import {
   positionFromFraction,
   progressFraction,
   sampleAgreesWithSeek,
+  seekTipPercent,
   skewedPosition,
+  totalTimeLabel,
 } from "./mediaTime";
 
 describe("formatDuration", () => {
@@ -140,3 +142,42 @@ describe("sampleAgreesWithSeek", () => {
     expect(sampleAgreesWithSeek(30, 120, SEEK_SETTLE_MS + 5000)).toBe(true);
   });
 })
+
+describe("totalTimeLabel", () => {
+  it("reads the plain total until the countdown is asked for", () => {
+    expect(totalTimeLabel(108, 65, false)).toBe("1:48");
+  });
+
+  it("counts down behind a minus while there is time left", () => {
+    expect(totalTimeLabel(108, 65, true)).toBe("-0:43");
+  });
+
+  it("floors the countdown exactly as the total floors", () => {
+    // Both sides of the row run through one formatter: a countdown that
+    // rounded up would disagree with the bar's frame-by-frame position.
+    expect(totalTimeLabel(100, 40.9, true)).toBe("-0:59");
+  });
+
+  it("reads 0:00 rather than a negative countdown at or past the end", () => {
+    // A stream can report a position beyond its own duration; "-0:04" would
+    // read as a bug for a track that has already ended.
+    expect(totalTimeLabel(100, 100, true)).toBe("0:00");
+    expect(totalTimeLabel(100, 104, true)).toBe("0:00");
+  });
+});
+
+describe("seekTipPercent", () => {
+  it("maps the pointer across the bar's width", () => {
+    expect(seekTipPercent(0)).toBe(0);
+    expect(seekTipPercent(0.5)).toBe(50);
+    expect(seekTipPercent(1)).toBe(100);
+  });
+
+  it("clamps a pointer resting past either end", () => {
+    // The bar's hit area extends past its painted ends; the bubble must stay
+    // over the bar it describes rather than drifting onto the volume row.
+    expect(seekTipPercent(-0.25)).toBe(0);
+    expect(seekTipPercent(1.3)).toBe(100);
+    expect(seekTipPercent(NaN)).toBe(0);
+  });
+});

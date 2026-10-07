@@ -201,7 +201,11 @@ export default function EngineCard({
             // and the panel's `overflow-hidden` clips the switch off the end.
             className="relative min-w-0"
             style={{
-              // Audio-reactive halo, matching the wallpaper stage.
+              // Audio-reactive halo: volume widens and brightens a glow around
+              // the device list; a detected beat adds a short flash on top.
+              // Kept here rather than on the wallpaper stage as well: this box
+              // sits inside the card's padding, so the glow stays on the card's
+              // own surface instead of ringing the outside of it.
               boxShadow: cfg.rgb.enabled
                 ? "0 0 calc(6px + var(--al, 0) * 34px) rgb(var(--glow) / calc(0.05 + var(--al, 0) * 0.26 + var(--beat, 0) * 0.2))"
                 : undefined,

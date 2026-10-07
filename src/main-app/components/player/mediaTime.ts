@@ -69,6 +69,39 @@ export function positionFromFraction(fraction: number, durationSec: number): num
   return f * Math.max(0, durationSec);
 }
 
+/**
+ * What the right-hand label reads: the track's total length, or what is left
+ * of it once the reader has asked for the countdown.
+ *
+ * A leading minus rather than the word "remaining": the column is `w-11`
+ * monospace beside a bar that must keep its width, and the minus is how every
+ * mainstream player marks a countdown — "-0:43" reads at a glance where the
+ * word would clip. Past the end it reads "0:00" rather than "-0:00": a stream
+ * can report a position beyond its own duration, and a negative countdown for
+ * a track that has already ended reads as a bug rather than as rounding.
+ */
+export function totalTimeLabel(
+  durationSec: number,
+  positionSec: number,
+  showRemaining: boolean,
+): string {
+  if (!showRemaining) return formatDuration(durationSec);
+  const left = durationSec - positionSec;
+  return left > 0 ? `-${formatDuration(left)}` : "0:00";
+}
+
+/**
+ * Where the seek tooltip sits above the bar, as a percentage of its width.
+ *
+ * Clamped to the bar: the pointer can rest a pixel outside either end while
+ * the bubble is still shown, and an unclamped percentage would park it over
+ * the volume row instead of over the instant it is describing.
+ */
+export function seekTipPercent(fraction: number): number {
+  if (!Number.isFinite(fraction)) return 0;
+  return Math.min(1, Math.max(0, fraction)) * 100;
+}
+
 /** The keys the progress bar answers. */
 export type SeekKey = "left" | "right" | "home" | "end";
 

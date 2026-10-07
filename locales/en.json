@@ -70,6 +70,7 @@
     "seek": "Seek",
     "system-volume": "System volume",
     "toggle-shuffle": "Toggle shuffle",
+    "toggle-remaining-time": "Toggle remaining time",
     "previous-track": "Previous track",
     "next-track": "Next track",
     "cycle-repeat-mode": "Cycle repeat mode",

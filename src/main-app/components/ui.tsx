@@ -177,6 +177,7 @@ export function Card({
   right,
   className,
   anchor,
+  noShadow,
 }: {
   title: string;
   icon?: ReactNode;
@@ -193,6 +194,16 @@ export function Card({
    * to navigate here.
    */
   anchor?: string;
+  /**
+   * Drop the panel's drop shadow.
+   *
+   * For the one card whose surface is a full-bleed picture: a shadow ringing it
+   * reads as a second frame the artwork never asked for. Inline rather than a
+   * `shadow-none` class because `.glass` at rest and `.card-surface:hover` both
+   * reassert a box-shadow from the stylesheet, and an inline declaration is the
+   * only thing that beats both — at rest and on hover alike.
+   */
+  noShadow?: boolean;
 }) {
   return (
     /*
@@ -213,6 +224,7 @@ export function Card({
        them -- so the lift is scoped here rather than put on `.glass`. */
     <section
       className={`glass card-surface ${className ?? ""}`}
+      style={noShadow ? { boxShadow: "none" } : undefined}
       data-anchor={anchor}
     >
       <header className="flex min-h-[42px] items-center justify-between gap-3 rounded-t-[var(--radius-xl)] border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4">
@@ -957,6 +969,20 @@ export const MINI_BTN =
  */
 export const OVERLAY_ICON_BTN =
   "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 bg-black/60 text-white/80 backdrop-blur-sm transition-colors hover:border-white/30 hover:bg-black/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 active:scale-95";
+
+/**
+ * `OVERLAY_ICON_BTN` in the accent register: the same scrim, blur, hit area and
+ * white focus ring, with the accent border and glyph instead of white.
+ *
+ * For controls drawn over the live wallpaper — the Now playing rail's pause and
+ * change buttons — which read in the accent like the name beside them. The scrim
+ * is the half that makes that survive a picture: `ICON_BTN_ACTIVE`'s 12% accent
+ * tint is what keeps an accent control quiet on a panel, and over a bright frame
+ * it is not a colour at all. The focus ring stays white for the reason documented
+ * above — an accent ring disappears against a wallpaper.
+ */
+export const OVERLAY_ICON_BTN_ACCENT =
+  "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[rgb(var(--glow)/0.55)] bg-black/55 text-[rgb(var(--glow))] backdrop-blur-sm transition-colors hover:border-[rgb(var(--glow)/0.85)] hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 active:scale-95";
 
 /** Pill-shaped selectable chip (collections, devices, playlists, tags). */
 export function SelectChip({

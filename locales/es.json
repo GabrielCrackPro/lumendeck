@@ -70,6 +70,7 @@
     "seek": "Buscar",
     "system-volume": "Volumen del sistema",
     "toggle-shuffle": "Alternar aleatorio",
+    "toggle-remaining-time": "Alternar tiempo restante",
     "previous-track": "Pista anterior",
     "next-track": "Pista siguiente",
     "cycle-repeat-mode": "Modo de repetición del ciclo",

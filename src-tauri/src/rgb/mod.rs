@@ -1061,12 +1061,12 @@ async fn engine_loop(
         audio::decay_pulse(dt_secs);
 
         // Publish the level for the dashboard's visualizers. This is NOT gated
-        // on the lighting mode: the Now playing equalizer and the card's audio
-        // halo are shown whenever something plays, and a player whose
-        // equalizer only moves when the LEDs happen to be in audio-reactive
-        // mode is broken. The level itself is only interesting while something
-        // is audible, so silence stops the stream instead of pushing a
-        // constant zero at every webview ~40x a second.
+        // on the lighting mode: the Now playing equalizer and the lighting
+        // engine card's audio halo are shown whenever something plays, and a
+        // player whose equalizer only moves when the LEDs happen to be in
+        // audio-reactive mode is broken. The level itself is only interesting
+        // while something is audible, so silence stops the stream instead of
+        // pushing a constant zero at every webview ~40x a second.
         let volume = audio::volume();
         let pulse = audio::pulse();
         let audible = volume > AUDIO_UI_FLOOR || pulse > AUDIO_UI_FLOOR;
