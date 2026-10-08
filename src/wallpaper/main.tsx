@@ -936,10 +936,7 @@ function MediaSurface({
         className="flex h-full w-full items-center justify-center overflow-hidden bg-black"
         style={style}
       >
-        {
 
-
- }
         {fallback && (
           <img
             src={fallback}

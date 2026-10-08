@@ -222,8 +222,7 @@ export default function HotkeysCard() {
             onChange={(v) => save((c) => (c.general.hotkeysEnabled = v))}
           />
         </div>
-        {
- }
+
         <div
           className={`border-b border-[var(--line)] py-3 transition-opacity ${
             enabled ? "" : "pointer-events-none opacity-40"
@@ -265,7 +264,7 @@ export default function HotkeysCard() {
             </InfoNote>
           </div>
         )}
-        {HOTKEY_ACTIONS.map((a) => {
+        {enabled && HOTKEY_ACTIONS.map((a) => {
           const accel = valueFor(a.id);
           return (
             <HotkeyRow
@@ -293,9 +292,11 @@ export default function HotkeysCard() {
             />
           );
         })}
-        <div className="py-3 text-[11px] leading-relaxed text-[var(--text-faint)]">
-          {t("hotkeys.combos-need-a-modifier-ctrl-alt-shift-or-win-or")}
-        </div>
+        {enabled && (
+          <div className="py-3 text-[11px] leading-relaxed text-[var(--text-faint)]">
+            {t("hotkeys.combos-need-a-modifier-ctrl-alt-shift-or-win-or")}
+          </div>
+        )}
       </div>
     </Card>
   );

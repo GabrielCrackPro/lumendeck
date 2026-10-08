@@ -167,9 +167,7 @@ function Toasts() {
                     {t.action.label}
                   </button>
                 )}
-                {
 
- }
                 {t.link && (
                   <button
                     onClick={(e) => {
@@ -302,13 +300,13 @@ function TabSkeleton() {
         </div>
         <div className="glass h-7 w-20 rounded-lg" />
       </div>
-      <div className="grid gap-5 xl:grid-cols-12">
-        <div className="glass h-72 xl:col-span-5" />
-        <div className="glass h-72 xl:col-span-7" />
+      <div className="grid gap-4 2xl:grid-cols-12 2xl:gap-5">
+        <div className="glass h-72 2xl:col-span-5" />
+        <div className="glass h-72 2xl:col-span-7" />
       </div>
-      <div className="grid gap-5 xl:grid-cols-12">
-        <div className="glass h-48 xl:col-span-7" />
-        <div className="glass h-48 xl:col-span-5" />
+      <div className="grid gap-4 2xl:grid-cols-12 2xl:gap-5">
+        <div className="glass h-48 2xl:col-span-7" />
+        <div className="glass h-48 2xl:col-span-5" />
       </div>
     </div>
   );
@@ -450,15 +448,16 @@ export default function Shell() {
   }, [shortcutsOpen]);
 
   const current = TABS.find((t) => t.id === tab) ?? (tab === SETTINGS_TAB.id ? SETTINGS_TAB : TABS[0])!;
+  const CurrentIcon = current.icon;
 
   return (
     <div className="grain relative flex h-screen flex-col overflow-hidden">
       <div className="aura" />
-      { }
+
       <TitleBar />
       <div className="flex min-h-0 flex-1 p-2 pt-0">
 
-      { }
+
       {saving && (
         <div className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden">
           <div className="saving-bar h-full w-1/3 bg-[rgb(var(--glow))] shadow-[0_0_10px_rgb(var(--glow))]" />
@@ -466,7 +465,7 @@ export default function Shell() {
       )}
 
       <div className="relative z-10 flex min-h-0 w-full flex-1 gap-2">
-        { }
+
         <Sidebar
           tab={tab}
           onNavigate={setTab}
@@ -476,15 +475,18 @@ export default function Shell() {
           onShortcuts={() => setShortcutsOpen(true)}
         />
 
-        { }
+
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-[color-mix(in_srgb,var(--bg)_60%,var(--panel))] shadow-[var(--shadow)] backdrop-blur-xl">
           {!loaded ? (
             <BootSplash />
           ) : (
           <>
-          <header className="flex min-h-[52px] shrink-0 items-center justify-between gap-4 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-5">
+          <header className="flex min-h-[52px] shrink-0 items-center justify-between gap-2 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-3 sm:gap-4 sm:px-5">
             <div key={tab} className="page-enter-header flex min-w-0 items-center gap-3">
-              <h1 className="lednum shrink-0 text-[15px] leading-none text-[var(--text)]">{t(current.label)}</h1>
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[rgb(var(--glow)/0.18)] bg-[rgb(var(--glow)/0.08)] text-[rgb(var(--glow))]">
+                <CurrentIcon className="h-4 w-4" />
+              </span>
+              <h1 className="shrink-0 text-[15px] font-semibold leading-none tracking-tight text-[var(--text)]">{t(current.label)}</h1>
               <span className="hidden h-3.5 w-px bg-[var(--line-strong)] sm:block" />
               <div className="kicker hidden truncate sm:block">
                 {t(current.blurb)}
@@ -495,15 +497,12 @@ export default function Shell() {
             </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto px-5 py-4">
-            {
+          <div className="flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 2xl:px-5 2xl:py-5">
 
-
- }
             <div
               key={tab}
               ref={paneRef}
-              className="page-enter mx-auto w-full max-w-[2600px]"
+              className="@container page-enter mx-auto w-full max-w-[1760px] 4xl:max-w-[2200px]"
             >
               <Suspense fallback={<TabSkeleton />}>
                 {tab === "overview" && (
@@ -524,7 +523,7 @@ export default function Shell() {
       </div>
       </div>
 
-      { }
+
       <Suspense fallback={null}>
         <CommandPalette
           open={paletteOpen}
@@ -539,7 +538,7 @@ export default function Shell() {
 
       <Toasts />
 
-      { }
+
       {cfg?.general.wallpaperEnabled && wallpaperPaused && (
         <div className="pointer-events-none fixed bottom-5 left-1/2 z-20 -translate-x-1/2">
           <div className="flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-2 font-mono text-[11px] tracking-wide text-amber-200 shadow-[0_12px_30px_-10px_rgba(245,158,11,0.4)] backdrop-blur">

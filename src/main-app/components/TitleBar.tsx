@@ -68,7 +68,7 @@ function Controls() {
 export default function TitleBar() {
   return (
     <div className="flex h-9 shrink-0 items-center justify-between pl-3 select-none">
-      { }
+
       <div
         data-tauri-drag-region
         className="flex h-full flex-1 items-center gap-2"

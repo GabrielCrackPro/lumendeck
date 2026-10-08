@@ -127,7 +127,8 @@ export default function StickersTab() {
   };
 
   return (
-    <div className="stagger space-y-6">
+    <div className="@container stagger space-y-4 sm:space-y-5">
+      <div className="grid items-start gap-4 @[39rem]:grid-cols-2 @[56rem]:gap-5">
         <Card
           title={t("common.sticker-deck")}
           right={
@@ -136,7 +137,7 @@ export default function StickersTab() {
             </span>
           }
         >
-          { }
+
           {placing ? (
             <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.08)] px-3.5 py-2.5">
               <span className="text-xs font-medium text-[rgb(var(--glow))]">
@@ -261,6 +262,7 @@ export default function StickersTab() {
               }
             />
           </Card>
+      </div>
 
         {cfg.stickers.length === 0 && (
           <EmptyState
@@ -277,7 +279,7 @@ export default function StickersTab() {
         )}
 
         {cfg.stickers.length > 0 && (
-          <div className="grid gap-5 lg:grid-cols-2 3xl:grid-cols-3">
+          <div className="grid gap-4 @[40rem]:grid-cols-2 @[76rem]:grid-cols-3 @[56rem]:gap-5">
             {cfg.stickers.map((s) => (
               <div
                 key={s.id}

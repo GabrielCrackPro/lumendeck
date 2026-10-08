@@ -108,8 +108,8 @@ export default function RgbTab() {
   const liveWallpaperColor = previewLiveColor(deviceColors, rgb.devices, rgbCfg.excludedDevices);
 
   return (
-    <div className="stagger space-y-5">
-      { }
+    <div className="@container stagger space-y-4 sm:space-y-5">
+
       <LiveStage
         enabled={rgbCfg.enabled}
         connected={rgb.connected}
@@ -139,11 +139,8 @@ export default function RgbTab() {
         onToggleAccentLive={(v) => save((c) => (c.general.accentLive = v))}
       />
 
-      {
 
-
- }
-      <div className="@container grid items-start gap-5 lg:grid-cols-[1fr_1.15fr]">
+      <div className="grid items-start gap-4 @[50rem]:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] @[64rem]:gap-5">
         <div className="space-y-5">
           <Card
             anchor="devices"
@@ -160,10 +157,7 @@ export default function RgbTab() {
               ) : undefined
             }
           >
-            {
 
-
- }
             {rgb.connected && rgb.devices.length === 0 && (
               <EmptyState
                 icon={<IconBulb className="h-6 w-6" />}
@@ -229,8 +223,7 @@ export default function RgbTab() {
                   pending={retryPending.has("retry")}
                   onClick={() => runRetry("retry", () => useStore.getState().load())}
                 >
-                  {
- }
+
                   {!retryPending.has("retry") && (
                     <IconRefresh className="h-4 w-4" />
                   )}
@@ -238,8 +231,7 @@ export default function RgbTab() {
                 </Btn>
               </div>
             )}
-            {
- }
+
             {rgb.connected && mutedCount > 0 && (
               <p className="mt-2.5 text-xs leading-relaxed text-[var(--text-faint)]">
                 {t("common.{n}-devices-are-muted-muted-hardware-keeps-its-l", { n: mutedCount })}
@@ -247,11 +239,7 @@ export default function RgbTab() {
             )}
           </Card>
 
-          {
 
-
-
- }
           <Card anchor="automation" title={t("common.automation")}>
             <Toggle
               label={t("common.turn-off-lights-when-idle")}
@@ -394,10 +382,7 @@ export default function RgbTab() {
               onPick={(m) => save((c) => (c.rgb.mode = m))}
             />
 
-            {
 
-
- }
             <div className="mt-5 space-y-1 border-t border-[var(--line)] pt-4">
               <Section
                 title={
@@ -553,12 +538,7 @@ export default function RgbTab() {
                   format={(v) => v.toFixed(2)}
                   onChange={(v) => save((c) => (c.rgb.mixer.gamma = v))}
                 />
-                {
 
-
-
-
- }
                 {!isAnimated && (
                   <Select
                     label={t("common.led-write-interval")}

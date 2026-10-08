@@ -152,9 +152,7 @@ export function CollectionsView({
                 <div className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--text)]">
                   {c.name}
                 </div>
-                {
 
- }
                 <span
                   className="shrink-0 font-mono text-[10px] tabular-nums text-[var(--text-faint)]"
                   data-tip={stale ? t("gallery.count-includes-missing-files") : undefined}

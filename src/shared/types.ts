@@ -3,6 +3,22 @@ export type ThemeMode = "system" | "light" | "dark";
 
 export type WallpaperKind = "video" | "image" | "slideshow" | "web" | "shader";
 
+export interface MediaPickerEntry {
+  name: string;
+  path: string;
+  kind: "location" | "drive" | "directory" | "video" | "image";
+  sizeBytes: number | null;
+  modifiedMs: number | null;
+  locationId: string | null;
+}
+
+export interface MediaPickerListing {
+  currentPath: string | null;
+  parentPath: string | null;
+  entries: MediaPickerEntry[];
+  truncated: boolean;
+}
+
 export type ShaderId = "aurora" | "liquid" | "plasma" | "starfield";
 
 export interface SlideshowConfig {
@@ -118,6 +134,7 @@ export interface GeneralConfig {
   accentAutoShade: number;
   amoled: boolean;
   showColorHex: boolean;
+  showDeveloperTools: boolean;
   minimizeToTray: boolean;
   showDashboardOnLogin: boolean;
   startupHintShown: boolean;

@@ -79,9 +79,7 @@ export default function TransferImport({
                 names: staged.preview.profiles.join(", "),
               })}
         </p>
-        {
 
- }
         {staged.preview.replacesEverything && (
           <p className="mt-2 text-xs leading-relaxed text-[var(--text-dim)]">
             {staged.preview.bundledMedia > 0

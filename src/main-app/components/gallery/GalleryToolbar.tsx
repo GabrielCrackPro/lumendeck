@@ -8,7 +8,7 @@ import { t } from "../../i18n";
 import { GALLERY_KINDS, GALLERY_KIND_LABEL } from "./kindLabels";
 import { kindCounts, type GalleryPick, type GalleryQuery, type GallerySort, type SelectContext } from "./galleryQuery";
 import { activeFilters, filterBadgeCount } from "./activeFilters";
-import { CHIP_H, chipStyle, Dropdown, ICON_BTN, ICON_BTN_ACTIVE, ICON_BTN_IDLE, SelectChip } from "../ui";
+import { CHIP_H, chipStyle, Dropdown, ICON_BTN, ICON_BTN_ACTIVE, ICON_BTN_IDLE } from "../ui";
 import type { GalleryEntry, WallpaperCollection } from "@shared/types";
 
 export interface GalleryToolbarProps {
@@ -28,6 +28,8 @@ export interface GalleryToolbarProps {
   indexBuilding: boolean;
   indexProgress: { done: number; total: number } | null;
   onBuildIndex: () => void;
+  shownCount: number;
+  resultCount: number;
   countCtx: SelectContext;
   displays: { device: string; name: string }[];
   draggingId: string | null;
@@ -69,27 +71,24 @@ const DENSITIES = [
 export type GalleryDensity = (typeof DENSITIES)[number]["id"];
 
 export const DENSITY_CLASS: Record<GalleryDensity, string> = {
-  compact: "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-8 3xl:grid-cols-10 4xl:grid-cols-12",
-  cozy: "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 3xl:grid-cols-6 4xl:grid-cols-8",
-  large: "grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5 4xl:grid-cols-6",
+  compact: "grid-cols-2 @[36rem]:grid-cols-3 @[44rem]:grid-cols-4 @[54rem]:grid-cols-6 @[68rem]:grid-cols-8 @[84rem]:grid-cols-10 @[100rem]:grid-cols-12",
+  cozy: "grid-cols-1 @[32rem]:grid-cols-2 @[42rem]:grid-cols-3 @[54rem]:grid-cols-4 @[68rem]:grid-cols-5 @[82rem]:grid-cols-6 @[100rem]:grid-cols-8",
+  large: "grid-cols-1 @[34rem]:grid-cols-2 @[48rem]:grid-cols-3 @[62rem]:grid-cols-4 @[78rem]:grid-cols-5 @[94rem]:grid-cols-6",
 };
 
 function FilterGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-start gap-3">
-      {
-
-
-
-
-
-
-
- }
-      <span className={`kicker ${CHIP_H} flex w-14 shrink-0 items-center justify-end`}>
+    <div
+      role="group"
+      aria-label={label}
+      className="min-w-0 space-y-2 rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)]/40 p-2.5"
+    >
+      <span className="kicker block">
         {label}
       </span>
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{children}</div>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        {children}
+      </div>
     </div>
   );
 }
@@ -111,6 +110,8 @@ export function GalleryToolbar({
   indexBuilding,
   indexProgress,
   onBuildIndex,
+  shownCount,
+  resultCount,
   countCtx,
   displays,
   draggingId,
@@ -172,14 +173,14 @@ export function GalleryToolbar({
     <div className="mb-4 space-y-2.5">
       <div className="flex flex-wrap items-center gap-2">
         {view === "wallpapers" && (
-        <div className="relative min-w-[9rem] flex-1 sm:max-w-[16rem]">
+        <div className="relative min-w-[9rem] flex-1 sm:max-w-[18rem]">
           <input
             ref={searchRef}
             value={query.search}
             onChange={(e) => onQuery({ search: e.target.value })}
             placeholder={t("common.search-vault")}
             aria-label={t("common.search-wallpapers-by-name")}
-            className="w-full rounded-full border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-1 pl-7 text-xs text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)]"
+            className="focus-glow w-full rounded-full border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-1.5 pl-7 text-xs text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)]"
           />
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-faint)]">
             <IconSearch className="h-3 w-3" />
@@ -189,31 +190,6 @@ export function GalleryToolbar({
 
         {view === "wallpapers" && (
         <>
-        {
-
-
-
-
- }
-        <SelectChip
-          active={query.minWidth === 3840}
-          title={t("gallery.at-least-4k")}
-          onClick={() =>
-            onQuery({ minWidth: query.minWidth === 3840 ? null : 3840 })
-          }
-        >
-          <span className="flex items-center gap-1.5">
-            <span className="font-mono text-[10px] tracking-tight">4K</span>
-            <span className="opacity-70">{t("gallery.at-least-4k-short")}</span>
-          </span>
-        </SelectChip>
-
-        {
-
-
-
-
- }
         <Dropdown
           icon={<IconSort className="h-4 w-4" />}
           ariaLabel={t("gallery.sort-by")}
@@ -232,11 +208,7 @@ export function GalleryToolbar({
           options={DENSITIES.map((d) => ({ id: d.id, label: t(d.label) }))}
         />
 
-        {
 
-
-
- }
         <button
           role="checkbox"
           aria-checked={selectAllState === "all" ? true : selectAllState === "some" ? "mixed" : false}
@@ -255,6 +227,7 @@ export function GalleryToolbar({
         <button
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
+          aria-controls="gallery-filter-panel"
           aria-label={t("gallery.filters")}
           data-tip={t("gallery.filters")}
           className={`${ICON_BTN} relative ${open || activeCount > 0 ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
@@ -272,11 +245,8 @@ export function GalleryToolbar({
         </>
         )}
 
-        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2.5">
-          {
+        <div className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2.5">
 
-
- }
           {!open && collectionEditor}
           {children}
           <span className="text-dim-sm hidden xl:block">
@@ -285,24 +255,63 @@ export function GalleryToolbar({
         </div>
       </div>
 
-      {open && view === "wallpapers" && (
-        <div className="page-enter space-y-2">
-          <FilterGroup label={t("gallery.filter-quick")}>
-            {PICKS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => onQuery({ picks: query.picks === p.id ? "all" : p.id })}
-                aria-pressed={query.picks === p.id}
-                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${chipStyle(query.picks === p.id)}`}
-              >
-                {p.icon}
-                {t(p.label)}
-              </button>
-            ))}
-          </FilterGroup>
+      {view === "wallpapers" && (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[11px] text-[var(--text-faint)]"
+        >
+          <span className="font-mono tabular-nums text-[var(--text-dim)]">
+            {t("gallery.showing-{shown}-of-{total}-results", {
+              shown: shownCount,
+              total: resultCount,
+            })}
+          </span>
+        </div>
+      )}
 
-          {displays.length > 1 && (
-            <FilterGroup label={t("gallery.filter-display")}>
+      {open && view === "wallpapers" && (
+        <div
+          id="gallery-filter-panel"
+          className="@container page-enter rounded-xl border border-[var(--line)] bg-[var(--panel)] p-3 sm:p-3.5"
+        >
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-[var(--text)]">
+                {t("gallery.filter-panel-title")}
+              </h3>
+              <p className="mt-0.5 text-[11px] text-[var(--text-faint)]">
+                {t("gallery.filter-panel-hint")}
+              </p>
+            </div>
+            {activeCount > 0 && (
+              <button
+                onClick={clearFilters}
+                className="rounded-full px-2 py-1 text-xs font-medium text-[var(--text-faint)] underline underline-offset-2 transition-colors hover:text-[var(--text)] focus-glow"
+              >
+                {t("gallery.clear-filters")}
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 @[56rem]:grid-cols-2">
+            <FilterGroup label={t("gallery.filter-quick")}>
+              {PICKS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => onQuery({ picks: query.picks === p.id ? "all" : p.id })}
+                  aria-pressed={query.picks === p.id}
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ${chipStyle(query.picks === p.id)}`}
+                >
+                  {p.icon}
+                  {t(p.label)}
+                </button>
+              ))}
+            </FilterGroup>
+
+            {displays.length > 1 && (
+              <FilterGroup label={t("gallery.filter-display")}>
               <button
                 onClick={() => onQuery({ display: "all" })}
                 aria-pressed={query.display === "all"}
@@ -320,10 +329,10 @@ export function GalleryToolbar({
                   {`${d.name} · ${i + 1}`}
                 </button>
               ))}
-            </FilterGroup>
-          )}
+              </FilterGroup>
+            )}
 
-          <FilterGroup label={t("gallery.filter-kind")}>
+            <FilterGroup label={t("gallery.filter-kind")}>
             <button
               onClick={() => onQuery({ kind: "all" })}
               aria-pressed={query.kind === "all"}
@@ -346,11 +355,9 @@ export function GalleryToolbar({
               </button>
             );
           })}
-          </FilterGroup><FilterGroup label={t("gallery.filter-in")}>
-            {
+            </FilterGroup>
+            <FilterGroup label={t("gallery.filter-in")}>
 
-
- }
             <button
               onClick={() => onQuery({ picks: query.picks === "uncollected" ? "all" : "uncollected" })}
               aria-pressed={query.picks === "uncollected"}
@@ -359,9 +366,7 @@ export function GalleryToolbar({
               <IconLayers className="h-3 w-3" />
               {t("gallery.uncollected")}
             </button>
-          {
 
- }
           {collections.map((c) => (
             <div
               key={c.id}
@@ -390,10 +395,7 @@ export function GalleryToolbar({
                   {c.entryIds.length}
                 </span>
               </button>
-              {
 
-
- }
               <div className="relative">
                 <button
                   ref={chipTrigger}
@@ -447,12 +449,9 @@ export function GalleryToolbar({
             +
           </button>
           {collectionEditor}
-          </FilterGroup>
+            </FilterGroup>
 
-          {
-
- }
-          <FilterGroup label={t("gallery.filter-quality")}>
+            <FilterGroup label={t("gallery.filter-quality")}>
             {indexReady ? (
               <Dropdown
                 chip
@@ -464,33 +463,33 @@ export function GalleryToolbar({
                 options={WIDTH_FLOORS.map((w) => ({ id: w.id, label: t(w.label) }))}
               />
             ) : (
-              <button
-                onClick={onBuildIndex}
-                disabled={indexBuilding}
-                className="flex shrink-0 items-center gap-1.5 rounded-full border border-dashed border-[var(--line-strong)] px-3 py-1 text-xs text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text)] disabled:opacity-60"
-              >
-                <IconSparkle className="h-4 w-4" />
-                {indexBuilding && indexProgress
-                  ? t("gallery.indexing-{done}-of-{total}", indexProgress)
-                  : t("gallery.index-the-vault")}
-              </button>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <button
+                  onClick={onBuildIndex}
+                  disabled={indexBuilding}
+                  className="focus-glow flex shrink-0 items-center gap-1.5 rounded-full border border-dashed border-[var(--line-strong)] px-3 py-1 text-xs text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.5)] hover:text-[var(--text)] disabled:opacity-60"
+                >
+                  <IconSparkle className="h-4 w-4" />
+                  {indexBuilding && indexProgress
+                    ? t("gallery.indexing-{done}-of-{total}", indexProgress)
+                    : t("gallery.index-the-vault")}
+                </button>
+                <span className="text-[11px] text-[var(--text-faint)]">
+                  {t("gallery.build-the-index-for-resolution-and-length")}
+                </span>
+              </div>
             )}
-          </FilterGroup>
+            {indexReady && (
+              <p className="basis-full pt-1 text-[11px] text-[var(--text-faint)]">
+                {t("gallery.unmeasured-items-stay-included")}
+              </p>
+            )}
+            </FilterGroup>
+          </div>
         </div>
       )}
 
-      {
 
-
-
-
-
-
-
-
-
-
- }
       {view === "wallpapers" && chips.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           {chips.map((c) => {
@@ -510,10 +509,10 @@ export function GalleryToolbar({
               </button>
             );
           })}
-          {chips.length > 1 && (
+          {activeCount > 0 && !open && (
             <button
               onClick={clearFilters}
-              className="rounded-full px-2 py-0.5 text-xs text-[var(--text-faint)] underline underline-offset-2 transition-colors hover:text-[var(--text)]"
+              className="rounded-full px-2 py-1 text-xs font-medium text-[var(--text-faint)] underline underline-offset-2 transition-colors hover:text-[var(--text)] focus-glow"
             >
               {t("gallery.clear-filters")}
             </button>

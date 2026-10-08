@@ -1,7 +1,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../ipc";
-import { Card } from "./ui";
+import { CollapsibleCard } from "./ui";
 import { IconSliders } from "./icons";
 import { t } from "../i18n";
 import { chartGeometry, latestValue, pushSample, PERF_WINDOW } from "./perfChart";
@@ -69,9 +69,7 @@ function Chart({
         role="img"
         aria-label={label}
       >
-        {
 
- }
         <line
           x1={0}
           x2={VB_W}
@@ -96,9 +94,7 @@ function Chart({
         {lines.map((d, i) => (
           <path key={`line${i}`} d={d} {...LINE_STROKE} />
         ))}
-        {
 
- }
         {tail && <path key={`tail${seq}`} className="chart-tail" d={tail} {...LINE_STROKE} />}
       </svg>
       {!hasData && (
@@ -111,6 +107,18 @@ function Chart({
 }
 
 export default function SystemCard() {
+  return (
+    <CollapsibleCard
+      title={t("common.system")}
+      icon={<IconSliders />}
+      summary={t("overview.performance-summary")}
+    >
+      <SystemMetrics />
+    </CollapsibleCard>
+  );
+}
+
+function SystemMetrics() {
   const [history, setHistory] = useState<History>({
     cpu: [],
     mem: [],
@@ -161,17 +169,12 @@ export default function SystemCard() {
   const memPct = latestValue(history.mem);
 
   return (
-    <Card
-      title={t("common.system")}
-      icon={<IconSliders />}
-      right={
-        readout.stale ? (
-          <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-amber-300/90">
-            {t("common.reading-is-stale-the-sampler-stopped")}
-          </span>
-        ) : undefined
-      }
-    >
+    <div>
+      {readout.stale && (
+        <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.1em] text-amber-300/90">
+          {t("common.reading-is-stale-the-sampler-stopped")}
+        </p>
+      )}
       <div className="space-y-4">
         <Chart label={t("common.cpu")} series={history.cpu} seq={history.seq}>
           {readout.cpu ?? "--"}
@@ -190,12 +193,10 @@ export default function SystemCard() {
           )}
         </Chart>
       </div>
-      {
 
- }
       <p className="mt-3.5 text-[11px] leading-relaxed text-[var(--text-faint)]">
         {t("common.spikes-here-usually-mean-the-wallpaper-or-the-lighting")}
       </p>
-    </Card>
+    </div>
   );
 }

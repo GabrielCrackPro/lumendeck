@@ -142,18 +142,27 @@ function NavItem({
       aria-label={t(item.label)}
       aria-current={active ? "page" : undefined}
       className={`group relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg py-2 text-left transition-colors duration-[var(--motion-fast)] ease-[var(--ease-standard)] ${
-        collapsed ? "px-3" : "px-2.5"
+        collapsed ? "justify-center px-1" : "px-2.5"
       } ${
         active
           ? "bg-[rgb(var(--glow)/0.13)] text-[rgb(var(--glow))] shadow-[inset_0_0_0_1px_rgb(var(--glow)/0.18)] rail-active"
           : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
       }`}
     >
-      { }
       {active && (
         <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-sm bg-[rgb(var(--glow))]" />
       )}
-      <IconAdapted className={`h-[17px] w-[17px] shrink-0 ${active ? "" : "opacity-80"}`} />
+      <span
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors ${
+          active
+            ? "bg-[rgb(var(--glow)/0.12)]"
+            : "bg-transparent group-hover:bg-[var(--panel)]"
+        }`}
+      >
+        <IconAdapted
+          className={`h-[17px] w-[17px] ${active ? "" : "opacity-80"}`}
+        />
+      </span>
       <span
         style={{ transitionDelay: `${index * 24}ms` }}
         className={`min-w-0 flex-1 truncate text-[13px] font-medium tracking-tight transition-[opacity,transform,filter] duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
@@ -195,9 +204,7 @@ function SearchButton({
           collapsed ? "opacity-0" : "opacity-100"
         }`}
       >
-        {
 
- }
         <ComboCaps keys={t("nav.ctrl-k").split(/[+\s]+/)} />
       </span>
     </button>
@@ -217,25 +224,29 @@ function RailFooter({
 }) {
   const engine = useEngineState();
   return (
-    <div className="flex items-center gap-1 border-t border-[var(--line)] px-1.5 py-1.5">
-      {
-
- }
+    <div
+      className={`flex items-center border-t border-[var(--line)] py-2 ${
+        collapsed ? "gap-0 px-1" : "gap-1 px-1.5"
+      }`}
+    >
       <button
         onClick={onOpenLighting}
         data-tip={t(engine.detail)}
         aria-label={t(engine.label)}
-        className="flex h-7 min-w-[22px] flex-1 items-center justify-start rounded-md pl-1 transition-colors hover:bg-[var(--panel-strong)]"
+        className={`flex items-center rounded-lg text-left transition-colors hover:bg-[var(--panel-strong)] ${
+          collapsed
+            ? "h-6 w-6 flex-none justify-center px-0"
+            : "h-9 min-w-[22px] flex-1 gap-2 px-2"
+        }`}
       >
         <span className={`h-2 w-2 shrink-0 rounded-full ${ENGINE_DOT[engine.tone]}`} />
+        {!collapsed && (
+          <span className="min-w-0 truncate text-[11px] font-medium text-[var(--text-dim)]">
+            {t(engine.label)}
+          </span>
+        )}
       </button>
-      {
 
-
-
-
-
- }
       <button
         onClick={onShortcuts}
         data-tip={collapsed ? undefined : t("nav.keyboard-shortcuts")}
@@ -257,7 +268,9 @@ function RailFooter({
         )}
         aria-label={t(collapsed ? "nav.expand-sidebar" : "nav.collapse-sidebar")}
         aria-expanded={!collapsed}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] transition-colors duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)] rail-toggle"
+        className={`flex shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] transition-colors duration-[var(--motion-fast)] ease-[var(--ease-standard)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)] rail-toggle ${
+          collapsed ? "h-6 w-6" : "h-7 w-7"
+        }`}
       >
         <span className="absolute inset-0 m-auto h-5 w-5 rounded-full rail-toggle-fan" />
         <IconRailCollapse
@@ -290,15 +303,13 @@ export default function Sidebar({
     <nav
       aria-label={t("nav.sections")}
       className={`flex shrink-0 flex-col rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-[var(--shadow)] backdrop-blur-xl transition-[width] duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
-        collapsed ? "w-[58px]" : "w-[200px]"
+        collapsed ? "w-[60px]" : "w-[216px]"
       }`}
     >
-      {
-
-
- }
       <div
-        className={`flex items-center border-b border-[var(--line)] px-2.5 py-2.5 ${
+        className={`flex min-h-12 items-center border-b border-[var(--line)] py-2.5 ${
+          collapsed ? "px-1.5" : "px-2.5"
+        } ${
           collapsed ? "justify-center" : "gap-2"
         }`}
       >
@@ -317,14 +328,19 @@ export default function Sidebar({
 
       <div className="flex flex-col gap-0.5 px-2 py-2">
         {rows.map((item, i) => (
-            <div
-              key={item.id}
-              className={
-                item.id === SETTINGS_TAB.id
-                  ? "mt-2 border-t border-[var(--line)] pt-2"
-                  : ""
-              }
-            >
+          <div
+            key={item.id}
+            className={
+              item.id === SETTINGS_TAB.id
+                ? "mt-2 border-t border-[var(--line)] pt-2"
+                : ""
+            }
+          >
+            {item.id === SETTINGS_TAB.id && !collapsed && (
+              <div className="mb-1 px-2.5 pt-0.5 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--text-faint)]">
+                {t("nav.preferences")}
+              </div>
+            )}
             <NavItem
               item={item}
               index={i}
@@ -336,8 +352,6 @@ export default function Sidebar({
         ))}
       </div>
 
-      {
- }
       <div className="flex-1" />
 
       <RailFooter

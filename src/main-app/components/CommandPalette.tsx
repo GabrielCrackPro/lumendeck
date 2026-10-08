@@ -830,11 +830,9 @@ export default function CommandPalette({
         aria-modal="true"
         aria-label={t("palette.command-palette")}
       >
-        {
- }
+
         <div className="relative flex items-center gap-2 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4 py-3">
-          {
- }
+
           {actionsCmd ? (
             <button
               type="button"
@@ -856,10 +854,7 @@ export default function CommandPalette({
               {SUB_META[sub].crumb}
             </button>
           ) : null}
-          {
 
-
- }
           {!sub && !actionsCmd &&
             (parsed.prefix ? (
               <KeyCap>{parsed.prefix}</KeyCap>
@@ -919,11 +914,7 @@ export default function CommandPalette({
               <IconClose className="h-3 w-3" />
             </button>
           )}
-          {
 
-
-
- }
           {!confirmWipe && (
             <button
               ref={modesBtnRef}
@@ -1035,10 +1026,7 @@ export default function CommandPalette({
             className="min-w-0 flex-1 overflow-y-auto max-h-[440px]"
             onMouseMove={() => { pointerMoving.current = true; }}
           >
-            {
 
-
- }
             {rows.length === 0 && (
               <div className="flex flex-col items-center gap-3 px-3 py-10 text-center">
                 <IconSearch className="h-5 w-5 text-[var(--text-faint)]" />
@@ -1108,7 +1096,7 @@ export default function CommandPalette({
                 }`}
                 style={{ animationDelay: query ? "0ms" : `${staggerDelay(row.i)}ms` }}
               >
-                { }
+
                 <span
                   className={`absolute inset-y-1 left-0 w-[2.5px] rounded-full bg-[rgb(var(--glow))] transition-opacity ${
                     row.i === sel ? "opacity-100" : "opacity-0"
@@ -1137,11 +1125,7 @@ export default function CommandPalette({
                   <span className="block truncate">
                     <MatchedLabel text={row.r.c.label} ranges={row.r.ranges} />
                   </span>
-                  {
 
-
-
- }
                   {!sub && !actionsCmd && (
                     <span
                       className={`mt-0.5 block truncate text-[11px] leading-tight ${
@@ -1156,9 +1140,7 @@ export default function CommandPalette({
                     </span>
                   )}
                 </span>
-                {
 
- }
                 {row.r.c.hotkey && (
                   <span
                     className={`shrink-0 transition-opacity duration-[var(--motion-fast)] ${
@@ -1212,9 +1194,7 @@ export default function CommandPalette({
                     >
                       <IconPin filled={pinned.includes(row.r.c.id)} className="h-3 w-3" />
                     </button>
-                    {
 
- }
                     <button
                       type="button"
                       title={t("palette.actions")}
@@ -1241,12 +1221,7 @@ export default function CommandPalette({
             )}
           </div>
           )}
-          {
 
-
-
-
- }
           {previewEntry && (
             <aside
               aria-label={previewEntry.name}
@@ -1263,7 +1238,7 @@ export default function CommandPalette({
                   <IconImage className="h-5 w-5 text-[var(--text-faint)]" />
                 </div>
               )}
-              { }
+
               <div
                 className="truncate text-[13px] font-medium text-[var(--text)]"
                 title={previewEntry.name}
@@ -1324,8 +1299,7 @@ export default function CommandPalette({
             </aside>
           )}
         </div>
-        {
- }
+
         <div className="flex items-center gap-3 border-t border-[var(--line)] bg-[var(--panel-sunken)] px-4 py-2.5 font-mono text-[10px] text-[var(--text-faint)]">
           <span className="flex items-center gap-1.5">
             <KeyCap>↑↓</KeyCap>
@@ -1342,9 +1316,7 @@ export default function CommandPalette({
           {(query || (sub && !actionsCmd)) && (
             <span aria-live="polite" className="ml-auto tabular-nums">{t("palette.{n}-results", { n: matchTotal })}</span>
           )}
-          {
 
- }
           {!actionsCmd && !query && !sub && !confirmWipe && (
             <span className="ml-auto flex items-center gap-3">
               <span className="flex items-center gap-1.5">

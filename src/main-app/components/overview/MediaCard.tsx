@@ -24,7 +24,7 @@ import {
   IconVolumeLow,
   IconVolumeHigh,
 } from "../icons";
-import { ICON_BTN, ICON_BTN_IDLE, ICON_BTN_ACTIVE, ICON_BTN_PRIMARY, OVERLAY_ICON_BTN_ACCENT } from "../ui";
+import { ICON_BTN, ICON_BTN_ACTIVE, ICON_BTN_PRIMARY, OVERLAY_ICON_BTN_ACCENT } from "../ui";
 import {
   formatDuration,
   nextSeekAnchor,
@@ -120,54 +120,23 @@ function WallpaperStage({
   children: ReactNode;
 }) {
   return (
-    <div className="group relative -m-4 h-[350px] overflow-hidden rounded-b-[var(--radius-xl)] bg-black">
+    <div className="group relative -m-4 h-[clamp(14rem,26cqw,22rem)] overflow-hidden rounded-b-[var(--radius-xl)] bg-black">
       <WallpaperThumb kind={cfg.wallpaper.kind} source={cfg.wallpaper.source} paused={paused} bare />
-      {
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- }
       <div
         className="absolute inset-x-0 top-0 flex items-center gap-2 bg-transparent px-3 py-2 opacity-0 transition-opacity duration-[var(--motion-slow)] ease-[var(--ease-standard)] group-hover:opacity-100 group-focus-within:opacity-100"
       >
-        {
 
-
-
-
- }
         <span data-tip={wallpaperName}>
           <IconImage className="h-3.5 w-3.5 shrink-0 text-[rgb(var(--glow))] drop-shadow-[0_1px_2px_rgb(0_0_0/0.9)]" />
         </span>
-        {
 
- }
         {paused && (
           <span className="shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-amber-300">
             {t("common.paused")}
           </span>
         )}
-        {
 
- }
         <button
           onClick={onTogglePause}
           aria-label={paused ? t("common.resume-wallpaper") : t("common.pause-wallpaper")}
@@ -182,35 +151,17 @@ function WallpaperStage({
           data-tip={t("common.change-wallpaper")}
           className={OVERLAY_ICON_BTN_ACCENT}
         >
-          {
 
-
-
- }
           <IconChevronRight className="h-4 w-4" />
         </button>
       </div>
-      {
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- }
-      <div className="absolute inset-x-0 bottom-0 p-3 bg-[color-mix(in_srgb,var(--bg)_92%,transparent)] shadow-[inset_0_0_0_999px_rgb(var(--glow)/0.06)] backdrop-blur-xl">
-        <div className="pointer-events-none absolute inset-x-0 bottom-full h-16 bg-[linear-gradient(to_top,color-mix(in_srgb,var(--bg)_92%,transparent),transparent)]" />
-        {children}
-      </div>
+      {children && (
+        <div className="absolute inset-x-0 bottom-0 p-3 bg-[color-mix(in_srgb,var(--bg)_92%,transparent)] shadow-[inset_0_0_0_999px_rgb(var(--glow)/0.06)] backdrop-blur-xl">
+          <div className="pointer-events-none absolute inset-x-0 bottom-full h-16 bg-[linear-gradient(to_top,color-mix(in_srgb,var(--bg)_92%,transparent),transparent)]" />
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -246,6 +197,9 @@ const VOLUME_GLYPHS: Record<VolumeGlyph, typeof IconVolumeHigh> = {
   high: IconVolumeHigh,
 };
 
+const PLAYER_BTN_IDLE =
+  "border-transparent bg-transparent text-[var(--text-dim)] hover:border-[var(--line)] hover:bg-[var(--panel)] hover:text-[var(--text)]";
+
 function TrackIdentity({
   media,
   beatScale,
@@ -253,49 +207,64 @@ function TrackIdentity({
   media: MediaInfo;
   beatScale: string;
 }) {
+  const [failedArt, setFailedArt] = useState<string | null>(null);
+  const hasArt = !!media.art && failedArt !== media.art;
   return (
     <div className="track-slide flex min-w-0 flex-1 items-center gap-3 rounded-lg">
       <span className="sr-only" aria-live="polite" aria-atomic="true">
         {media.title}
       </span>
-      {
 
-
- }
       <div
-        className="relative shrink-0"
+        className="relative h-16 w-16 shrink-0 overflow-visible"
         style={{ transform: beatScale }}
         data-tip={media.appId}
       >
-        {media.art ? (
-          <img
-            src={media.art}
-            alt=""
-            className="h-14 w-14 rounded-[var(--radius-lg)] border border-[var(--line-strong)] object-cover shadow-[0_4px_14px_-6px_rgb(0_0_0/0.55)]"
-          />
-        ) : (
-          <div className="flex h-14 w-14 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--line-strong)] bg-[var(--panel)]">
-            <IconWave className="h-5 w-5 text-[var(--text-faint)]" />
-          </div>
-        )}
+        <div
+          aria-hidden="true"
+          className="relative h-full w-full overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[radial-gradient(ellipse_at_75%_15%,rgb(var(--glow)/0.32),transparent_52%),linear-gradient(145deg,var(--panel-strong),var(--panel-sunken))] shadow-[0_5px_16px_-7px_rgb(0_0_0/0.7)]"
+        >
+          {hasArt ? (
+            <img
+              src={media.art ?? undefined}
+              alt=""
+              onError={() => setFailedArt(media.art ?? null)}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <IconWave className="h-7 w-7 text-[rgb(var(--glow)/0.8)]" />
+            </div>
+          )}
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(145deg,rgb(255_255_255/0.12),transparent_42%,rgb(0_0_0/0.18))]" />
+        </div>
         {(media.appIcon || media.appId) && (
-          <span className="absolute -bottom-1 -right-1">
+          <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center overflow-hidden rounded-md border border-[var(--panel-strong)] bg-[var(--panel)] shadow-[0_2px_7px_rgb(0_0_0/0.55)]">
             {media.appIcon ? (
               <img
                 src={media.appIcon}
                 alt=""
-                className="h-6 w-6 rounded-md border border-[var(--panel-strong)] object-contain shadow-[0_1px_5px_rgb(0_0_0/0.45)]"
+                className="h-full w-full object-contain"
               />
             ) : (
-              <span className="flex h-6 w-6 items-center justify-center rounded-md border border-[var(--panel-strong)] bg-black/60 shadow-[0_1px_5px_rgb(0_0_0/0.45)]">
-                <IconMediaApp app={media.appId} aria-label={media.appId} className="h-4 w-4 text-white/90" />
-              </span>
+              <IconMediaApp app={media.appId} aria-label={media.appId} className="h-4 w-4 text-[var(--text)]" />
             )}
           </span>
         )}
       </div>
       <EqBars playing={media.playing} />
       <div className="min-w-0">
+        <div className="mb-1 flex items-center gap-1.5">
+          <span
+            aria-hidden="true"
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+              media.playing ? "bg-emerald-400" : "bg-[var(--text-faint)]"
+            }`}
+          />
+          <span className="kicker">
+            {t(media.playing ? "overview.now-playing" : "overview.paused-track")}
+          </span>
+        </div>
         <div
           className="truncate text-[15px] font-semibold leading-tight text-[var(--text)]"
           data-tip={`${media.title} — ${media.artist}`}
@@ -445,6 +414,7 @@ function ProgressBar({ media }: { media: MediaInfo }) {
         ref={barRef}
         role="slider"
         aria-label={t("common.seek")}
+        aria-orientation="horizontal"
         aria-valuemin={0}
         aria-valuemax={Math.round(duration)}
         aria-valuenow={Math.round(scrub ?? media.positionSec)}
@@ -480,31 +450,37 @@ function ProgressBar({ media }: { media: MediaInfo }) {
           paintRef.current?.(target);
           void api.mediaSeek(target).catch(() => {});
         }}
-        className="group relative h-1 min-w-0 flex-1 cursor-pointer rounded-full bg-[var(--line-strong)] outline-none transition-[height] before:absolute before:-inset-y-3 before:inset-x-0 before:content-[''] hover:h-2 focus-visible:h-2 focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--panel)]"
+        className="group relative h-7 min-w-0 flex-1 touch-none cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--panel)]"
       >
         <span
-          ref={fillRef}
-          className="absolute inset-0 origin-left rounded-full bg-[rgb(var(--glow))] shadow-[0_0_6px_rgb(var(--glow)/0.6)]"
-          style={{ transform: "scaleX(0)" }}
-        />
-        {
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 rounded-full transition-[height,background-color] duration-[var(--motion-fast)] ${
+            scrub != null
+              ? "h-2 bg-[var(--line-strong)]"
+              : "h-1 bg-[var(--line)] group-hover:h-2 group-hover:bg-[var(--line-strong)] group-focus-visible:h-2 group-focus-visible:bg-[var(--line-strong)]"
+          }`}
+        >
+          <span
+            ref={fillRef}
+            className={`absolute inset-0 origin-left rounded-full bg-[rgb(var(--glow))] transition-shadow duration-[var(--motion-fast)] ${
+              scrub != null
+                ? "shadow-[0_0_6px_rgb(var(--glow)/0.6)]"
+                : "group-hover:shadow-[0_0_6px_rgb(var(--glow)/0.6)] group-focus-visible:shadow-[0_0_6px_rgb(var(--glow)/0.6)]"
+            }`}
+            style={{ transform: "scaleX(0)" }}
+          />
+        </span>
 
-
- }
         <span
           ref={thumbRef}
-          className={`absolute left-0 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow)/0.8)] transition-opacity ${
-            scrub != null || media.playing
+          aria-hidden="true"
+          className={`pointer-events-none absolute left-0 top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--panel)] bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow)/0.8)] transition-opacity ${
+            scrub != null
               ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100"
+              : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
           }`}
         />
-        {
 
-
-
-
- }
         <span
           ref={tipRef}
           aria-hidden="true"
@@ -516,15 +492,7 @@ function ProgressBar({ media }: { media: MediaInfo }) {
           0:00
         </span>
       </span>
-      {
 
-
-
-
-
-
-
- }
       <button
         type="button"
         onClick={() => setRemaining((v) => !v)}
@@ -582,15 +550,22 @@ function VolumeControl() {
   };
   if (shown == null) return null;
   return (
-    <div className="flex shrink-0 items-center gap-1.5" data-tip={t("common.system-volume")}>
+    <div
+      role="group"
+      aria-label={t("common.system-volume")}
+      className="flex shrink-0 items-center gap-2"
+      data-tip={t("common.system-volume")}
+    >
       <button
         aria-label={t(muted ? "common.unmute" : "common.mute")}
+        data-tip={t(muted ? "common.unmute" : "common.mute")}
+        aria-pressed={muted}
         onClick={toggleMute}
         aria-busy={pending.has("mute") || undefined}
-        className={`${ICON_BTN} ${
+        className={`${ICON_BTN} h-9 w-9 ${
           muted
             ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
-            : ICON_BTN_IDLE
+            : PLAYER_BTN_IDLE
         }`}
       >
         {pending.has("mute") ? (
@@ -609,7 +584,8 @@ function VolumeControl() {
         step={1}
         value={shown}
         aria-label={t("common.system-volume")}
-        style={{ "--fill": `${shown}%`, width: "72px" } as CSSProperties}
+        aria-valuetext={`${shown}%`}
+        style={{ "--fill": `${shown}%`, width: "clamp(5.5rem, 10cqw, 7rem)" } as CSSProperties}
         onChange={(e) => setLive(Number(e.target.value))}
         onPointerUp={() => {
           if (live != null) commit(live);
@@ -624,7 +600,7 @@ function VolumeControl() {
           setLive(null);
         }}
       />
-      <span className="w-7 shrink-0 font-mono text-[9px] tabular-nums text-[var(--text-faint)]">
+      <span className="min-w-9 shrink-0 rounded-md px-1 text-right font-mono text-[10px] font-medium tabular-nums text-[var(--text-dim)]">
         {shown}%
       </span>
     </div>
@@ -669,20 +645,24 @@ function TransportButtons({
     pending.has(action) ? <IconSpinner className={size} /> : idle;
   const ripple = (delayMs: number) =>
     pulseId > 0
-      ? { className: `${ICON_BTN} ${ICON_BTN_IDLE} transport-pulse`, style: { animationDelay: `${delayMs}ms` } }
-      : { className: `${ICON_BTN} ${ICON_BTN_IDLE}` };
+      ? { style: { animationDelay: `${delayMs}ms` } }
+      : {};
   return (
-    <div key={pulseId} className="flex items-center gap-2">
-      {
- }
+    <div
+      key={pulseId}
+      role="group"
+      aria-label={t("overview.playback-controls")}
+      className="flex min-w-0 items-center gap-1.5"
+    >
       {shuffle !== undefined && (
         <button
           aria-label={t("common.toggle-shuffle")}
           data-tip={t(shuffleSupported ? "common.shuffle" : "common.shuffle-unavailable")}
+          aria-pressed={shuffleSupported ? shuffle : undefined}
           disabled={!shuffleSupported || inert("shuffle")}
           aria-busy={pending.has("shuffle")}
           onClick={() => void send("shuffle", () => api.mediaShuffle(!shuffle))}
-          className={`${ICON_BTN} ${shuffle ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
+          className={`${ICON_BTN} h-9 w-9 ${shuffle ? ICON_BTN_ACTIVE : PLAYER_BTN_IDLE}`}
         >
           <span key={String(shuffle)} className={shuffle ? "player-toggle-pop flex" : "flex"}>
             {glyph("shuffle", <IconShuffle className="h-4 w-4" />, "h-4 w-4")}
@@ -691,36 +671,40 @@ function TransportButtons({
       )}
       <button
         aria-label={t("common.previous-track")}
+        data-tip={t("common.previous-track")}
         disabled={inert("previous")}
         aria-busy={pending.has("previous")}
         onClick={() => void send("previous", () => api.mediaTransport("previous"))}
         {...ripple(90)}
+        className={`${ICON_BTN} h-9 w-9 ${PLAYER_BTN_IDLE} ${pulseId > 0 ? "transport-pulse" : ""}`}
       >
         {glyph("previous", <IconPrevious className="h-4 w-4" />, "h-4 w-4")}
       </button>
       <button
         aria-label={t(playing ? "common.pause" : "common.play")}
-        className={`${ICON_BTN} ${ICON_BTN_PRIMARY} ${pulseId > 0 ? "transport-pulse" : ""}`}
+        data-tip={t(playing ? "common.pause" : "common.play")}
+        className={`${ICON_BTN} h-10 w-10 ${ICON_BTN_PRIMARY} ${pulseId > 0 ? "transport-pulse" : ""}`}
         disabled={inert("toggle")}
         aria-busy={pending.has("toggle")}
         onClick={() => void send("toggle", () => api.mediaTransport("toggle"))}
       >
-        { }
+
         <span key={playing ? "pause" : "play"} className="player-icon-swap flex">
           {glyph("toggle", playing ? <IconPause className="h-5 w-5" /> : <IconPlay className="h-5 w-5" />, "h-5 w-5")}
         </span>
       </button>
       <button
         aria-label={t("common.next-track")}
+        data-tip={t("common.next-track")}
         disabled={inert("next")}
         aria-busy={pending.has("next")}
         onClick={() => void send("next", () => api.mediaTransport("next"))}
         {...ripple(180)}
+        className={`${ICON_BTN} h-9 w-9 ${PLAYER_BTN_IDLE} ${pulseId > 0 ? "transport-pulse" : ""}`}
       >
         {glyph("next", <IconNext className="h-4 w-4" />, "h-4 w-4")}
       </button>
-      {
- }
+
       {repeat !== undefined && (
         <button
           aria-label={t("common.cycle-repeat-mode")}
@@ -733,10 +717,11 @@ function TransportButtons({
                   : "common.repeat-off"
               : "common.repeat-unavailable",
           )}
+          aria-pressed={repeatSupported ? repeat > 0 : undefined}
           disabled={!repeatSupported || inert("repeat")}
           aria-busy={pending.has("repeat")}
           onClick={() => void send("repeat", () => api.mediaRepeat(repeat))}
-          className={`relative ${ICON_BTN} ${(repeat ?? 0) > 0 ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
+          className={`relative ${ICON_BTN} h-9 w-9 ${(repeat ?? 0) > 0 ? ICON_BTN_ACTIVE : PLAYER_BTN_IDLE}`}
         >
           <span key={String(repeat)} className={(repeat ?? 0) > 0 ? "player-toggle-pop flex" : "flex"}>
             {glyph("repeat", <IconRepeat className="h-4 w-4" />, "h-4 w-4")}
@@ -775,19 +760,10 @@ export default function MediaCardBody({
       onTogglePause={onTogglePause}
       onChange={onChange}
     >
-      {
 
-
- }
-      {media ? (
+      {media && (
         <div className="flex min-w-0 flex-col gap-2">
-          {
 
-
-
-
-
- }
           <div
             key={`${media.title}—${media.artist}`}
             className="track-swap flex min-w-0"
@@ -797,80 +773,24 @@ export default function MediaCardBody({
               beatScale="scale(calc(1 + var(--beat, 0) * 0.045))"
             />
           </div>
-          {
 
-
-
-
-
-
-
-
-
-
-
-
-
-
- }
-          <div className="grid min-w-0 grid-cols-3 items-center gap-3">
-            <div className="col-start-2 flex items-center justify-center">
-              <TransportButtons
-                playing={media.playing}
-                trackKey={`${media.title}—${media.artist}`}
-                shuffle={media.shuffle}
-                repeat={media.repeat}
+          <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-5 gap-y-2">
+            <TransportButtons
+              playing={media.playing}
+              trackKey={`${media.title}—${media.artist}`}
+              shuffle={media.shuffle}
+              repeat={media.repeat}
+            />
+            <VolumeControl />
+          </div>
+          {media.durationSec > 0 && (
+            <div className="-mx-3 -mb-1 mt-2 px-2">
+              <ProgressBar
+                key={`${media.title}—${media.artist}`}
+                media={media}
               />
             </div>
-            {
-
-
-
-
- }
-            <div className="col-start-3 justify-self-end">
-              <VolumeControl />
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex min-w-0 items-center justify-between gap-3 py-2">
-          <span className="flex min-w-0 items-center gap-2 font-mono text-[10.5px] text-[var(--text-faint)]">
-            <IconWave className="h-4 w-4 shrink-0" />
-            {t("common.no-media-playing")}
-          </span>
-          <VolumeControl />
-        </div>
-      )}
-
-      {
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- }
-      {media && media.durationSec > 0 && (
-        <div className="-mx-3 -mb-1 mt-2 px-2">
-          <ProgressBar
-            key={`${media.title}—${media.artist}`}
-            media={media}
-          />
+          )}
         </div>
       )}
     </WallpaperStage>

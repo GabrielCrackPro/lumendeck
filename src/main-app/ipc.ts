@@ -6,6 +6,7 @@ import type {
   EntryOptions,
   GalleryEntry,
   MediaInfo,
+  MediaPickerListing,
   OpenrgbStatus,
   PerfSnapshot,
   RgbStatus,
@@ -31,6 +32,9 @@ export const api = {
   pickImageFile: () => invoke<string | null>("pick_image_file"),
   pickMediaFolder: () => invoke<string | null>("pick_media_folder"),
   listImages: (folder: string) => invoke<string[]>("list_images", { folder }),
+  // Lists common folders and drives at the root, or supported media in a folder.
+  mediaPickerList: (path?: string) =>
+    invoke<MediaPickerListing>("media_picker_list", { path: path ?? null }),
 
   galleryAdd: (entry: {
     name: string;

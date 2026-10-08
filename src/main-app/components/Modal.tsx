@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { t } from "../i18n";
 
@@ -33,6 +33,7 @@ export function Modal({
   headerAction,
   children,
   className,
+  style,
 }: {
   title: string;
   onClose: () => void;
@@ -41,6 +42,7 @@ export function Modal({
   headerAction?: ReactNode;
   children: ReactNode;
   className?: string;
+  style?: CSSProperties;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -55,6 +57,14 @@ export function Modal({
     (first ?? panel).focus();
     return () => openerRef.current?.focus?.();
   }, []);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const autofocus = panel.querySelector<HTMLElement>("[data-modal-autofocus]");
+    const first = autofocus ?? getFocusableControls(panel)[0];
+    (first ?? panel).focus();
+  }, [title]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -118,6 +128,7 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
+        style={style}
         className={`modal-panel w-full max-w-md overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] shadow-[0_30px_80px_-20px_rgb(0_0_0/0.8)] outline-none backdrop-blur-xl ${
           className ?? ""
         }`}

@@ -24,12 +24,9 @@ export default function ShortcutsCard({
         <Card
           title={t("common.shortcuts")}
           icon={<IconKeyboard />}
-          className="xl:col-span-5"
+          className="2xl:col-span-5"
         >
-          {
 
-
- }
           <div className="kicker mb-1.5 text-[var(--text-faint)]">
             {t("common.this-window")}
           </div>
@@ -50,35 +47,28 @@ export default function ShortcutsCard({
           <div className="kicker mb-1.5 text-[var(--text-faint)]">
             {t("common.anywhere-on-your-pc")}
           </div>
-          {globalKeys.boundCount === 0 ? (
+          {!globalKeys.enabled && globalKeys.boundCount > 0 ? (
+            <p className="text-xs leading-relaxed text-amber-300/90">
+              {t("common.keys-released-switch-off")}
+            </p>
+          ) : globalKeys.boundCount === 0 ? (
             <p className="text-xs leading-relaxed text-[var(--text-faint)]">
               {t("common.no-global-hotkeys-yet-set-them-up")}
             </p>
           ) : (
-            <>
-              <ul>
-                {globalKeys.bound.map((r) => (
-                  <li
-                    key={r.id}
-                    className="flex items-center justify-between gap-4 border-b border-[var(--line)] py-1.5 last:border-b-0"
-                  >
-                    <span className="min-w-0 truncate text-[13px] text-[var(--text-dim)]">
-                      {t(r.labelKey)}
-                    </span>
-                    <ComboCaps keys={r.caps} />
-                  </li>
-                ))}
-              </ul>
-              {
-
-
- }
-              {globalKeys.dormant && (
-                <p className="mt-2.5 text-[11px] leading-relaxed text-amber-300/90">
-                  {t("common.keys-released-switch-off")}
-                </p>
-              )}
-            </>
+            <ul>
+              {globalKeys.bound.map((r) => (
+                <li
+                  key={r.id}
+                  className="flex items-center justify-between gap-4 border-b border-[var(--line)] py-1.5 last:border-b-0"
+                >
+                  <span className="min-w-0 truncate text-[13px] text-[var(--text-dim)]">
+                    {t(r.labelKey)}
+                  </span>
+                  <ComboCaps keys={r.caps} />
+                </li>
+              ))}
+            </ul>
           )}
 
           <button

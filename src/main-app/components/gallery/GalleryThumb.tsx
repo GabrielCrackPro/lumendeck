@@ -57,8 +57,7 @@ export function GalleryThumb({ entry }: GalleryThumbProps) {
   return (
     <div ref={nearRef} className="relative h-full w-full bg-[var(--panel-strong)]">
       {!thumbLoaded && !playing && <div className={`absolute inset-0 ${SHIMMER}`} />}
-      {
- }
+
       {near && (
         <video
           ref={videoRef}

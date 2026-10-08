@@ -1,4 +1,3 @@
-import { staggerDelay } from "../motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -6,7 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
 import { Card, Btn, Dropdown, Slider, Toggle, TextInput, NumberField, Section, InfoNote, chipStyle, ItemTitle, displayName, EmptyState, Segmented } from "../ui";
 import { Modal } from "../Modal";
-import { IconSettings, IconImage, IconGlobe, IconFolder, IconPlus, IconTrash, IconClipboard, IconClose } from "../icons";
+import { IconSettings, IconImage, IconGlobe, IconFolder, IconPlus, IconTrash, IconClipboard, IconClose, IconChevronRight, IconUpload } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
 import type { Config, EntryOptions, GalleryEntry, WallpaperCollection, ZoneDef } from "@shared/types";
 import { api } from "../../ipc";
@@ -20,6 +19,7 @@ import { GalleryDrawer } from "../gallery/GalleryDrawer";
 import { GalleryToolbar } from "../gallery/GalleryToolbar";
 import { CollectionsView } from "../gallery/CollectionsView";
 import { NowShowingCard } from "../gallery/NowShowingCard";
+import { MediaPickerModal } from "../MediaPickerModal";
 import { DEFAULT_QUERY, deriveGalleryView, type GalleryQuery, type SelectContext } from "../gallery/galleryQuery";
 import { GalleryThumb } from "../gallery/GalleryThumb";
 import { lastPickedEntry, newlyAddedEntries, resolvePicked } from "../gallery/mediaKind";
@@ -73,7 +73,7 @@ export default function WallpaperTab() {
               : "apply"
       : "apply";
 
-  const [addStep, setAddStep] = useState<null | "sources" | "url">(null);
+  const [addStep, setAddStep] = useState<null | "sources" | "url" | "picker-files" | "picker-folder">(null);
   const [urlDraft, setUrlDraft] = useState("");
   const [urlNameDraft, setUrlNameDraft] = useState("");
   const [density, setDensity] = useState<GalleryDensity>("cozy");
@@ -310,11 +310,11 @@ export default function WallpaperTab() {
   const undoDelete = (msg: string, restore: (c: Config) => void) =>
     useStore.getState().undoDelete(msg, restore);
 
-  const pickAndAddMany = () =>
+  const importPickedFiles = (paths: string[]) =>
     run(
       "browse",
       async () => {
-        const picked = resolvePicked(await api.pickMediaFiles());
+        const picked = resolvePicked(paths);
         if (picked.length === 0) return;
         const before = cfg.gallery;
         const list = await api.galleryImportPaths(picked.map((p) => p.path));
@@ -332,12 +332,10 @@ export default function WallpaperTab() {
       (e) => toast("error", t("gallery.import-failed-{error}", { error: truncateError(e) })),
     );
 
-  const pickSlideshow = () =>
+  const importPickedFolder = (folder: string) =>
     run(
       "folder",
       async () => {
-        const folder = await api.pickMediaFolder();
-        if (!folder) return;
         const before = cfg.gallery;
         const list = await api.galleryImportFolder(folder);
         const added = newlyAddedEntries(before, list);
@@ -647,12 +645,8 @@ export default function WallpaperTab() {
     });
 
   return (
-    <div className="stagger space-y-6">
-      {
+    <div className="@container stagger space-y-4 sm:space-y-5">
 
-
-
- }
       <NowShowingCard
         cfg={cfg}
         activeEntry={activeEntry}
@@ -725,6 +719,8 @@ export default function WallpaperTab() {
             indexBuilding={indexing}
             indexProgress={indexProgress}
             onBuildIndex={() => void runIndex()}
+            shownCount={visibleGallery.length}
+            resultCount={gallery.length}
             view={mode}
             countCtx={selectCtx}
             displays={mons.map((m, i) => ({
@@ -806,12 +802,8 @@ export default function WallpaperTab() {
               )
             }
           >
-            {
 
- }
-            {
 
- }
             <Dropdown
               icon={<IconSettings className="h-4 w-4" />}
               ariaLabel={t("gallery.import-settings")}
@@ -867,9 +859,7 @@ export default function WallpaperTab() {
                 </span>
               </div>
             )}
-            {
 
- }
             {mode === "wallpapers" ? (
               <>
             <GalleryGrid
@@ -1042,79 +1032,153 @@ export default function WallpaperTab() {
             )}
           </div>
 
-          {
 
-
-
-
-
-
-
- }
-          {addStep === "sources" && (
+          {addStep !== null && (
             <Modal
-              title={t("gallery.add-a-wallpaper")}
+              title={
+                addStep === "sources"
+                  ? t("gallery.add-a-wallpaper")
+                  : addStep === "url"
+                    ? t("gallery.from-a-url")
+                    : addStep === "picker-files"
+                      ? t("gallery.select-wallpapers")
+                      : t("gallery.choose-wallpaper-folder")
+              }
               onClose={() => setAddStep(null)}
+              onBack={
+                addStep === "url" || addStep === "picker-files" || addStep === "picker-folder"
+                  ? () => setAddStep("sources")
+                  : undefined
+              }
+              backLabel={t("common.go-back")}
+              style={{
+                maxWidth:
+                  addStep === "sources"
+                    ? "42rem"
+                    : addStep === "url"
+                      ? "36rem"
+                      : "56rem",
+              }}
             >
-              <div className="space-y-0.5">
-                {[
-                  {
-                    id: "browse",
-                    Icon: IconImage,
-                    label: t("gallery.browse-files"),
-                    hint: t("gallery.src-browse"),
-                    run: pickAndAddMany,
-                  },
-                  {
-                    id: "folder",
-                    Icon: IconFolder,
-                    label: t("common.import-folder"),
-                    hint: t("gallery.src-folder"),
-                    run: pickSlideshow,
-                  },
-                  {
-                    id: "url",
-                    Icon: IconGlobe,
-                    label: t("common.from-url"),
-                    hint: t("gallery.src-url"),
-                    run: () => setAddStep("url"),
-                  },
-                ].map((src, i) => (
+              <div key={addStep} className="modal-state-enter">
+              {addStep === "sources" && (
+              <div className="max-h-[calc(100dvh-5rem)] space-y-3 overflow-y-auto p-1">
+                <section className="relative isolate overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel-sunken)] px-4 py-4 sm:px-5 sm:py-5">
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_82%_18%,rgb(var(--glow)/0.18),transparent_48%)]"
+                  />
+                  <div className="relative flex min-h-28 items-end justify-between gap-4">
+                    <div className="max-w-sm">
+                      <span className="mb-2 block font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-[rgb(var(--glow))]">
+                        {t("gallery.wallpaper-library")}
+                      </span>
+                      <h3 className="text-lg font-semibold leading-tight tracking-[-0.03em] text-[var(--text)] sm:text-xl">
+                        {t("gallery.add-wallpaper-hero")}
+                      </h3>
+                      <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-[var(--text-dim)]">
+                        {t("gallery.add-wallpaper-description")}
+                      </p>
+                    </div>
+                    <div aria-hidden="true" className="relative mr-1 hidden h-24 w-32 shrink-0 sm:block">
+                      <div className="absolute right-6 top-2 h-16 w-24 -rotate-12 rounded-lg border border-[var(--line-strong)] bg-[var(--panel)] shadow-[var(--shadow)]" />
+                      <div className="absolute right-1 top-1 h-16 w-24 rotate-6 rounded-lg border border-[var(--line-strong)] bg-[var(--panel-strong)] p-1.5 shadow-[var(--shadow)]">
+                        <div className="h-full rounded-md bg-[linear-gradient(145deg,rgb(var(--glow)/0.65),rgb(var(--glow)/0.08)_45%,var(--panel-sunken))]" />
+                      </div>
+                      <div className="absolute bottom-0 right-7 h-5 w-14 rounded-md border border-[var(--line)] bg-[var(--panel-strong)]" />
+                    </div>
+                  </div>
+                </section>
+
+                <div className="grid gap-2 sm:grid-cols-2">
                   <button
-                    key={src.id}
                     onClick={() => {
-                      if (src.id !== "url") setAddStep(null);
-                      src.run();
+                      setAddStep("picker-files");
                     }}
-                    style={{ animationDelay: `${staggerDelay(i)}ms` }}
-                    className="modal-row flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left outline-none transition-colors hover:bg-[var(--panel-strong)] focus-visible:bg-[var(--panel-strong)]"
+                    disabled={busy}
+                    className="group relative flex min-h-24 items-center gap-3 overflow-hidden rounded-xl border border-[rgb(var(--glow)/0.35)] bg-[rgb(var(--glow)/0.07)] px-4 py-3 text-left transition-colors hover:border-[rgb(var(--glow)/0.65)] hover:bg-[rgb(var(--glow)/0.11)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.7)] disabled:cursor-not-allowed disabled:opacity-40 sm:col-span-2"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]">
-                      <src.Icon className="h-4 w-4" />
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[rgb(var(--glow)/0.25)] bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]">
+                      <IconImage className="h-5 w-5" />
                     </span>
-                    <span className="min-w-0">
+                    <span className="min-w-0 flex-1">
                       <span className="block text-sm font-semibold text-[var(--text)]">
-                        {src.label}
+                        {t("gallery.browse-files")}
                       </span>
-                      <span className="block truncate text-xs text-[var(--text-faint)]">
-                        {src.hint}
+                      <span className="mt-0.5 block text-xs leading-relaxed text-[var(--text-dim)]">
+                        {t("gallery.src-browse")}
                       </span>
                     </span>
+                    <IconChevronRight className="h-4 w-4 shrink-0 text-[rgb(var(--glow))] transition-transform group-hover:translate-x-0.5" />
                   </button>
-                ))}
+
+                  <button
+                    onClick={() => {
+                      setAddStep("picker-folder");
+                    }}
+                    disabled={busy}
+                    className="group flex min-h-20 items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3.5 py-3 text-left transition-colors hover:border-[var(--line-strong)] hover:bg-[var(--panel-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.7)] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-dim)] transition-colors group-hover:text-[rgb(var(--glow))]">
+                      <IconFolder className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-[var(--text)]">
+                        {t("common.import-folder")}
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-relaxed text-[var(--text-faint)]">
+                        {t("gallery.src-folder")}
+                      </span>
+                    </span>
+                    <IconChevronRight className="h-4 w-4 shrink-0 text-[var(--text-faint)] transition-all group-hover:translate-x-0.5 group-hover:text-[rgb(var(--glow))]" />
+                  </button>
+
+                  <button
+                    onClick={() => setAddStep("url")}
+                    disabled={busy}
+                    className="group flex min-h-20 items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3.5 py-3 text-left transition-colors hover:border-[var(--line-strong)] hover:bg-[var(--panel-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.7)] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-dim)] transition-colors group-hover:text-[rgb(var(--glow))]">
+                      <IconGlobe className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-[var(--text)]">
+                        {t("common.from-url")}
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-relaxed text-[var(--text-faint)]">
+                        {t("gallery.src-url")}
+                      </span>
+                    </span>
+                    <IconChevronRight className="h-4 w-4 shrink-0 text-[var(--text-faint)] transition-all group-hover:translate-x-0.5 group-hover:text-[rgb(var(--glow))]" />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2 rounded-lg border border-dashed border-[var(--line-strong)] px-3 py-2.5">
+                  <IconUpload className="h-4 w-4 shrink-0 text-[rgb(var(--glow))]" />
+                  <p className="text-[11px] leading-relaxed text-[var(--text-faint)]">
+                    {t("gallery.drop-media-hint")}
+                  </p>
+                </div>
               </div>
-            </Modal>
+              )}
+
+          {(addStep === "picker-files" || addStep === "picker-folder") && (
+            <MediaPickerModal
+              initialMode={addStep === "picker-files" ? "files" : "folder"}
+              onImportFiles={(paths) => {
+                setAddStep(null);
+                importPickedFiles(paths);
+              }}
+              onImportFolder={(path) => {
+                setAddStep(null);
+                importPickedFolder(path);
+              }}
+            />
           )}
 
           {addStep === "url" && (
-            <Modal
-              title={t("gallery.from-a-url")}
-              onClose={() => setAddStep(null)}
-              onBack={() => setAddStep("sources")}
-              backLabel={t("common.go-back")}
-            >
               <form
-                className="space-y-3 p-2"
+                className="space-y-4 p-2 sm:p-3"
                 onSubmit={async (e) => {
                   e.preventDefault();
                   const ok = await addFromUrl(urlDraft, urlNameDraft);
@@ -1129,13 +1193,13 @@ export default function WallpaperTab() {
                     {t("gallery.wallpaper-url")}
                   </span>
                   <input
-                    autoFocus
+                    data-modal-autofocus
                     type="url"
                     required
                     value={urlDraft}
                     onChange={(e) => setUrlDraft(e.target.value)}
                     placeholder="https://example.com/wallpaper.mp4"
-                    className="w-full rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2 text-sm outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)]"
+                    className="w-full rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2.5 text-sm outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)]"
                   />
                 </label>
                 <label className="block">
@@ -1147,16 +1211,14 @@ export default function WallpaperTab() {
                     value={urlNameDraft}
                     onChange={(e) => setUrlNameDraft(e.target.value)}
                     placeholder={t("common.name-optional")}
-                    className="w-full rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2 text-sm outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)]"
+                    className="w-full rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2.5 text-sm outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)]"
                   />
                 </label>
                 <p className="text-dim-sm">
                   {t("common.direct-link-to-an-mp4-webm-video-or-png-jpg-webp")}
                 </p>
                 <div className="flex items-center justify-between gap-2 pt-1">
-                  {
 
- }
                   <Btn
                     onClick={() => {
                       api
@@ -1186,6 +1248,8 @@ export default function WallpaperTab() {
                   </Btn>
                 </div>
               </form>
+          )}
+              </div>
             </Modal>
           )}
 
@@ -1373,7 +1437,7 @@ export default function WallpaperTab() {
 
                     {open && (
                       <div className="mt-4 space-y-4 border-t border-[var(--line)] pt-4">
-                        { }
+
                         <div>
                           <div className="kicker mb-2">{t("common.source")}</div>
                           <div className="flex flex-wrap gap-2">
@@ -1406,7 +1470,7 @@ export default function WallpaperTab() {
                           </div>
                         </div>
 
-                        { }
+
                         <Slider
                           label={t("common.shuffle-every")}
                           min={1}
@@ -1421,7 +1485,7 @@ export default function WallpaperTab() {
                           }
                         />
 
-                        { }
+
                         <Slider
                           label={t("common.transition-crossfade")}
                           min={0}
@@ -1438,7 +1502,7 @@ export default function WallpaperTab() {
                           }
                         />
 
-                        { }
+
                         <div>
                           <div className="kicker mb-2">
                             {t("common.time-of-day-rules-optional")}
@@ -1534,7 +1598,7 @@ export default function WallpaperTab() {
           )}
         </Card>
 
-        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 @[42rem]:grid-cols-2 @[56rem]:gap-5">
           <Card title={t("common.shader-presets")}>
             <div className="grid grid-cols-2 gap-3">
               {SHADERS.map((s) => {

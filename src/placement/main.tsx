@@ -109,16 +109,16 @@ function PlacementRoot() {
 
   return (
     <div className="fixed inset-0 overflow-hidden">
-      { }
+
       <div className="absolute inset-0 bg-sky-400/10 ring-2 ring-inset ring-sky-300/40" />
-      { }
+
       <div
         className="pointer-events-none absolute flex items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-sky-300 bg-sky-400/10 shadow-[0_0_40px_rgba(56,189,248,0.35)]"
         style={{ left: cx - size / 2, top: cy - size / 2, width: size, height: size }}
       >
         <img src={info.url} alt="" className="max-h-full max-w-full object-contain" />
       </div>
-      { }
+
       <div
         className="pointer-events-none absolute"
         style={{ left: cx, top: cy }}
@@ -126,22 +126,18 @@ function PlacementRoot() {
         <div className="absolute h-5 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-sky-300/90" />
         <div className="absolute h-0.5 w-5 -translate-x-1/2 -translate-y-1/2 bg-sky-300/90" />
       </div>
-      { }
+
       <div className="absolute inset-x-0 top-5 flex justify-center">
         <div className="rounded-full bg-black/75 px-4 py-2 text-xs text-white ring-1 ring-white/15 backdrop-blur">
           Click to place · Scroll or use − / + to resize · Corners for quick placement
         </div>
       </div>
-      { }
+
       <div className="absolute bottom-4 left-4 max-w-[40%] truncate rounded-full bg-black/60 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-white/80 backdrop-blur">
         {info.name} · {sizePhysical}px
       </div>
 
-      {
 
-
-
- }
       <div
         className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-black/75 p-1 backdrop-blur"
         onMouseEnter={() => setPadHover(true)}

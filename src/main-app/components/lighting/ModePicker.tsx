@@ -58,12 +58,10 @@ export function ModePicker(props: ModePickerProps) {
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="@container space-y-4">
       {groups.map((group) => (
         <section key={group.id}>
-          {
 
- }
           <header className="mb-2 flex items-baseline gap-3">
             <h3 className="kicker shrink-0">{t(group.title)}</h3>
             <span
@@ -74,7 +72,7 @@ export function ModePicker(props: ModePickerProps) {
               {t(group.hint)}
             </span>
           </header>
-          <div className="grid grid-cols-1 gap-2.5 @[22rem]:grid-cols-2 @[38rem]:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 @[38rem]:grid-cols-4">
             {group.modes.map((m) => {
               const id = m.id as RgbMode;
               const active = mode === id;
@@ -91,8 +89,7 @@ export function ModePicker(props: ModePickerProps) {
                       : "border-[var(--line)] hover:border-[var(--line-strong)] hover:shadow-[0_4px_16px_-8px_rgb(var(--glow)/0.35)]"
                   }`}
                 >
-                  {
- }
+
                   <span className="relative block h-14 w-full shrink-0">
                     <ModePreview
                       mode={id}
@@ -106,9 +103,7 @@ export function ModePicker(props: ModePickerProps) {
                       waveDirection={props.waveDirection}
                     />
                     <span className="pointer-events-none absolute inset-0 rounded-t-xl ring-1 ring-inset ring-[rgb(255_255_255/0.06)]" />
-                    {
 
- }
                     {active && (
                       <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[rgb(var(--glow))] text-black/85 shadow-[0_2px_8px_rgb(var(--glow)/0.5)]">
                         <IconCheck className="h-3 w-3" />

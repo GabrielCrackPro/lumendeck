@@ -194,10 +194,7 @@ function Splash({ stage, streaming }: { stage: Stage; streaming: boolean }) {
             {t(STAGE_LABEL_KEYS[stage])}
           </div>
         </div>
-        {
 
-
- }
         <div
           role="progressbar"
           aria-label={t(STAGE_LABEL_KEYS[stage])}

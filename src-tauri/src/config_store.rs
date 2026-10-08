@@ -183,6 +183,7 @@ fn load() -> Config {
 fn first_run_defaults() -> Config {
     let mut cfg = Config::default();
     cfg.general.show_color_hex = false;
+    cfg.general.show_developer_tools = false;
     cfg
 }
 
@@ -401,14 +402,30 @@ mod tests {
     }
 
     #[test]
+    fn developer_tools_stay_available_for_older_configs() {
+        let json = serde_json::json!({
+            "version": crate::config::CONFIG_VERSION,
+            "general": {"autostart": true}
+        });
+        let cfg = parse_and_migrate(&json.to_string()).unwrap();
+        assert!(cfg.general.show_developer_tools);
+    }
+
+    #[test]
     fn first_run_hides_the_hex_readout() {
         assert!(!first_run_defaults().general.show_color_hex);
     }
 
     #[test]
-    fn first_run_differs_from_the_upgrade_default_only_in_the_hex() {
+    fn first_run_hides_developer_details() {
+        assert!(!first_run_defaults().general.show_developer_tools);
+    }
+
+    #[test]
+    fn first_run_hides_only_the_optional_hex_and_developer_details() {
         let mut expected = Config::default();
         expected.general.show_color_hex = false;
+        expected.general.show_developer_tools = false;
         let first = first_run_defaults();
         assert_eq!(
             serde_json::to_value(&first).unwrap(),

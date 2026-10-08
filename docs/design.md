@@ -54,20 +54,22 @@ Three blocks, applied in cascade order. A block states only what it changes.
 | --- | --- | --- | --- |
 | intent | warm ivory workbench | graphite instrument panel | true black |
 | `bg` | `#e9e7e0` | `#101214` | `#000000` |
-| `panel` | `rgba(255,255,254,0.78)` | `rgba(255,255,255,0.026)` | `rgba(255,255,255,0.02)` |
-| `panel-strong` | `rgba(255,255,255,0.96)` | `rgba(255,255,255,0.055)` | `rgba(255,255,255,0.04)` |
+| `panel` | `rgba(255,255,254,0.78)` | `rgba(255,255,255,0.026)` | `rgba(255,255,255,0.035)` |
+| `panel-strong` | `rgba(255,255,255,0.96)` | `rgba(255,255,255,0.055)` | `rgba(255,255,255,0.065)` |
 | `panel-sunken` | `rgba(12,14,18,0.05)` | `rgba(0,0,0,0.35)` | `rgba(0,0,0,0.6)` |
-| `line` | `rgba(28,27,24,0.12)` | `rgba(255,255,255,0.075)` | `rgba(255,255,255,0.09)` |
-| `line-strong` | `rgba(28,27,24,0.24)` | `rgba(255,255,255,0.17)` | `rgba(255,255,255,0.2)` |
-| `text` | `#17150f` | `#ecedef` | inherited |
-| `text-dim` | `#4d4a41` | `#a5a8ae` | inherited |
-| `text-faint` | `#847f72` | `#66696f` | inherited |
+| `line` | `rgba(28,27,24,0.12)` | `rgba(255,255,255,0.075)` | `rgba(255,255,255,0.085)` |
+| `line-strong` | `rgba(28,27,24,0.24)` | `rgba(255,255,255,0.17)` | `rgba(255,255,255,0.17)` |
+| `text` | `#17150f` | `#ecedef` | `#f2f3f5` |
+| `text-dim` | `#4d4a41` | `#a5a8ae` | `#b2b5bb` |
+| `text-faint` | `#847f72` | `#66696f` | `#858a92` |
 
 The panels are *translucent stacks*, not solid fills. Depth comes from the
 stack — `bg` under `panel` under `panel-strong` — rather than from borders, so
 the desktop behind the window stays faintly present at the edges. AMOLED
-deepens `panel-sunken` because a translucent black over black has nothing left
-to do, and lifts its hairlines because pure black makes contrast vibrate.
+keeps pure black as its base and sunken surface, then raises controls and cards
+with slightly brighter translucent tiers. Its own text levels keep secondary
+labels readable on black; the ambient accent is localized and subdued, and the
+grain overlay is reduced to avoid lifting the OLED-black canvas.
 
 `shadow` is a token too, and differs per theme (see `palette.ts`); use it
 rather than writing a shadow.
@@ -183,9 +185,33 @@ window that gets maximised:
 | `--breakpoint-3xl` | 1920px | grids add a column instead of stretching |
 | `--breakpoint-4xl` | 2560px | a 32" 4K panel still composes |
 
-A 900px side-by-side column is a first-class case, not an afterthought — it is
-named in the breakpoint comment for a reason, and the dashboard's card grids are
-expected to reflow rather than squeeze.
+A 900px window is a first-class case, not an afterthought. The dashboard
+reserves its sidebar before laying out cards, so viewport breakpoints do not
+reliably describe space available to a tab. Dashboard grids use page container
+queries: compact layouts add columns as the content itself grows, while the
+wallpaper vault density stays readable in a narrow window. Scrollable page
+content uses narrower gutters in windowed layouts and a bounded content width
+when maximised, so cards do not stretch across ultrawide displays.
+Settings keeps its section filter and navigation visible while content scrolls;
+the rail becomes a horizontally scrollable strip in narrow windows and a
+searchable, contextual sidebar when there is room. Both navigation layouts
+keep a transparent background. Section jumps account for
+the sticky compact navigation and respect reduced-motion preferences.
+Developer diagnostics are hidden on first run and can be enabled from About &
+updates without needing to expose the Developer section first. The
+wallpaper gallery keeps its result count alongside the toolbar;
+filter groups wrap into a single column in narrow panes and a two-column panel
+when space allows. Wallpaper tiles keep identity, kind, measured metadata, and
+actual collection membership distinct in the footer. The wallpaper details
+drawer gives the preview and file facts a clear hierarchy, keeps apply/remove
+actions anchored below its scrollable settings, and preserves per-display and
+collection controls in the detail flow. Opening and closing animate the panel
+and scrim together; reduced-motion preferences skip the exit delay. Onboarding
+uses a labeled vertical step rail on wide windows and a horizontally scrollable
+numbered step strip on narrow ones, with a shared progress indicator and the
+existing step content kept in a single responsive panel. It retains the
+standard draggable window bar, gives each setup stage its own visual focus,
+and uses the gallery's in-app media picker for file and folder imports.
 
 ---
 
@@ -207,6 +233,18 @@ and drifted apart.
 | `Row` | a labelled settings row with a right-hand control |
 | `CollapsibleCard` | a card that folds away |
 | `IconBox` | a framed icon slot |
+
+Card headers use a quiet sunken surface and an accent-framed icon; keep that
+header treatment consistent across tabs rather than creating page-specific
+card chrome. Dashboard tab stacks share the same responsive vertical rhythm.
+The overview opens with a time-aware greeting, then leads with actionable
+wallpaper, lighting, display, and profile status,
+followed by a wallpaper preview; performance sampling stays opt-in
+inside its collapsed section. Lighting, display, and sticker cards are concise
+summaries with controls for common actions; detailed setup and management stay
+in their dedicated tabs. The Overview player identifies playing versus paused
+media, gives the primary transport control clear emphasis, groups playback
+controls, and lets volume wrap on narrow cards.
 
 ### Controls
 
@@ -308,6 +346,11 @@ decoration.
 | Page and card entrance | `--motion-slow` / `--motion-slower` | `--ease-standard`, staggered by index |
 | Transport ripple | `--motion-slow` | ease-out, staggered across the row |
 | Dismissal (menu closing) | `--motion-instant` | `--ease-exit` |
+
+Multi-step dialogs keep their overlay and panel mounted while content changes.
+Animate the changing content, not the scrim, so a step transition does not
+replay the dialog entrance or flash the underlying page. Respect reduced motion
+through the shared media query.
 
 The durations and curves are **tokens in `index.css`**, not numbers typed at each
 site. That is the whole point of this section: the app once had twenty-odd

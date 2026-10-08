@@ -6,7 +6,8 @@ import {
   resolveAccent,
   surfaceRgb,
 } from "./accent";
-import { formatHex } from "./components/colorHex";
+import { formatHex, parseHex } from "./components/colorHex";
+import { themeToken } from "@shared/palette";
 
 type RGB = [number, number, number];
 
@@ -43,6 +44,16 @@ describe("surfaceRgb", () => {
     expect(formatHex(surfaceRgb("light"))).toBe("#E9E7E0");
     expect(formatHex(surfaceRgb("dark"))).toBe("#101214");
     expect(formatHex(surfaceRgb("dark", true))).toBe("#000000");
+  });
+});
+
+describe("AMOLED text contrast", () => {
+  it("keeps each text tier above WCAG AA contrast on black", () => {
+    for (const token of ["text", "text-dim", "text-faint"]) {
+      const text = parseHex(themeToken("dark", true, token));
+      if (!text) throw new Error(`invalid --${token} colour`);
+      expect(contrastRatio(text, AMOLED_BG)).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });
 

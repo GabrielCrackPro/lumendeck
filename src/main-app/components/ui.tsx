@@ -11,6 +11,7 @@ import { formatHex, isParsableHex, parseHex, tidyHexDraft } from "./colorHex";
 import { hsvToRgb, rgbToHsv } from "./rgbStrip";
 
 import { useStore } from "../store";
+import { api } from "../ipc";
 import { SHADER_ART } from "@shared/constants";
 import type { ThemeMode } from "@shared/types";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -147,17 +148,18 @@ export function Card({
       style={noShadow ? { boxShadow: "none" } : undefined}
       data-anchor={anchor}
     >
-      <header className="flex min-h-[42px] items-center justify-between gap-3 rounded-t-[var(--radius-xl)] border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4">
-        {
-
- }
-        <h2 className="kicker flex min-w-0 items-center gap-2 truncate !text-[var(--text-dim)]">
-          {icon && <span className="text-[rgb(var(--glow))] [&_svg]:h-3.5 [&_svg]:w-3.5">{icon}</span>}
+      <header className="flex min-h-12 items-center justify-between gap-2 rounded-t-[var(--radius-xl)] border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--panel-sunken)_84%,var(--panel))] px-3 sm:gap-3 sm:px-4">
+        <h2 className="kicker flex min-w-0 items-center gap-2.5 truncate !text-[var(--text-dim)]">
+          {icon && (
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[rgb(var(--glow)/0.18)] bg-[rgb(var(--glow)/0.08)] text-[rgb(var(--glow))] [&_svg]:h-3.5 [&_svg]:w-3.5">
+              {icon}
+            </span>
+          )}
           {title}
         </h2>
         {right}
       </header>
-      <div className="relative p-4">{children}</div>
+      <div className="relative p-3.5 sm:p-4 3xl:p-5">{children}</div>
     </section>
   );
 }
@@ -249,7 +251,7 @@ function SwitchTrack({
               "border-[var(--line-strong)] bg-[var(--panel-strong)]"
       }`}
     >
-      { }
+
       <span key={String(checked)} className="switch-ripple absolute inset-0 rounded-full" />
       <span
         className={`absolute top-[2.5px] h-[14px] w-[14px] rounded-full bg-[var(--text)] shadow transition-[background-color,border-color,transform] duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
@@ -316,10 +318,7 @@ export function SwitchRow({
       className={`switch-btn flex w-full min-w-0 items-center gap-3 rounded-[var(--radius-md)] py-1 text-left focus-glow disabled:cursor-not-allowed ${className}`}
     >
       {icon && <span className="shrink-0">{icon}</span>}
-      {
 
-
- }
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-medium leading-tight text-[var(--text)]">
           {label}
@@ -955,7 +954,7 @@ export function ColorInput({
 
       {open && (
         <div className="absolute right-0 top-full z-40 mt-2 w-64 rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-3.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.7)] backdrop-blur-xl page-enter-header">
-          { }
+
           <div
             ref={svRef}
             onPointerDown={startSvDrag}
@@ -969,10 +968,7 @@ export function ColorInput({
               background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hueHex})`,
             }}
           >
-            {
 
-
- }
             <span
               className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgb(0_0_0/0.6),0_0_10px_rgb(0_0_0/0.5)]"
               style={{
@@ -983,7 +979,7 @@ export function ColorInput({
             />
           </div>
 
-          { }
+
           <div className="relative mt-3 h-3.5 overflow-hidden rounded-full border border-[var(--line)]">
             <div
               className="absolute inset-0"
@@ -1010,7 +1006,7 @@ export function ColorInput({
             />
           </div>
 
-          { }
+
           <div className="mt-3 flex flex-wrap gap-1.5">
             {PRESETS.map((p) => (
               <button
@@ -1034,7 +1030,7 @@ export function ColorInput({
             ))}
           </div>
 
-          { }
+
           <div className="mt-3 flex items-center gap-2">
             <button
               data-tip={t("common.pick-a-color-from-the-screen")}
@@ -1257,7 +1253,7 @@ export function EmptyState({
 }) {
   return (
     <div className="page-enter flex flex-col items-center gap-3.5 rounded-xl border border-dashed border-[var(--line-strong)] px-8 py-14 text-center">
-      { }
+
       <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-faint)]">
         {icon}
       </div>
@@ -1373,16 +1369,34 @@ export function SettingsLayout({
           key={s.id}
           type="button"
           onClick={() => onSelect(s.id)}
-          aria-current={isActive ? "true" : undefined}
+          aria-current={isActive ? "location" : undefined}
           data-tip={t(s.blurb)}
-          className={`flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors ${
+          className={`group relative flex min-h-9 shrink-0 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors focus-glow @[48rem]:w-full @[48rem]:py-2 ${
             isActive
-              ? "bg-[rgb(var(--glow)/0.12)] text-[rgb(var(--glow))]"
+              ? "bg-[rgb(var(--glow)/0.1)] text-[rgb(var(--glow))] shadow-[inset_0_0_0_1px_rgb(var(--glow)/0.2)]"
               : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
           }`}
         >
-          <Icon className="h-4 w-4 shrink-0" />
-          <span className="whitespace-nowrap">{t(s.label)}</span>
+          {isActive && (
+            <span className="absolute inset-y-1.5 left-0 hidden w-0.5 rounded-r bg-[rgb(var(--glow))] @[48rem]:block" />
+          )}
+          <span
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
+              isActive
+                ? "bg-[rgb(var(--glow)/0.12)]"
+                : "bg-[var(--panel-sunken)] group-hover:bg-[var(--panel)]"
+            }`}
+          >
+            <Icon className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate whitespace-nowrap">{t(s.label)}</span>
+            {isActive && (
+              <span className="mt-0.5 hidden text-[10px] font-normal leading-snug text-[var(--text-faint)] @[48rem]:block">
+                {t(s.blurb)}
+              </span>
+            )}
+          </span>
         </button>
       );
     });
@@ -1393,7 +1407,7 @@ export function SettingsLayout({
   };
 
   const filterBox = () => (
-    <div className="relative mb-2">
+    <div className="relative">
       <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-faint)]" />
       <input
         value={query}
@@ -1409,28 +1423,19 @@ export function SettingsLayout({
         aria-label={t("common.filter-sections")}
         spellCheck={false}
         autoComplete="off"
-        className="w-full rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] py-1.5 pl-8 pr-2 text-xs text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)]"
+        className="w-full rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] py-2 pl-8 pr-2 text-xs text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)]"
       />
     </div>
   );
 
   return (
-    <div className="mx-auto w-full max-w-[860px]">
-      {
-
-
-
- }
-      <div className="relative sticky top-0 z-10 -mx-5 mb-4 border-b border-[var(--line)] bg-[var(--bg)] lg:hidden">
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[var(--panel)]"
-        />
-        <div className="relative px-5 pt-2">
+    <div className="@container mx-auto w-full max-w-[980px]">
+      <div className="relative sticky top-0 z-20 -mx-3 mb-4 border-b border-[var(--line)] bg-transparent px-3 pt-2 sm:-mx-4 sm:px-4 @[48rem]:hidden">
+        <div className="relative pb-2">
           {filterBox()}
           <nav
             aria-label={t("common.settings-sections")}
-            className="flex gap-1 overflow-x-auto pb-2"
+            className="mt-2 flex gap-1 overflow-x-auto pb-1"
           >
             {shown.length === 0 ? (
               <p className="px-2.5 py-1.5 text-xs text-[var(--text-faint)]">
@@ -1445,23 +1450,24 @@ export function SettingsLayout({
       <div className="flex items-start gap-5">
         <nav
           aria-label={t("common.settings-sections")}
-          className="sticky top-0 hidden w-[190px] shrink-0 space-y-0.5 lg:block"
+          className="sticky top-3 hidden w-[220px] shrink-0 rounded-xl border border-[var(--line)] bg-transparent p-2.5 @[48rem]:block"
         >
-          {
-
-
- }
-          {filterBox()}
-          {shown.length === 0 ? (
-            <p className="px-2.5 py-1.5 text-xs text-[var(--text-faint)]">
-              {t("common.no-sections-match")}
-            </p>
-          ) : (
-            navItems(active)
-          )}
+          <div className="border-b border-[var(--line)] px-1 pb-2.5">
+            <div className="kicker mb-2">{t("common.settings-sections")}</div>
+            {filterBox()}
+          </div>
+          <div className="mt-2 max-h-[min(68dvh,42rem)] space-y-0.5 overflow-y-auto pr-0.5">
+            {shown.length === 0 ? (
+              <p className="px-2.5 py-2 text-xs text-[var(--text-faint)]">
+                {t("common.no-sections-match")}
+              </p>
+            ) : (
+              navItems(active)
+            )}
+          </div>
         </nav>
-        <div className="min-w-0 flex-1">
-          <div className="stagger space-y-6">{children}</div>
+        <div className="min-w-0 flex-1 @[48rem]:pt-0.5">
+          <div className="stagger space-y-4 sm:space-y-5">{children}</div>
         </div>
       </div>
     </div>
@@ -1483,7 +1489,7 @@ export function CollapsibleCard({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <section className="glass overflow-hidden">
+    <section className="glass card-surface overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -1600,8 +1606,16 @@ export function displayName(
   return m.device.replace(/\\/g, "") || t("common.display-{n}", { n: index + 1 });
 }
 
-export function DisplaysCard({ compact }: { compact?: boolean }) {
+export function DisplaysCard({
+  compact,
+  onManage,
+}: {
+  compact?: boolean;
+  onManage?: () => void;
+}) {
   const [mons, setMons] = useState<MonitorEntry[]>([]);
+  const [monitorLoadState, setMonitorLoadState] =
+    useState<"loading" | "loaded" | "error">("loading");
   const { cfg, save } = useStore(
     useShallow((s) => ({ cfg: s.cfg, save: s.save })),
   );
@@ -1609,25 +1623,35 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
   const [draft, setDraft] = useState("");
   useEffect(() => {
     let disposed = false;
+    let unlisten: (() => void) | undefined;
     const load = () => {
-      import("@tauri-apps/api/core")
-        .then(({ invoke }) =>
-          invoke<{ device: string; x: number; y: number; w: number; h: number; primary: boolean }[]>("monitors")
-            .then((m) => !disposed && setMons(m))
-            .catch(() => {}),
-        )
-        .catch(() => {});
+      void api
+        .monitors()
+        .then((monitors) => {
+          if (!disposed) {
+            setMons(monitors);
+            setMonitorLoadState("loaded");
+          }
+        })
+        .catch((error: unknown) => {
+          if (!disposed) setMonitorLoadState("error");
+          console.warn("[displays-card] monitor list unavailable", error);
+        });
     };
     load();
-    import("@tauri-apps/api/event")
+    void import("@tauri-apps/api/event")
       .then(({ listen }) =>
-        listen("display-changed", () => load()).then((un) => {
-          if (disposed) un();
+        listen("display-changed", load).then((stop) => {
+          if (disposed) stop();
+          else unlisten = stop;
         }),
       )
-      .catch(() => {});
+      .catch((error: unknown) => {
+        console.warn("[displays-card] display change listener unavailable", error);
+      });
     return () => {
       disposed = true;
+      unlisten?.();
     };
   }, []);
   const pm = cfg?.wallpaper.perMonitor ?? {};
@@ -1656,8 +1680,23 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
     setDraft("");
   }
   return (
-    <Card title={t("common.displays")} icon={<IconMonitor />}>
-      <div className={`grid gap-3 ${compact ? "sm:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
+    <Card
+      title={t("common.displays")}
+      icon={<IconMonitor />}
+      right={
+        compact && onManage ? (
+          <button
+            type="button"
+            onClick={onManage}
+            className="rounded-md border border-[var(--line)] px-2 py-1 text-[10px] font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.4)] hover:text-[var(--text)]"
+          >
+            {t("common.manage")}
+          </button>
+        ) : undefined
+      }
+    >
+      <div className="@container">
+        <div className={`grid gap-3 ${compact ? "grid-cols-1 @[32rem]:grid-cols-2" : "sm:grid-cols-2 2xl:grid-cols-4"}`}>
         {mons.map((m, i) => {
           const ovr = pm[m.device];
           const kind = ovr?.kind ?? globalKind;
@@ -1672,7 +1711,7 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
                   : "border-[var(--line)] bg-[var(--panel-strong)]"
               }`}
             >
-              { }
+
               <div className="relative h-16 w-full overflow-hidden bg-black">
                 {kind === "video" && mediaUrl ? (
                   <video
@@ -1738,20 +1777,22 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
                       <div className="truncate text-[13px] font-medium text-[var(--text)]">
                         {displayName(m, i, screenNames)}
                       </div>
-                      <button
-                        onClick={() => startRename(m.device)}
-                        data-tip={t("common.rename-screen", { name: displayName(m, i, screenNames) })}
-                        aria-label={t("common.rename-screen", { name: displayName(m, i, screenNames) })}
-                        className="shrink-0 rounded p-0.5 text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
-                      >
-                        <IconPencil className="h-3 w-3" />
-                      </button>
+                      {!compact && (
+                        <button
+                          onClick={() => startRename(m.device)}
+                          data-tip={t("common.rename-screen", { name: displayName(m, i, screenNames) })}
+                          aria-label={t("common.rename-screen", { name: displayName(m, i, screenNames) })}
+                          className="shrink-0 rounded p-0.5 text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
+                        >
+                          <IconPencil className="h-3 w-3" />
+                        </button>
+                      )}
                     </div>
                   )}
                   <div className="font-mono text-[10px] text-[var(--text-faint)]">
-                    {m.w} × {m.h}{compact ? "" : ` @ (${m.x}, ${m.y})`}
+                    {m.w} × {m.h}{compact ? ` · ${t(ovr ? "common.override" : "common.wallpaper")}` : ` @ (${m.x}, ${m.y})`}
                   </div>
-                  {screenNames[m.device]?.trim() && (
+                  {!compact && screenNames[m.device]?.trim() && (
                     <div className="mt-1">
                       <AliasHint onReset={() => commitRename(m.device, "")} />
                     </div>
@@ -1763,9 +1804,14 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
         })}
         {mons.length === 0 && (
           <div className="col-span-full text-sm text-[var(--text-faint)]">
-            {t("common.detecting-displays")}
+            {monitorLoadState === "loading"
+              ? t("common.detecting-displays")
+              : monitorLoadState === "error"
+                ? t("overview.display-check-failed")
+                : t("overview.no-displays-found")}
           </div>
         )}
+        </div>
       </div>
     </Card>
   );

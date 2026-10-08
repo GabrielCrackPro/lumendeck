@@ -54,10 +54,7 @@ function ConfigRow({
           : "border-transparent hover:border-[var(--line)] hover:bg-[var(--panel-strong)]"
       }`}
     >
-      {
 
-
- }
       <ConfigAvatar
         scene={scene}
         size={36}
@@ -90,9 +87,7 @@ function ConfigRow({
         ) : (
           <ItemTitle className="truncate">{scene.name}</ItemTitle>
         )}
-        {
 
- }
         <div
           className="hint truncate"
           role={rejected ? "alert" : undefined}
@@ -132,10 +127,7 @@ function ConfigRow({
         >
           <IconPencil className="h-3.5 w-3.5" />
         </button>
-        {
 
-
- }
         {canDelete && (
           <button
             type="button"
@@ -264,9 +256,7 @@ export function ConfigPickerModal({
             aria-invalid={duplicate != null || undefined}
             className="w-full rounded-lg border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)] focus:outline-none"
           />
-          {
 
- }
           {name.trim().length === 0 && duplicate == null && (
             <p className="hint mt-1.5">
               {t("common.leave-blank-to-use-{name}", {

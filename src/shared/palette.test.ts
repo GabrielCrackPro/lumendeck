@@ -31,11 +31,10 @@ describe("themeToken", () => {
     }
   });
 
-  it("lets dark show through where AMOLED says nothing", () => {
-    expect(themeToken("dark", true, "text")).toBe(
-      themeToken("dark", false, "text"),
-    );
-    expect(themeToken("dark", true, "text-dim")).toBe("#a5a8ae");
+  it("gives AMOLED its own readable text hierarchy", () => {
+    expect(themeToken("dark", true, "text")).toBe("#f2f3f5");
+    expect(themeToken("dark", true, "text-dim")).toBe("#b2b5bb");
+    expect(themeToken("dark", true, "text-faint")).toBe("#858a92");
   });
 
   it("never applies the AMOLED block to a light theme", () => {

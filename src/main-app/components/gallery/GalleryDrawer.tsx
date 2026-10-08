@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { IconCheck, IconFolder, IconPencil, IconRefresh, IconTrash } from "../icons";
+import { IconCheck, IconClose, IconFolder, IconPencil, IconRefresh, IconTrash } from "../icons";
 import { Btn, Dropdown, Slider, displayName, type MonitorEntry } from "../ui";
 import { t } from "../../i18n";
 import { GALLERY_KIND_LABEL } from "./kindLabels";
@@ -54,9 +54,9 @@ function useMediaMeta(url: string, entry: GalleryEntry): MediaMeta | null {
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 rounded-lg border border-[var(--line)] bg-[var(--panel)] px-2.5 py-2">
       <dt className="kicker !text-[var(--text-faint)]">{label}</dt>
-      <dd className="mt-0.5 truncate font-mono text-xs text-[var(--text)]">{value}</dd>
+      <dd className="mt-1 break-words font-mono text-xs leading-relaxed text-[var(--text)]">{value}</dd>
     </div>
   );
 }
@@ -90,6 +90,8 @@ export function GalleryDrawer({
   globalOpts,
 }: GalleryDrawerProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const closeTimer = useRef<number | null>(null);
+  const [closing, setClosing] = useState(false);
   const meta = useMediaMeta(url, entry);
   const resolution = formatResolution(meta);
   const duration = formatDuration(meta?.duration ?? null);
@@ -99,35 +101,55 @@ export function GalleryDrawer({
   const hasOverrides = Object.keys(opts).length > 0;
   const isPlayable = entry.kind === "video" || entry.kind === "image";
 
+  const close = useCallback(() => {
+    if (closing) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      onClose();
+      return;
+    }
+    setClosing(true);
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null;
+      onClose();
+    }, 220);
+  }, [closing, onClose]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") close();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [close]);
 
   useEffect(() => {
     panelRef.current?.focus();
   }, []);
 
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    },
+    [],
+  );
+
   return createPortal(
     <>
       <div
-        className="drawer-scrim fixed inset-0 z-40 bg-black/35"
-        onClick={onClose}
+        className={`drawer-scrim fixed inset-0 z-40 bg-black/35 ${closing ? "drawer-scrim-out" : ""}`}
+        onClick={close}
         aria-hidden
       />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label={entry.name}
+        aria-labelledby="gallery-drawer-title"
         tabIndex={-1}
-        className="drawer-panel fixed right-0 top-0 z-50 flex h-full w-[min(380px,92vw)] flex-col border-l border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_94%,transparent)] shadow-[-24px_0_60px_-20px_rgb(0_0_0/0.7)] outline-none backdrop-blur-xl"
+        className={`drawer-panel fixed right-0 top-0 z-50 flex h-full w-[min(440px,94vw)] flex-col border-l border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_94%,transparent)] shadow-[-24px_0_60px_-20px_rgb(0_0_0/0.7)] outline-none backdrop-blur-xl ${closing ? "drawer-panel-out" : ""}`}
       >
-        <header className="shrink-0 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4 py-2.5">
-          <div className="flex items-center gap-2">
+        <header className="shrink-0 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
             <span className="kicker min-w-0 flex-1 truncate !text-[var(--text-dim)]">
               {t("gallery.details")}
             </span>
@@ -138,15 +160,15 @@ export function GalleryDrawer({
               </span>
             )}
             <button
-              onClick={onClose}
+              onClick={close}
               aria-label={t("common.close")}
-              className="shrink-0 rounded px-1.5 text-[var(--text-faint)] transition-colors hover:text-[var(--text)]"
+              className="focus-glow flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
             >
-              ✕
+              <IconClose className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="mt-1 flex min-w-0 items-start gap-1.5">
+          <div className="mt-2 flex min-w-0 items-start gap-2">
             {renaming ? (
               <form
                 className="min-w-0 flex-1"
@@ -156,24 +178,29 @@ export function GalleryDrawer({
                 }}
               >
                 <input
+                  id="gallery-drawer-title"
                   autoFocus
                   value={renameValue}
                   aria-label={t("gallery.rename-entry")}
                   onChange={(e) => onRenameValue(e.target.value)}
                   onKeyDown={(e) => e.key === "Escape" && onCancelRename()}
                   onBlur={onCommitRename}
-                  className="w-full rounded-md border border-[rgb(var(--glow)/0.5)] bg-[var(--panel-strong)] px-2 py-1 text-sm font-semibold text-[var(--text)] outline-none"
+                  className="focus-glow w-full rounded-lg border border-[rgb(var(--glow)/0.5)] bg-[var(--panel-strong)] px-2.5 py-2 text-base font-semibold text-[var(--text)] outline-none"
                 />
               </form>
             ) : (
               <>
-                <div className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text)]">
+                <h2
+                  id="gallery-drawer-title"
+                  title={entry.name}
+                  className="min-w-0 flex-1 break-words text-lg font-semibold leading-tight text-[var(--text)]"
+                >
                   {entry.name}
-                </div>
+                </h2>
                 <button
                   aria-label={t("gallery.rename-entry")}
                   onClick={onStartRename}
-                  className="shrink-0 rounded p-1 text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
+                  className="focus-glow shrink-0 rounded-lg p-2 text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
                 >
                   <IconPencil className="h-4 w-4" />
                 </button>
@@ -182,7 +209,7 @@ export function GalleryDrawer({
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4 body-enter">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 body-enter">
           {health && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-200">
               <span className="shrink-0 font-semibold">
@@ -198,11 +225,19 @@ export function GalleryDrawer({
             </div>
           )}
 
-          <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel-sunken)]">
-            <div className="aspect-video w-full">{preview}</div>
+          <div className="overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[var(--panel-sunken)] shadow-[var(--shadow)]">
+            <div className="relative aspect-video w-full">
+              {preview}
+              {isActive && (
+                <div className="pointer-events-none absolute right-2 top-2 flex items-center gap-1.5 rounded-full bg-[rgb(var(--glow))] px-2.5 py-1 font-mono text-[10px] font-semibold text-[var(--on-accent)] shadow-[0_0_14px_rgb(var(--glow)/0.45)]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--on-accent)]" />
+                  {t("shell.live")}
+                </div>
+              )}
+            </div>
           </div>
 
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+          <dl className="grid grid-cols-2 gap-2">
             <Fact label={t("gallery.type")} value={t(GALLERY_KIND_LABEL[entry.kind])} />
             {resolution && <Fact label={t("gallery.resolution")} value={resolution} />}
             {duration && <Fact label={t("gallery.duration")} value={duration} />}
@@ -214,27 +249,16 @@ export function GalleryDrawer({
                   : mine.map((c) => c.name).join(", ")
               }
             />
-          </dl>
-
-          <div className="space-y-2">
-            <Btn
-              variant="primary"
-              className="w-full"
-              onClick={onApplyAll}
-              disabled={isActive}
-            >
-              {isActive ? t("gallery.applied-everywhere") : t("gallery.apply-to-all")}
-            </Btn>
-            <div className="flex justify-end">
-              <button
-                onClick={onRemove}
-                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--text-faint)] transition-colors hover:bg-red-500/10 hover:text-red-400"
+            <div className="col-span-full min-w-0 rounded-lg border border-[var(--line)] bg-[var(--panel)] px-2.5 py-2">
+              <dt className="kicker !text-[var(--text-faint)]">{t("gallery.location")}</dt>
+              <dd
+                  title={entry.source}
+                  className="mt-1 break-all font-mono text-[10px] leading-relaxed text-[var(--text)]"
               >
-                <IconTrash className="h-4 w-4" />
-                {t("gallery.remove-entry")}
-              </button>
+                  {entry.source}
+              </dd>
             </div>
-          </div>
+          </dl>
 
           {isPlayable && (
             <div>
@@ -396,6 +420,25 @@ export function GalleryDrawer({
             )}
           </div>
         </div>
+        <footer className="shrink-0 border-t border-[var(--line)] bg-[var(--panel-sunken)] px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Btn
+              variant="primary"
+              className="min-w-0 flex-1"
+              onClick={onApplyAll}
+              disabled={isActive}
+            >
+              {isActive ? t("gallery.applied-everywhere") : t("gallery.apply-to-all")}
+            </Btn>
+            <button
+              onClick={onRemove}
+              className="focus-glow flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--line)] px-3 py-2 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400"
+            >
+              <IconTrash className="h-4 w-4" />
+              {t("gallery.remove-entry")}
+            </button>
+          </div>
+        </footer>
       </div>
     </>,
     document.body,

@@ -18,6 +18,7 @@ rust_i18n::i18n!("../locales");
 pub mod i18n;
 pub mod tokens;
 pub mod media;
+pub mod media_picker;
 pub mod media_session;pub mod mouse_hook;
 pub mod pause;
 pub mod perf;
@@ -279,6 +280,7 @@ pub fn run() {
             ipc::gallery_apply_monitor,
             ipc::gallery_import_folder,
             ipc::gallery_import_paths,
+            ipc::media_picker_list,
             ipc::gallery_add_from_url,
             ipc::set_wallpaper_enabled,
             ipc::pick_media_files,

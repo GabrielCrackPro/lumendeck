@@ -101,6 +101,12 @@ const SECTIONS: SettingsSectionDef[] = [
     icon: IconLayers,
   },
   {
+    id: "transfer",
+    label: "settings.import-export",
+    blurb: "settings.backup-and-move-your-setup",
+    icon: IconDownload,
+  },
+  {
     id: "playback",
     label: "settings.playback-engine",
     blurb: "settings.video-decoding-and-config",
@@ -210,6 +216,15 @@ export default function GeneralTab() {
   const scenes = cfg?.scenes ?? [];
   const picker = useConfigPicker();
   const [section, setSection] = useState(SECTIONS[0]!.id);
+  const sections = useMemo(
+    () =>
+      SECTIONS.filter(
+        (item) =>
+          item.id !== "developer" ||
+          (cfg?.general.showDeveloperTools ?? true),
+      ),
+    [cfg?.general.showDeveloperTools],
+  );
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [confirmSetup, setConfirmSetup] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -220,7 +235,10 @@ export default function GeneralTab() {
   const scrollToSection = useCallback((id: string) => {
     const el = document.getElementById(anchorId(id));
     if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth";
+    el.scrollIntoView({ behavior, block: "start" });
     setSection(id);
   }, []);
 
@@ -228,7 +246,7 @@ export default function GeneralTab() {
     const root = pageRef.current?.parentElement;
     if (!root) return;
     const scroller = scrollParentOf(root);
-    const ids = SECTIONS.map((s) => s.id);
+    const ids = sections.map((s) => s.id);
 
     const sync = () => {
       const line = scroller.getBoundingClientRect().top + 96;
@@ -250,20 +268,28 @@ export default function GeneralTab() {
       scroller.removeEventListener("scroll", sync);
       window.removeEventListener("resize", sync);
     };
-  }, []);
+  }, [sections]);
+
+  useEffect(() => {
+    if (!sections.some((item) => item.id === section)) {
+      setSection(sections[0]?.id ?? SECTIONS[0]!.id);
+    }
+  }, [section, sections]);
 
   if (!cfg) return null;
 
   const anchor = (id: string, node: ReactNode) => (
-    <div id={anchorId(id)} className="scroll-mt-6 space-y-6">
+    <div
+      id={anchorId(id)}
+      className="scroll-mt-28 space-y-4 sm:space-y-5 @[48rem]:scroll-mt-4"
+    >
       {node}
     </div>
   );
-
   return (
-    <div ref={pageRef}>
+    <div ref={pageRef} className="@container">
       <SettingsLayout
-        sections={SECTIONS}
+      sections={sections}
         active={section}
         onSelect={scrollToSection}
       >
@@ -366,21 +392,7 @@ export default function GeneralTab() {
         {anchor(
           "scenes",
           <Card title={t("common.profiles")} icon={<IconLayers />}>
-            {
 
-
-
-
-
-
-
-
-
-
-
-
-
- }
             {scenes.length > 0 ? (
               <ul className="flex flex-col gap-1.5">
                 {scenes.map((s) => {
@@ -406,14 +418,7 @@ export default function GeneralTab() {
                           )}
                         </div>
                         <div className="truncate font-mono text-[10px] text-[var(--text-faint)]">
-                          {
 
-
-
-
-
-
- }
                           {t(GALLERY_KIND_LABEL[s.wallpaper.kind])} · {t(RGB_MODE_LABEL[s.rgb.mode])}
                           {s.stickers.length > 0 &&
                             ` · ${t("common.{n}-stickers", { n: s.stickers.length })}`}
@@ -471,11 +476,7 @@ export default function GeneralTab() {
           </Card>,
         )}
 
-        {
 
-
-
- }
         {anchor(
           "transfer",
           <TransferCard onChanged={(fresh) => useStore.setState({ cfg: fresh })} />,
@@ -493,19 +494,15 @@ export default function GeneralTab() {
           </Card>,
         )}
 
-        {
 
-
-
-
- }
-        {anchor(
-          "developer",
-          <>
-            <DeveloperCard />
-            <LogViewerCard />
-          </>,
-        )}
+        {cfg.general.showDeveloperTools &&
+          anchor(
+            "developer",
+            <>
+              <DeveloperCard />
+              <LogViewerCard />
+            </>,
+          )}
 
         {anchor(
           "about",
@@ -518,12 +515,8 @@ export default function GeneralTab() {
               right={
                 <span className="flex items-center gap-1.5 font-mono text-[10px] text-[var(--text-faint)]">
                   v{__APP_VERSION__}
-                  {
 
-
-
- }
-                  {__APP_BUILD_ID__ && (
+                  {cfg.general.showDeveloperTools && __APP_BUILD_ID__ && (
                     <span
                       className="rounded-sm bg-amber-500/20 px-1 text-amber-400"
                       data-tip={t("common.built-from-commit-{id}", {
@@ -627,15 +620,7 @@ export default function GeneralTab() {
                 </div>
               </div>
 
-              {
 
-
-
-
-
-
-
- }
               <div className="mt-1">
                 <Select
                   label={t("common.update-check-interval")}
@@ -648,10 +633,7 @@ export default function GeneralTab() {
                     save((c) => (c.general.updateCheckMinutes = Number(v)))
                   }
                 />
-                {
 
-
- }
                 <div className="mt-2 flex min-w-0 items-center gap-2 text-[11px] text-[var(--text-faint)]">
                   <span className="shrink-0">{t("update.last-check")}</span>
                   <span
@@ -678,9 +660,18 @@ export default function GeneralTab() {
               </div>
             </Card>
 
-            {
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)] px-4">
+              <Toggle
+                label={t("settings.show-developer-tools")}
+                description={t("settings.show-developer-tools-description")}
+                checked={cfg.general.showDeveloperTools}
+                onChange={(v) =>
+                  save((c) => (c.general.showDeveloperTools = v))
+                }
+              />
+            </div>
 
- }
+
             <Card title={t("common.setup-guide")} icon={<IconSparkle />}>
               {confirmSetup ? (
                 <div className="flex items-center justify-between gap-4">
@@ -767,9 +758,7 @@ function TransferCard({ onChanged }: { onChanged: (cfg: Config) => void }) {
         </Btn>
       </div>
 
-      {
 
- }
       <TransferImport onChanged={onChanged} className="mt-3" />
 
       <p className="mt-4 text-xs leading-relaxed text-[var(--text-faint)]">
@@ -1012,8 +1001,7 @@ function DeveloperCard() {
             </InfoNote>
           )}
           <div className="panel-inset grid gap-x-6 gap-y-3 p-3.5 sm:grid-cols-2">
-            {
- }
+
             {facts.length === 0 &&
               Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="h-8 animate-pulse rounded-sm bg-[var(--panel-sunken)]" />
@@ -1039,9 +1027,7 @@ function DeveloperCard() {
           {t("common.are-picked-up-automatically-within-a-few-seconds")}
         </p>
         <div className="mt-3">
-          {
 
- }
           <Btn
             disabled={reloadPending.has("reload-config")}
             onClick={() =>
@@ -1066,4 +1052,3 @@ function DeveloperCard() {
     </Card>
   );
 }
-

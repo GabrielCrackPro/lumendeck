@@ -250,10 +250,7 @@ export function KeyboardPreview({ className }: { className?: string } = {}) {
   return (
     <div className="relative flex h-full flex-col justify-center overflow-hidden panel-inset p-3.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_50%_at_50%_0%,rgb(255_255_255/0.06),transparent_55%)]" />
-      {
 
-
- }
       <div className="relative z-10 mx-auto flex w-full max-w-[760px] flex-col justify-center">
         <canvas
           ref={canvasRef}
@@ -265,13 +262,7 @@ export function KeyboardPreview({ className }: { className?: string } = {}) {
           <span className="kicker shrink-0">
             {t(labelKey, labelVars)}
           </span>
-          {
 
-
-
-
-
- }
           <span className="ml-auto flex min-w-0 items-baseline justify-end gap-2">
             {isKeyboard && hover && disp.zoned && (
               <span className="shrink-0 font-mono text-[10px] tabular-nums text-[var(--text-faint)]/70">

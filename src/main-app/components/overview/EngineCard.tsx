@@ -1,35 +1,43 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
-import { Card, Chip, SwitchBtn, Segmented } from "../ui";
-import { DeviceRow } from "../DeviceRow";
-import { deviceWindow, DEVICE_ROWS_COLLAPSED, type LedCounts } from "../deviceList";
-import { IconBulb, IconSun, IconZap, IconChevronDown, IconChevronRight } from "../icons";
+import { Card, Chip, SwitchBtn } from "../ui";
+import type { LedCounts } from "../deviceList";
+import { IconBulb, IconSun, IconZap, IconChevronRight } from "../icons";
 import { RGB_MODES } from "@shared/constants";
-import type { Config, RgbDeviceInfo, RgbMode } from "@shared/types";
+import type { Config } from "@shared/types";
 import { t } from "../../i18n";
 
 function QuickSlider({
   icon,
   value,
+  min = 0,
+  max = 100,
+  format = (v) => `${v}%`,
   onChange,
   title,
 }: {
   icon: ReactNode;
   value: number;
+  min?: number;
+  max?: number;
+  format?: (value: number) => string;
   onChange: (v: number) => void;
   title: string;
 }) {
   const [live, setLive] = useState<number | null>(null);
   const shown = live ?? value;
+  const fill = ((shown - min) / (max - min)) * 100;
   return (
-    <div className="flex w-44 shrink-0 items-center gap-2" data-tip={title}>
+    <div className="flex min-w-0 items-center gap-2" data-tip={title}>
       {icon}
       <input
         type="range"
-        min={0}
-        max={100}
+        className="w-full min-w-0"
+        min={min}
+        max={max}
         step={1}
         value={shown}
-        style={{ "--fill": `${shown}%` } as CSSProperties}
+        aria-label={title}
+        style={{ "--fill": `${fill}%` } as CSSProperties}
         onChange={(e) => setLive(Number(e.target.value))}
         onPointerUp={() => {
           if (live != null) onChange(live);
@@ -44,63 +52,9 @@ function QuickSlider({
           setLive(null);
         }}
       />
-      <span className="w-9 shrink-0 text-right font-mono text-[10px] tabular-nums text-[var(--text-dim)]">
-        {shown}%
+      <span className="w-10 shrink-0 text-right font-mono text-[10px] tabular-nums text-[var(--text-dim)]">
+        {format(shown)}
       </span>
-    </div>
-  );
-}
-
-function ModePicker({
-  mode,
-  onSelect,
-}: {
-  mode: string;
-  onSelect: (m: (typeof RGB_MODES)[number]["id"]) => void;
-}) {
-  const groups = [
-    { id: "reactive", label: "lighting.follows-the-wallpaper" },
-    { id: "animation", label: "lighting.runs-on-its-own" },
-  ] as const;
-  const active = RGB_MODES.find((m) => m.id === mode);
-  return (
-    <div className="space-y-3.5">
-      {groups.map((g) => {
-        const modes = RGB_MODES.filter((m) => m.group === g.id);
-        const ownsActive = active?.group === g.id;
-        return (
-          <div key={g.id}>
-            {
-
-
- }
-            <div className="mb-1.5 flex items-baseline justify-between gap-3">
-              <span className="kicker">{t(g.label)}</span>
-              {ownsActive && active ? (
-                <span className="truncate font-mono text-[10px] text-[rgb(var(--glow))]">
-                  {t("overview.active-{mode}", { mode: t(active.label) })}
-                </span>
-              ) : (
-                <span className="font-mono text-[10px] text-[var(--text-faint)]">
-                  {t("common.{n}-modes", { n: modes.length })}
-                </span>
-              )}
-            </div>
-            <Segmented
-              label={t("common.{mode}-lighting-modes", { mode: t(g.label) })}
-              value={ownsActive ? active.id : ""}
-              onChange={(v) => onSelect(v as RgbMode)}
-              options={modes.map((m) => ({
-                id: m.id as string,
-                label: t(m.label),
-              }))}
-            />
-          </div>
-        );
-      })}
-      {active && (
-        <p className="text-xs leading-relaxed text-[var(--text-faint)]">{t(active.hint)}</p>
-      )}
     </div>
   );
 }
@@ -113,206 +67,113 @@ export default function EngineCard({
   nightOn,
   idleOn,
   isAnimatedMode,
-  excluded,
-  allDevices,
-  onAllDevices: setAllDevices,
+  onOpenLighting,
 }: {
   cfg: Config;
-  rgb: { connected: boolean; devices: RgbDeviceInfo[] };
+  rgb: { connected: boolean; devices: { id: number }[] };
   counts: LedCounts;
   save: (mutate: (c: Config) => void) => void;
   nightOn: boolean;
   idleOn: boolean;
   isAnimatedMode: boolean;
-  excluded: ReadonlySet<number>;
-  allDevices: boolean;
-  onAllDevices: (v: boolean) => void;
+  onOpenLighting: () => void;
 }) {
   const ledActive = counts.active;
   const ledTotal = counts.total;
-  const deviceRows = deviceWindow(rgb.devices, allDevices);
+  const mode = RGB_MODES.find((item) => item.id === cfg.rgb.mode);
   return (
-        <Card
-          title={t("overview.lighting-engine")}
-          icon={<IconBulb />}
-          className="xl:col-span-7"
-          right={
-            <div className="flex min-w-0 shrink items-center gap-2.5">
-              {rgb.devices.length > 0 && (
-                <span className="hidden min-w-0 truncate font-mono text-[10px] text-[var(--text-faint)] lg:inline">
-                  {t("common.{active}-{total}-devices-{led}-{totalleds}-leds", {
-                    active: counts.unmuted,
-                    total: rgb.devices.length,
-                    led: ledActive.toLocaleString(),
-                    totalLeds: ledTotal.toLocaleString(),
-                  })}
-                </span>
-              )}
-              <Chip tone={rgb.connected ? "ok" : "danger"} pulse={rgb.connected}>
-                {rgb.connected ? t("common.connected") : t("common.offline")}
-              </Chip>
-              {
+    <Card
+      title={t("overview.lighting-engine")}
+      icon={<IconBulb />}
+      className="@[38rem]:col-span-5"
+      right={
+        <div className="flex min-w-0 shrink items-center gap-2.5">
+          <Chip tone={rgb.connected ? "ok" : "danger"} pulse={rgb.connected}>
+            {rgb.connected ? t("common.connected") : t("common.offline")}
+          </Chip>
 
-
-
-
-
- }
-              <SwitchBtn
-                checked={cfg.rgb.enabled}
-                onChange={(v) => save((c) => (c.rgb.enabled = v))}
-                disabled={!rgb.connected}
-                title={t("common.master-lighting-switch")}
-              />
-            </div>
-          }
-        >
-          <div
-            className="relative min-w-0"
-            style={{
-              boxShadow: cfg.rgb.enabled
-                ? "0 0 calc(6px + var(--al, 0) * 34px) rgb(var(--glow) / calc(0.05 + var(--al, 0) * 0.26 + var(--beat, 0) * 0.2))"
-                : undefined,
-            }}
-          >
-            {rgb.devices.length > 0 ? (
-              <>
-                <ul className="min-w-0 space-y-2">
-                {deviceRows.visible.map((d) => (
-                  <DeviceRow
-                    key={d.id}
-                    device={d}
-                    muted={excluded.has(d.id)}
-                    onToggleMute={() =>
-                      save((cc) => {
-                        const set = new Set(cc.rgb.excludedDevices);
-                        if (set.has(d.id)) set.delete(d.id);
-                        else set.add(d.id);
-                        cc.rgb.excludedDevices = [...set];
-                      })
-                    }
-                    deviceNames={cfg.rgb.deviceNames}
-                    onRename={(name) =>
-                      save((cc) => {
-                        const names = { ...cc.rgb.deviceNames };
-                        if (name) names[String(d.id)] = name;
-                        else delete names[String(d.id)];
-                        cc.rgb.deviceNames = names;
-                      })
-                    }
-                  />
-                ))}
-              </ul>
-                {
-
-
-
- }
-                {deviceRows.collapsible && (
-                  <button
-                    type="button"
-                    onClick={() => setAllDevices(true)}
-                    aria-expanded={false}
-                    className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-dashed border-[var(--line-strong)] py-1.5 text-[11px] text-[var(--text-faint)] transition-colors hover:border-[rgb(var(--glow)/0.45)] hover:bg-[rgb(var(--glow)/0.07)] hover:text-[var(--text)]"
-                  >
-                    <IconChevronDown className="h-3 w-3 shrink-0" />
-                    {t("lighting.show-{n}-more-devices", {
-                      n: deviceRows.hidden,
-                    })}
-                  </button>
-                )}
-                {
-
-
- }
-                {allDevices && rgb.devices.length > DEVICE_ROWS_COLLAPSED && (
-                  <button
-                    type="button"
-                    onClick={() => setAllDevices(false)}
-                    className="mt-2 flex w-full items-center justify-center gap-1.5 py-1 text-[11px] text-[var(--text-faint)] transition-colors hover:text-[var(--text)]"
-                  >
-                    {
-
- }
-                    <IconChevronRight className="h-3 w-3 shrink-0 -rotate-90" />
-                    {t("lighting.show-fewer-devices")}
-                  </button>
-                )}
-              </>
-            ) : (
-              <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-[var(--line-strong)] py-8 text-[var(--text-faint)]">
-                <IconBulb className="h-5 w-5" />
-                <span className="text-xs">
-                  {rgb.connected
-                    ? t("common.connected-but-no-devices-reported-yet")
-                    : t("common.openrgb-is-offline")}
-                </span>
-                {!rgb.connected && (
-                  <span className="font-mono text-[10px]">
-                    {t("common.start-openrgb-then-refresh-from-the-lighting-tab")}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {!cfg.rgb.enabled && rgb.devices.length > 0 && (
-              <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/45 backdrop-blur-[2px]">
-                <span className="rounded-md bg-black/60 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-amber-300">
-                  {t("common.lighting-off")}
-                </span>
-              </div>
-            )}
+          <SwitchBtn
+            checked={cfg.rgb.enabled}
+            onChange={(v) => save((c) => (c.rgb.enabled = v))}
+            disabled={!rgb.connected}
+            title={t("common.master-lighting-switch")}
+          />
+        </div>
+      }
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="kicker">{t("common.lighting-mode")}</div>
+          <div className="mt-1 truncate text-base font-semibold text-[var(--text)]">
+            {mode ? t(mode.label) : cfg.rgb.mode}
           </div>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--text-faint)]">
+            {rgb.connected
+              ? t("common.{active}-{total}-devices-{led}-{totalleds}-leds", {
+                  active: counts.unmuted,
+                  total: rgb.devices.length,
+                  led: ledActive.toLocaleString(),
+                  totalLeds: ledTotal.toLocaleString(),
+                })
+              : t("common.start-openrgb-then-refresh-from-the-lighting-tab")}
+          </p>
+        </div>
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] text-[rgb(var(--glow))]">
+          <IconBulb className="h-4 w-4" />
+        </span>
+      </div>
 
-          { }
-          <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-2">
-            {cfg.rgb.enabled ? (
-              <>
-                <QuickSlider
-                  icon={<IconSun className="h-4 w-4 shrink-0 text-[var(--text-faint)]" />}
-                  value={Math.round(cfg.rgb.mixer.brightness * 100)}
-                  onChange={(v) => save((c) => (c.rgb.mixer.brightness = v / 100))}
-                  title={t("common.brightness")}
-                />
-                {isAnimatedMode && (
-                  <QuickSlider
-                    icon={<IconZap className="h-4 w-4 shrink-0 text-[var(--text-faint)]" />}
-                    value={Math.round(cfg.rgb.animationSpeed * 50)}
-                    onChange={(v) => save((c) => (c.rgb.animationSpeed = v / 50))}
-                    title={t("common.animation-speed")}
-                  />
-                )}
-              </>
-            ) : (
-              <span className="font-mono text-[10.5px] text-[var(--text-faint)]">
-                {t("common.engine-off-flip-the-switch-to-wake-your-lights")}
-              </span>
-            )}
-
-            {(nightOn || idleOn) && (
-              <div className="ml-auto flex gap-1.5">
-                {nightOn && (
-                  <Chip tone="accent">
-                    {`${t("common.night")} ${cfg.rgb.nightStart}–${cfg.rgb.nightEnd}`}
-                  </Chip>
-                )}
-                {idleOn && (
-                  <Chip tone="idle">
-                    {t("common.idle-{n}s", { n: cfg.rgb.idleTimeoutSec })}
-                  </Chip>
-                )}
-              </div>
-            )}
-          </div>
-
-          {
- }
-          <div className="mt-3.5">
-            <ModePicker
-              mode={cfg.rgb.mode}
-              onSelect={(m) => save((c) => { c.rgb.enabled = true; c.rgb.mode = m; })}
+      <div className="mt-4 grid gap-3 border-t border-[var(--line)] pt-3 @[24rem]:grid-cols-2">
+        {cfg.rgb.enabled ? (
+          <>
+            <QuickSlider
+              icon={<IconSun className="h-4 w-4 shrink-0 text-[var(--text-faint)]" />}
+              value={Math.round(cfg.rgb.mixer.brightness * 100)}
+              max={150}
+              onChange={(v) => save((c) => (c.rgb.mixer.brightness = v / 100))}
+              title={t("common.brightness")}
             />
+            {isAnimatedMode && (
+              <QuickSlider
+                icon={<IconZap className="h-4 w-4 shrink-0 text-[var(--text-faint)]" />}
+                value={Math.round(cfg.rgb.animationSpeed * 100)}
+                min={10}
+                max={500}
+                format={(v) => `${(v / 100).toFixed(1)}×`}
+                onChange={(v) => save((c) => (c.rgb.animationSpeed = v / 100))}
+                title={t("common.animation-speed")}
+              />
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-[var(--text-faint)]">
+            {t("common.engine-off-flip-the-switch-to-wake-your-lights")}
+          </p>
+        )}
+        {(nightOn || idleOn) && (
+          <div className="flex flex-wrap items-center gap-1.5 @[24rem]:col-span-2">
+            {nightOn && (
+              <Chip tone="accent">
+                {`${t("common.night")} ${cfg.rgb.nightStart}–${cfg.rgb.nightEnd}`}
+              </Chip>
+            )}
+            {idleOn && (
+              <Chip tone="idle">
+                {t("common.idle-{n}s", { n: cfg.rgb.idleTimeoutSec })}
+              </Chip>
+            )}
           </div>
-        </Card>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={onOpenLighting}
+        className="group mt-3 flex w-full items-center justify-between rounded-lg border border-dashed border-[var(--line-strong)] px-3 py-2 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.45)] hover:bg-[rgb(var(--glow)/0.06)] hover:text-[var(--text)]"
+      >
+        {t("common.manage")}
+        <IconChevronRight className="h-4 w-4 text-[var(--text-faint)] transition-transform group-hover:translate-x-0.5 group-hover:text-[rgb(var(--glow))]" />
+      </button>
+    </Card>
   );
 }

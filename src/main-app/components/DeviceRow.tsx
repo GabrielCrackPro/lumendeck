@@ -137,21 +137,8 @@ export function DeviceRow({
             : "border-[var(--line)] bg-[var(--panel-sunken)] hover:border-[var(--line-strong)]"
       }`}
     >
-      {
 
 
-
-
- }
-      {
-
-
-
-
-
-
-
- }
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2">
         {renaming ? (
           <>
@@ -193,19 +180,7 @@ export function DeviceRow({
               aria-controls={`device-detail-${device.id}`}
               className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg py-1 text-left"
             >
-              {
 
-
-
-
-
-
-
-
-
-
-
- }
               <span
                 className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-[var(--panel)] transition-colors duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
                   muted
@@ -226,24 +201,7 @@ export function DeviceRow({
                 {name}
               </span>
 
-              {
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- }
               {justArrived && (
                 <span className="hidden min-w-0 shrink items-center gap-1 truncate rounded-[var(--radius-sm)] bg-emerald-500/15 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 sm:flex">
                   <IconCheck className="h-3 w-3 shrink-0" />
@@ -251,8 +209,7 @@ export function DeviceRow({
                 </span>
               )}
 
-              {
- }
+
               <span className="flex items-center gap-2">
                 <span
                   aria-hidden
@@ -267,21 +224,7 @@ export function DeviceRow({
               </span>
             </button>
 
-            {
 
-
-
-
-
-
-
-
-
-
-
-
-
- }
             <SwitchBtn
               checked={!muted}
               onChange={() => onToggleMute()}
@@ -291,42 +234,17 @@ export function DeviceRow({
         )}
       </div>
 
-      {
 
-
-
-
-
- }
       <div
         className="disclose"
         data-open={open}
         inert={!open}
         id={`device-detail-${device.id}`}
       >
-        {
 
-
-
-
-
-
-
-
-
-
-
- }
         <div className="disclose-inner">
           <div className="px-3 pb-3">
-            {
 
-
-
-
-
-
- }
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-[var(--radius-md)] bg-[var(--bg)] p-3 sm:grid-cols-3">
               <div className="min-w-0">
                 <dt className="kicker">{t("lighting.type")}</dt>
@@ -361,8 +279,7 @@ export function DeviceRow({
               </div>
             )}
 
-            {
- }
+
             <div className="mt-2.5 flex items-center gap-2">
               {hex && !muted && (
                 <>

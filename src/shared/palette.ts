@@ -52,13 +52,16 @@ export const THEME_BLOCKS: readonly ThemeBlock[] = [
     selector: ".dark.amoled",
     tokens: {
       bg: "#000000",
-      panel: "rgba(255, 255, 255, 0.02)",
-      "panel-strong": "rgba(255, 255, 255, 0.04)",
+      panel: "rgba(255, 255, 255, 0.035)",
+      "panel-strong": "rgba(255, 255, 255, 0.065)",
       "panel-sunken": "rgba(0, 0, 0, 0.6)",
-      line: "rgba(255, 255, 255, 0.09)",
-      "line-strong": "rgba(255, 255, 255, 0.2)",
+      line: "rgba(255, 255, 255, 0.085)",
+      "line-strong": "rgba(255, 255, 255, 0.17)",
+      text: "#f2f3f5",
+      "text-dim": "#b2b5bb",
+      "text-faint": "#858a92",
       shadow:
-        "0 0 0 1px rgba(0, 0, 0, 0.8), 0 24px 60px -34px rgba(0, 0, 0, 1)",
+        "0 0 0 1px rgba(0, 0, 0, 0.9), 0 1px 0 rgba(255, 255, 255, 0.025) inset, 0 24px 60px -34px rgba(0, 0, 0, 1)",
     },
   },
 ];

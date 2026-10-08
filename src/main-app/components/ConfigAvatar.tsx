@@ -36,10 +36,7 @@ export function ConfigAvatar({
 
   const inner = (
     <>
-      {
 
-
- }
       <span className="block h-full w-full overflow-hidden rounded-full">
         {showImage ? (
           <img
@@ -58,23 +55,14 @@ export function ConfigAvatar({
         )}
       </span>
 
-      {
 
-
-
- }
       {overlay && onClick && (
         <span className="t-fast pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover/av:opacity-100 group-focus-visible/av:opacity-100">
           {overlay}
         </span>
       )}
 
-      {
 
-
-
-
- }
       {live !== undefined && (
         <span
           title={t(live ? "overview.live" : "overview.attention")}

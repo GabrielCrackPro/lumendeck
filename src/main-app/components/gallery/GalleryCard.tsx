@@ -1,9 +1,10 @@
 import { memo, useEffect, useState, type DragEvent, type ReactNode } from "react";
-import { IconCheck, IconInfo, IconPencil, IconPlay, IconStar, IconTrash } from "../icons";
+import { IconCheck, IconInfo, IconLayers, IconPencil, IconPlay, IconStar, IconTrash } from "../icons";
 import { OVERLAY_ICON_BTN } from "../ui";
 import { t } from "../../i18n";
 import "./galleryMotion.css";
 import { GALLERY_KIND_LABEL } from "./kindLabels";
+import { collectionsOf } from "./galleryQuery";
 import { hasTileMeta, tileMetaFor } from "./tileMeta";
 import type { VaultIndex } from "./vaultIndex";
 import { useNearViewport } from "./useNearViewport";
@@ -66,6 +67,8 @@ function GalleryCardImpl({
   const [popping, setPopping] = useState(false);
   const meta = tileMetaFor(entry, index);
   const showMeta = hasTileMeta(meta);
+  const entryCollections = collectionsOf(entry, collections);
+  const collectionNames = entryCollections.map((collection) => collection.name).join(", ");
   useEffect(() => {
     if (!popping) return;
     const id = setTimeout(() => setPopping(false), 460);
@@ -82,7 +85,7 @@ function GalleryCardImpl({
       onClick={(e) => onSelect({ shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey })}
       draggable={draggable}
       onDragStart={onDragStart}
-      className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] outline-none transition-all duration-[var(--motion-slow)] ease-[var(--ease-standard)] hover:-translate-y-0.5 hover:shadow-[var(--shadow)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow))]  ${near ? "tile-revealed" : "tile-reveal"} ${
+      className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] outline-none transition-all duration-[var(--motion-slow)] ease-[var(--ease-standard)] motion-safe:hover:-translate-y-0.5 hover:shadow-[var(--shadow)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow))]  ${near ? "tile-revealed" : "tile-reveal"} ${
         active
           ? "border-[rgb(var(--glow)/0.7)] shadow-[0_14px_36px_-14px_rgb(var(--glow)/0.55)] ring-2 ring-[rgb(var(--glow)/0.22)]"
           : selected
@@ -92,32 +95,14 @@ function GalleryCardImpl({
               : "border-[var(--line)] hover:border-[var(--line-strong)]"
       }`}
     >
-      {
 
-
- }
       <div className="relative aspect-video w-full overflow-hidden">
-        <div className="absolute inset-0 transition-transform duration-[var(--motion-slow)] ease-[var(--ease-standard)] group-hover:scale-[1.05]">
+        <div className="absolute inset-0 transition-transform duration-[var(--motion-slow)] ease-[var(--ease-standard)] motion-safe:group-hover:scale-[1.05]">
           {thumbFor(entry)}
         </div>
 
-      {
 
 
-
-
-
-
-
-
-
-
-
-
- }
-      {
-
- }
       <div className="pointer-events-none absolute left-2 top-2 z-10 flex flex-col items-start gap-1">
         {active && (
           <div className="flex items-center gap-1 rounded-full bg-[rgb(var(--glow))] px-2 py-0.5 font-mono text-[10px] font-semibold text-[var(--on-accent)] shadow-[0_0_14px_rgb(var(--glow)/0.7)] live-pulse">
@@ -126,9 +111,7 @@ function GalleryCardImpl({
           </div>
         )}
 
-        {
 
- }
         {active && rotating && (
           <div
             className="rounded-full bg-black/60 px-2 py-0.5 font-mono text-[9px] font-semibold text-white/80 backdrop-blur"
@@ -148,8 +131,7 @@ function GalleryCardImpl({
         )}
       </div>
 
-      {
- }
+
       {runningOn.length > 0 && (
         <div className="pointer-events-none absolute right-2 top-2 z-10 flex gap-1">
           {runningOn.map((n) => (
@@ -163,39 +145,13 @@ function GalleryCardImpl({
         </div>
       )}
 
-      {
- }
-      {runningOn.length > 0 && (
-        <div className="pointer-events-none absolute right-2 top-2 z-10 flex gap-1">
-          {runningOn.map((n) => (
-            <span
-              key={n}
-              className="flex h-5 min-w-5 items-center justify-center rounded-md bg-[rgb(var(--glow))] px-1 font-mono text-[10px] font-bold text-[var(--on-accent)] shadow-[0_0_10px_rgb(var(--glow)/0.6)]"
-            >
-              {n}
-            </span>
-          ))}
-        </div>
-      )}
 
-        {
-
-
-
-
-
-
-
- }
         <div
           className={`absolute bottom-2 right-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap justify-end gap-1 transition-opacity ${
             selected ? "opacity-100" : "opacity-0 focus-within:opacity-100 group-hover:opacity-100"
           }`}
         >
-          {
 
-
- }
           <button
             aria-label={t("gallery.apply-{name}-everywhere", { name: entry.name })}
             data-tip={t("gallery.apply-everywhere-hint")}
@@ -239,17 +195,7 @@ function GalleryCardImpl({
           </button>
         </div>
 
-        {
 
-
-
-
-
-
-
-
-
- }
         <button
           role="checkbox"
           aria-checked={checked}
@@ -268,65 +214,66 @@ function GalleryCardImpl({
         </button>
       </div>
 
-      {
 
- }
-      <div className="border-t border-[var(--line)] bg-[var(--panel-sunken)] px-2.5 py-1.5">
-      <div className="flex min-w-0 items-center gap-2">
-        <div className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--text)]">
-          {entry.name}
+      <div className="border-t border-[var(--line)] bg-[var(--panel-sunken)] px-2.5 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <div
+            title={entry.name}
+            className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--text)]"
+          >
+            {entry.name}
+          </div>
+          <button
+            aria-label={t(favorite ? "gallery.unstar-{name}" : "gallery.star-{name}", {
+              name: entry.name,
+            })}
+            aria-pressed={favorite}
+            onClick={(e) => {
+              e.stopPropagation();
+              setStarTick((n) => n + 1);
+              setPopping(true);
+              onToggleFavorite();
+            }}
+            className={`-m-1 shrink-0 rounded p-1 transition-colors ${
+              favorite
+                ? "text-[rgb(var(--glow))]"
+                : "text-[var(--text-faint)] hover:text-[var(--text-dim)] focus-visible:text-[var(--text)]"
+            }`}
+          >
+            <IconStar
+              key={starTick}
+              filled={favorite}
+              className={`h-4 w-4 ${popping ? "star-pop" : ""}`}
+            />
+          </button>
         </div>
-        <span className="kicker shrink-0 !text-[var(--text-faint)]">
-          {t(GALLERY_KIND_LABEL[entry.kind])}
-        </span>
-        <button
-          aria-label={t(favorite ? "gallery.unstar-{name}" : "gallery.star-{name}", {
-            name: entry.name,
-          })}
-          aria-pressed={favorite}
-          onClick={(e) => {
-            e.stopPropagation();
-            setStarTick((n) => n + 1);
-            setPopping(true);
-            onToggleFavorite();
-          }}
-          className={`-m-1 shrink-0 rounded p-1 transition-colors ${
-            favorite
-              ? "text-[rgb(var(--glow))]"
-              : "text-[var(--text-faint)] hover:text-[var(--text-dim)]"
-          }`}
-        >
-          <IconStar
-            key={starTick}
-            filled={favorite}
-            className={`h-4 w-4 ${popping ? "star-pop" : ""}`}
-          />
-        </button>
-        {collections.length > 0 && (
-          <span
-            className="h-1.5 w-1.5 shrink-0 rounded-full bg-[rgb(var(--glow))]"
-            data-tip={collections.map((c) => c.name).join(", ")}
-          />
-        )}
-      </div>
-      {
 
- }
-      {showMeta && (
-        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 font-mono text-[10px] leading-none text-[var(--text-faint)]">
-          {meta.resolution && <span className="truncate">{meta.resolution}</span>}
-          {meta.resolution && meta.duration && (
-            <span aria-hidden className="shrink-0 opacity-60">
-              &middot;
+        <div className="mt-1 flex min-h-4 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] leading-none text-[var(--text-faint)]">
+          <span className="kicker !text-[var(--text-faint)]">
+            {t(GALLERY_KIND_LABEL[entry.kind])}
+          </span>
+          {showMeta && (
+            <>
+              {meta.resolution && <span className="truncate">{meta.resolution}</span>}
+              {meta.duration && (
+                <span className="shrink-0">
+                  {t("gallery.length-{duration}", { duration: meta.duration })}
+                </span>
+              )}
+            </>
+          )}
+          {entryCollections.length > 0 && (
+            <span
+              role="img"
+              aria-label={t("gallery.in-{n}-collections", { n: entryCollections.length })}
+              data-tip={collectionNames}
+              className="ml-auto inline-flex shrink-0 items-center gap-1 text-[var(--text-dim)]"
+            >
+              <IconLayers className="h-3 w-3" />
+              <span>{entryCollections.length}</span>
             </span>
           )}
-          {meta.duration && (
-            <span className="shrink-0">
-              {t("gallery.length-{duration}", { duration: meta.duration })}
-            </span>
-          )}
         </div>
-      )}
       </div>
     </div>
   );

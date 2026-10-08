@@ -629,6 +629,15 @@ pub fn gallery_import_paths(
 }
 
 #[tauri::command]
+pub async fn media_picker_list(
+    path: Option<String>,
+) -> Result<crate::media_picker::MediaPickerListing, String> {
+    tokio::task::spawn_blocking(move || crate::media_picker::list(path.as_deref()))
+        .await
+        .map_err(crate::error::err_str)?
+}
+
+#[tauri::command]
 pub fn gallery_remove(id: String) -> Result<Vec<crate::config::GalleryEntry>, String> {
     crate::config_store::update(|c| c.gallery.retain(|g| g.id != id))?;
     Ok(crate::config_store::get().gallery)

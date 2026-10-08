@@ -215,51 +215,15 @@ export function GalleryGrid({
 
   return (
     <>
-      {
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- }
       {checked.size > 0 && (
         <div className="page-enter mb-3 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-[var(--line-strong)] bg-[var(--panel-strong)] px-3 py-2">
-          {
 
-
-
-
-
-
-
-
-
-
-
-
-
- }
           <div className="flex shrink items-center gap-2">
           <span className="text-xs font-semibold tabular-nums text-[rgb(var(--glow))]">
             {t("common.{n}-selected", { n: checked.size })}
           </span>
-          {
 
-
-
- }
           {hiddenChecked > 0 && (
             <span
               className="flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-amber-200"
@@ -271,10 +235,7 @@ export function GalleryGrid({
           )}
           </div>
 
-          {
 
-
- }
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
           <span className="h-5 w-px bg-[var(--line-strong)]" />
 
@@ -325,8 +286,7 @@ export function GalleryGrid({
             )}
           </div>
 
-          {
- }
+
           <button
             onClick={onApplyChecked}
             aria-label={t("gallery.apply-selection")}
@@ -342,9 +302,7 @@ export function GalleryGrid({
             <span className={SEL_BTN_LABEL}>{t("gallery.apply-selection-short")}</span>
           </button>
 
-          {
 
- }
           <span className="h-5 w-px bg-[var(--line-strong)]" />
           <button
             onClick={onRemoveChecked}

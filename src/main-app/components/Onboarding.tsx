@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useEffectiveTheme } from "../theme";
 import { amoledDefault } from "./onboardingAmoled";
@@ -11,7 +11,6 @@ import {
   Chip,
   InfoNote,
   ItemTitle,
-  Row,
   ThemePicker,
   Toggle,
   displayName,
@@ -25,7 +24,19 @@ import { autoIndexEnabled, buildAfterImport } from "./gallery/autoIndex";
 import TransferImport from "./TransferImport";
 import { reconcileImportedConfig } from "./onboardingImport";
 import { readCache } from "./gallery/vaultIndex";
-import { IconCheck, IconSparkle, IconUpload, IconUser } from "./icons";
+import {
+  IconCheck,
+  IconFolder,
+  IconImage,
+  IconMonitor,
+  IconPalette,
+  IconUpload,
+  IconUser,
+  IconZap,
+} from "./icons";
+import type { ReactNode } from "react";
+import { Modal } from "./Modal";
+import TitleBar from "./TitleBar";
 import {
   detectSetup,
   foundCount,
@@ -35,6 +46,12 @@ import {
 } from "./onboardingDetect";
 import type { Config, GalleryEntry, RgbMode } from "@shared/types";
 import { t } from "../i18n";
+
+const MediaPickerModal = lazy(() =>
+  import("./MediaPickerModal").then((module) => ({
+    default: module.MediaPickerModal,
+  })),
+);
 
 const STEP_LABELS: Record<number, string> = {
   0: "onboarding.caption-detect",
@@ -49,6 +66,41 @@ const STEP_LABELS: Record<number, string> = {
 
 const STEP_COUNT = 8;
 
+function StepHeading({
+  icon,
+  title,
+  description,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <header className="mb-5 flex items-start gap-3.5">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[rgb(var(--glow)/0.22)] bg-[rgb(var(--glow)/0.08)] text-[rgb(var(--glow))]">
+        {icon}
+      </span>
+      <div className="min-w-0 pt-0.5">
+        <h1 className="lednum text-base leading-snug text-[var(--text)] sm:text-lg">
+          {title}
+        </h1>
+        <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-[var(--text-dim)]">
+          {description}
+        </p>
+      </div>
+    </header>
+  );
+}
+
+function SummaryItem({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-[var(--line)] bg-[var(--panel)] px-3 py-2.5">
+      <span className="kicker block truncate !text-[var(--text-faint)]">{label}</span>
+      <div className="mt-1.5 min-w-0 text-xs text-[var(--text-dim)]">{children}</div>
+    </div>
+  );
+}
+
 function Stepper({
   step,
   onJump,
@@ -59,29 +111,57 @@ function Stepper({
   needsAttention?: (n: number) => boolean;
 }) {
   return (
-    <div className="flex items-center justify-center gap-1.5">
+    <nav aria-label={t("onboarding.setup-progress")} className="w-full">
+      <ol className="flex w-max items-center gap-1.5 lg:w-full lg:flex-col lg:items-stretch lg:gap-1">
       {Array.from({ length: STEP_COUNT }, (_, i) => {
         const outstanding = i < step && needsAttention?.(i) === true;
         return (
-          <button
-            key={i}
-            onClick={() => onJump(i)}
-            disabled={i >= step}
-            aria-label={t(STEP_LABELS[i] ?? STEP_LABELS[0]!)}
-            title={i < step ? t(STEP_LABELS[i] ?? STEP_LABELS[0]!) : undefined}
-            className={`h-1.5 rounded-full transition-all duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
-              i === step
-                ? "w-7 bg-[rgb(var(--glow))] shadow-[0_0_10px_rgb(var(--glow)/0.7)]"
-                : i < step
-                  ? outstanding
-                    ? "w-1.5 cursor-pointer bg-amber-400/70 hover:bg-amber-400"
-                    : "w-1.5 cursor-pointer bg-[rgb(var(--glow)/0.45)] hover:bg-[rgb(var(--glow)/0.75)]"
-                  : "w-1.5 cursor-default bg-[var(--line-strong)]"
-            }`}
-          />
+          <li key={i} className="shrink-0 lg:w-full">
+            <button
+              onClick={() => onJump(i)}
+              disabled={i >= step}
+              aria-label={t(STEP_LABELS[i] ?? STEP_LABELS[0]!)}
+              aria-current={i === step ? "step" : undefined}
+              title={t(STEP_LABELS[i] ?? STEP_LABELS[0]!)}
+              className={`group flex h-9 min-w-9 items-center justify-center gap-3 rounded-lg px-1 transition-colors duration-[var(--motion-fast)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.6)] lg:h-auto lg:w-full lg:justify-start lg:px-2.5 lg:py-2 ${
+                i === step
+                  ? "bg-[rgb(var(--glow)/0.1)] text-[var(--text)] ring-1 ring-[rgb(var(--glow)/0.28)]"
+                  : i < step
+                    ? outstanding
+                      ? "text-amber-300 hover:bg-amber-500/10"
+                      : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
+                    : "cursor-default text-[var(--text-faint)]"
+              }`}
+            >
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border font-mono text-[10px] font-semibold transition-colors ${
+                  i === step
+                    ? "border-[rgb(var(--glow)/0.55)] bg-[rgb(var(--glow)/0.16)] text-[rgb(var(--glow))]"
+                    : i < step
+                      ? outstanding
+                        ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+                        : "border-[rgb(var(--glow)/0.25)] bg-[rgb(var(--glow)/0.08)] text-[rgb(var(--glow))]"
+                      : "border-[var(--line-strong)] bg-[var(--panel)] text-[var(--text-faint)]"
+                }`}
+              >
+                {i < step && !outstanding ? (
+                  <IconCheck className="h-3.5 w-3.5" />
+                ) : (
+                  i + 1
+                )}
+              </span>
+              <span className="hidden min-w-0 flex-1 truncate text-left text-xs font-medium lg:block">
+                {t(STEP_LABELS[i] ?? STEP_LABELS[0]!)}
+              </span>
+              {outstanding && (
+                <span className="hidden h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300 lg:block" />
+              )}
+            </button>
+          </li>
         );
       })}
-    </div>
+      </ol>
+    </nav>
   );
 }
 
@@ -138,10 +218,12 @@ function PickTile({
 }) {
   return (
     <button
+      type="button"
       onClick={onPick}
       disabled={disabled}
+      aria-pressed={active}
       title={entry.name}
-      className={`group relative flex w-full flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] text-left transition-all duration-[var(--motion-slow)] ease-[var(--ease-standard)] hover:-translate-y-0.5 hover:shadow-[var(--shadow)] disabled:pointer-events-none disabled:opacity-50 ${
+      className={`group relative flex w-full flex-col overflow-hidden rounded-xl border bg-[var(--panel-strong)] text-left transition-all duration-[var(--motion-slow)] ease-[var(--ease-standard)] hover:-translate-y-0.5 hover:shadow-[var(--shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.7)] disabled:pointer-events-none disabled:opacity-50 ${
         active
           ? "border-[rgb(var(--glow)/0.7)] ring-2 ring-[rgb(var(--glow)/0.22)]"
           : "border-[var(--line)] hover:border-[var(--line-strong)]"
@@ -185,6 +267,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   };
   const [busy, setBusy] = useState(false);
   const [urlMode, setUrlMode] = useState(false);
+  const [pickerMode, setPickerMode] = useState<"files" | "folder" | null>(null);
   const [url, setUrl] = useState("");
   const [added, setAdded] = useState<GalleryEntry[]>([]);
   const [importSource, setImportSource] = useState<string | null>(null);
@@ -299,14 +382,13 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const importFile = async () => {
+  const importFiles = async (paths: string[]) => {
     setBusy(true);
     try {
-      const files = await api.pickMediaFiles();
-      const first = resolvePicked(files)[0];
-      if (!first) return;
+      const picked = resolvePicked(paths);
+      if (picked.length === 0) return;
       const before = useStore.getState().cfg?.gallery ?? [];
-      const list = await api.galleryImportPaths([first.path]);
+      const list = await api.galleryImportPaths(picked.map((file) => file.path));
       const addedEntries = newlyAddedEntries(before, list);
       setAdded((prev) => [...prev, ...addedEntries]);
       const fresh = await api.getConfig();
@@ -320,11 +402,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const importFolder = async () => {
+  const importFolder = async (folder: string) => {
     setBusy(true);
     try {
-      const folder = await api.pickMediaFolder();
-      if (!folder) return;
       const before = useStore.getState().cfg?.gallery ?? [];
       const list = await api.galleryImportFolder(folder);
       const addedEntries = newlyAddedEntries(before, list);
@@ -465,7 +545,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     );
 
   const vaultGrid = (entries: GalleryEntry[]) => (
-    <div className="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+    <div className="grid max-h-80 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3">
       {entries.map((g) => (
         <PickTile
           key={g.id}
@@ -481,74 +561,93 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   const factRow = (id: DetectedFact["id"], label: string, hint: string | null) => {
     const f = fact(id);
     return (
-      <div key={id} className="border-t border-[var(--line)] first:border-t-0">
-        <Row label={label} hint={hint ?? undefined}>
+      <div key={id} className="min-w-0 rounded-lg border border-[var(--line)] bg-[var(--panel)] p-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate text-xs font-semibold text-[var(--text)]">{label}</span>
           <Chip tone={f?.ok ? "ok" : "idle"} pulse={detecting}>
             {f?.ok ? t("onboarding.ready") : t("onboarding.none")}
           </Chip>
-        </Row>
+        </div>
+        {hint && (
+          <p className="mt-2 text-[11px] leading-relaxed text-[var(--text-faint)]">
+            {hint}
+          </p>
+        )}
       </div>
     );
   };
 
   return (
-    <div className="grain relative h-screen overflow-y-auto">
+    <div className="grain relative flex h-screen flex-col overflow-hidden">
       <div className="aura" />
-      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center px-6 py-10">
-        {
-
-
-
-
-
- }
-        <div className="mb-3 flex items-center justify-between gap-4">
+      <TitleBar />
+      <div className="relative z-10 min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col justify-center px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
+        <div className="mb-5 flex items-center justify-between gap-4">
           <span className="flex min-w-0 items-center gap-2.5">
             <AppMark size={22} pulse={step === 0} />
             <AppWordmark size={22} />
           </span>
-          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
+          <span className="shrink-0 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--text-dim)]">
             {t("onboarding.step-{n}-of-{total}", { n: step + 1, total: STEP_COUNT })}
           </span>
         </div>
 
-        {
- }
-        <div className="mb-4 flex items-center gap-3">
-          <IconSparkle className="h-4 w-4 shrink-0 text-[rgb(var(--glow))]" />
-          <span className="kicker truncate">{t(STEP_LABELS[step] ?? STEP_LABELS[0]!)}</span>
-          <span className="ml-auto shrink-0">
+        <div className="mb-3 overflow-x-auto pb-1 lg:hidden">
+          <Stepper
+            step={step}
+            onJump={goTo}
+            needsAttention={(i) => i === 1 && !openrgbRunning}
+          />
+        </div>
+
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start lg:gap-6">
+          <aside className="hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-3 lg:block">
             <Stepper
               step={step}
               onJump={goTo}
               needsAttention={(i) => i === 1 && !openrgbRunning}
             />
-          </span>
-        </div>
+          </aside>
 
-        {
+          <main className="min-w-0">
+            <div className="mb-3 flex items-center gap-3 px-1">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[rgb(var(--glow))] shadow-[0_0_8px_rgb(var(--glow)/0.65)]" />
+              <span className="kicker truncate lg:hidden">{t(STEP_LABELS[step] ?? STEP_LABELS[0]!)}</span>
+              <div
+                className="ml-auto h-1 w-20 shrink-0 overflow-hidden rounded-full bg-[var(--line-strong)] sm:w-28"
+                role="progressbar"
+                aria-label={t("onboarding.setup-progress")}
+                aria-valuemin={1}
+                aria-valuemax={STEP_COUNT}
+                aria-valuenow={step + 1}
+              >
+                <div
+                  className="h-full rounded-full bg-[rgb(var(--glow))] transition-[width] duration-[var(--motion-base)]"
+                  style={{ width: `${((step + 1) / STEP_COUNT) * 100}%` }}
+                />
+              </div>
+            </div>
 
- }
-        <section
-          key={step}
-          className={`glass p-7 step-enter-${direction === 1 ? "forward" : "back"}`}
-        >
+            <section
+              key={step}
+              className={`glass p-5 sm:p-7 lg:p-8 step-enter-${direction === 1 ? "forward" : "back"}`}
+            >
           {step === 0 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">
-                {detecting || !facts
-                  ? t("onboarding.checking")
-                  : t("onboarding.we-checked-your-setup")}
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                {t("onboarding.here-is-what-we-found")}
-              </p>
+              <StepHeading
+                icon={<IconMonitor className="h-5 w-5" />}
+                title={
+                  detecting || !facts
+                    ? t("onboarding.checking")
+                    : t("onboarding.we-checked-your-setup")
+                }
+                description={t("onboarding.here-is-what-we-found")}
+              />
 
-              {
- }
               <div className="mt-5">
-                <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-4">
-                  <div className="flex items-center justify-between gap-3 py-2">
+                <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-3 sm:p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
                     <Chip tone={complete ? "ok" : "idle"} pulse={detecting}>
                       {facts
                         ? t("onboarding.{found}-of-{total}-detected", {
@@ -567,6 +666,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                     </Btn>
                   </div>
 
+                  <div className="grid gap-2 sm:grid-cols-2">
                   {factRow(
                     "displays",
                     t("onboarding.displays"),
@@ -606,6 +706,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                     t("onboarding.audio-output"),
                     fact("audio")?.ok ? null : t("onboarding.no-audio-found"),
                   )}
+                  </div>
                 </div>
               </div>
 
@@ -613,14 +714,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                 {t("onboarding.detection-only-reads-your-machine")}
               </InfoNote>
 
-              {
 
-
-
-
-
-
- }
               <div className="mt-5 border-t border-[var(--line)] pt-5">
                 <div className="flex items-center gap-3">
                   <IconUpload className="h-5 w-5 text-[rgb(var(--glow))]" />
@@ -656,24 +750,36 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
           {step === 1 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">
-                {t("onboarding.requirements-title")}
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                {t("onboarding.requirements-led")}
-              </p>
+              <StepHeading
+                icon={<IconZap className="h-5 w-5" />}
+                title={t("onboarding.requirements-title")}
+                description={t("onboarding.requirements-led")}
+              />
 
-              <div className="mt-5 rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-4">
-                <Row label={t("common.openrgb")} hint={requirementCopy.hint}>
+              <div className="mt-5 rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4 sm:p-5">
+                <div className="flex items-start gap-3">
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${
+                    openrgbRunning
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                      : "border-[var(--line)] bg-[var(--panel-sunken)] text-[rgb(var(--glow))]"
+                  }`}>
+                    <IconZap className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <ItemTitle>{t("common.openrgb")}</ItemTitle>
+                    <p className="mt-1 text-xs leading-relaxed text-[var(--text-faint)]">
+                      {requirementCopy.hint}
+                    </p>
+                  </div>
                   <Chip
                     tone={openrgbRunning ? "ok" : openrgbPath ? "warn" : "idle"}
                     pulse={fetching}
                   >
                     {requirementCopy.chip}
                   </Chip>
-                </Row>
+                </div>
 
-                <div className="border-t border-[var(--line)] py-3">
+                <div className="mt-4 border-t border-[var(--line)] pt-4">
                   {openrgbRunning ? (
                     <div className="flex items-start gap-2 text-[12px] leading-relaxed text-[var(--text-dim)]">
                       <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
@@ -692,10 +798,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       >
                         {requirementCopy.action}
                       </Btn>
-                      {
 
-
- }
                       {openrgbPath && (
                         <p className="mt-2 break-all font-mono text-[10px] text-[var(--text-faint)]">
                           {openrgbPath}
@@ -706,10 +809,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                 </div>
               </div>
 
-              {
 
-
- }
               {willDownload && (
                 <InfoNote className="mt-3">{t("onboarding.requirements-verified")}</InfoNote>
               )}
@@ -726,12 +826,11 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
           {step === 2 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">
-                {t("onboarding.welcome-to-lumendeck")}
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                {t("onboarding.live-wallpapers-that-light-up-your-room-and-your")}
-              </p>
+              <StepHeading
+                icon={<IconImage className="h-5 w-5" />}
+                title={t("onboarding.welcome-to-lumendeck")}
+                description={t("onboarding.live-wallpapers-that-light-up-your-room-and-your")}
+              />
 
               <div className="mt-5">
                 <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4">
@@ -776,12 +875,11 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
           {step === 3 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">
-                {t("onboarding.bring-in-your-media")}
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                {t("onboarding.fill-the-vault-with-videos-images-or-folders-you")}
-              </p>
+              <StepHeading
+                icon={<IconFolder className="h-5 w-5" />}
+                title={t("onboarding.bring-in-your-media")}
+                description={t("onboarding.fill-the-vault-with-videos-images-or-folders-you")}
+              />
 
               <div className="mt-5">
                 <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4">
@@ -799,9 +897,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                           {t("onboarding.{n}-items-found", { n: added.length })}
                         </span>
                       </div>
-                      {
 
- }
                       {vaultGrid(added)}
                       <p className="mt-2.5 text-dim-sm">
                         {t("onboarding.pick-a-thumbnail-to-put-it-on-your-screen")}
@@ -809,9 +905,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                     </>
                   )}
 
-                  <div className="space-y-2.5">
+                  <div className="grid gap-2.5 sm:grid-cols-2">
                     {urlMode ? (
-                      <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4">
+                      <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4 sm:col-span-2">
                         <div className="flex gap-2">
                           <input
                             autoFocus
@@ -841,15 +937,17 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                     ) : (
                       <>
                         <ImportButton
-                          onClick={importFile}
+                          onClick={() => setPickerMode("files")}
                           disabled={busy}
+                          icon={<IconImage className="h-4 w-4" />}
                           title={t("onboarding.import-a-file")}
                           hint={t("onboarding.a-video-or-image-from-your-pc")}
                           action={t("onboarding.pick")}
                         />
                         <ImportButton
-                          onClick={importFolder}
+                          onClick={() => setPickerMode("folder")}
                           disabled={busy}
+                          icon={<IconFolder className="h-4 w-4" />}
                           title={t("onboarding.import-a-folder")}
                           hint={t("onboarding.every-video-and-image-inside-in-one-go")}
                           action={t("onboarding.pick")}
@@ -857,6 +955,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                         <ImportButton
                           onClick={() => setUrlMode(true)}
                           disabled={busy}
+                          icon={<IconUpload className="h-4 w-4" />}
                           title={t("onboarding.from-a-url")}
                           hint={t("onboarding.download-a-wallpaper-from-a-direct-link")}
                           action={t("onboarding.link")}
@@ -881,17 +980,33 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
           {step === 4 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">
-                {t("onboarding.sync-your-rgb-lighting")}
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                {t("onboarding.connect-to-openrgb-to-have-your-devices-follow-t")}
-              </p>
+              <StepHeading
+                icon={<IconZap className="h-5 w-5" />}
+                title={t("onboarding.sync-your-rgb-lighting")}
+                description={t("onboarding.connect-to-openrgb-to-have-your-devices-follow-t")}
+              />
 
               <div className="mt-5">
-                <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-4">
+                <div className={`relative overflow-hidden rounded-xl border bg-[var(--panel-strong)] p-4 sm:p-5 ${
+                  rgb.connected
+                    ? "border-emerald-500/25"
+                    : "border-[var(--line)]"
+                }`}>
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_100%_0%,rgb(var(--glow)/0.1),transparent_55%)]"
+                  />
+                  <div className="relative">
                   <div className="flex items-center justify-between gap-3">
-                    <div>
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${
+                        rgb.connected
+                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                          : "border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-faint)]"
+                      }`}>
+                        <IconZap className="h-5 w-5" />
+                      </span>
+                      <div className="min-w-0">
                       <ItemTitle>
                         {rgb.connected
                           ? t("onboarding.{n}-devices-detected", { n: rgb.devices.length })
@@ -901,6 +1016,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                         {rgb.connected
                           ? t("onboarding.you're-set-devices-will-follow-the-modes-on-the")
                           : t("onboarding.start-openrgb-with-the-server-enabled-then-retry")}
+                      </div>
                       </div>
                     </div>
                     {!rgb.connected && (
@@ -926,10 +1042,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                     )}
                   </div>
 
-                  {
- }
+
                   {rgb.connected && rgb.devices.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-1.5 border-t border-[var(--line)] pt-3">
+                    <div className="mt-4 flex flex-wrap gap-1.5 border-t border-[var(--line)] pt-3">
                       {rgb.devices.map((d) => (
                         <Chip key={d.id} tone="accent">
                           {t("common.{mode}-{leds}-leds", { mode: d.name, leds: d.leds })}
@@ -937,6 +1052,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       ))}
                     </div>
                   )}
+                  </div>
                 </div>
               </div>
 
@@ -954,12 +1070,11 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
           {step === 5 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">
-                {t("onboarding.your-lighting-mood")}
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                {t("onboarding.pick-how-your-devices-behave-ambient-follows-the")}
-              </p>
+              <StepHeading
+                icon={<IconPalette className="h-5 w-5" />}
+                title={t("onboarding.your-lighting-mood")}
+                description={t("onboarding.pick-how-your-devices-behave-ambient-follows-the")}
+              />
 
               <div className="mt-5">
                 <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -967,16 +1082,27 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                     const active = cfg.rgb.mode === m.id;
                     return (
                       <button
+                        type="button"
                         key={m.id}
+                        aria-pressed={active}
                         onClick={() => save((c) => (c.rgb.mode = m.id as RgbMode))}
-                        className={`rounded-xl border p-3.5 text-left transition-all duration-[var(--motion-fast)] ease-[var(--ease-standard)] active:scale-[0.98] ${
+                        className={`group rounded-xl border p-3.5 text-left transition-all duration-[var(--motion-fast)] ease-[var(--ease-standard)] active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.65)] ${
                           active
                             ? "border-[rgb(var(--glow)/0.6)] bg-[rgb(var(--glow)/0.08)] ring-1 ring-[rgb(var(--glow)/0.3)]"
-                            : "border-[var(--line)] hover:border-[var(--line-strong)]"
+                            : "border-[var(--line)] bg-[var(--panel)] hover:border-[var(--line-strong)] hover:bg-[var(--panel-strong)]"
                         }`}
                       >
-                        <ItemTitle>{t(m.label)}</ItemTitle>
-                        <div className="mt-0.5 text-[11px] leading-snug text-[var(--text-faint)]">
+                        <div className="flex items-start justify-between gap-2">
+                          <ItemTitle>{t(m.label)}</ItemTitle>
+                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                            active
+                              ? "border-[rgb(var(--glow)/0.55)] bg-[rgb(var(--glow)/0.15)] text-[rgb(var(--glow))]"
+                              : "border-[var(--line-strong)] text-transparent"
+                          }`}>
+                            <IconCheck className="h-3 w-3" />
+                          </span>
+                        </div>
+                        <div className="mt-2 text-[11px] leading-relaxed text-[var(--text-faint)]">
                           {t(m.hint)}
                         </div>
                       </button>
@@ -1003,17 +1129,14 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
           {step === 6 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">
-                {t("onboarding.common-settings")}
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                {t("onboarding.the-toggles-most-people-change-you-can-fine-tune")}
-              </p>
+              <StepHeading
+                icon={<IconPalette className="h-5 w-5" />}
+                title={t("onboarding.common-settings")}
+                description={t("onboarding.the-toggles-most-people-change-you-can-fine-tune")}
+              />
 
-              <div className="mt-5">
-                {
- }
-                <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-4">
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                <section className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-4">
                   <ThemePicker
                     value={cfg.general.theme}
                     onChange={(v) => save((c) => (c.general.theme = v))}
@@ -1031,13 +1154,15 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       save((c) => (c.general.amoled = v));
                     }}
                   />
-                  <div className="border-t border-[var(--line)]" />
+                </section>
+                <section className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-4">
                   <Toggle
                     label={t("onboarding.launch-at-startup")}
                     description={t("onboarding.start-lumendeck-with-windows")}
                     checked={cfg.general.autostart}
                     onChange={(v) => save((c) => (c.general.autostart = v))}
                   />
+                  <div className="border-t border-[var(--line)]" />
                   <Toggle
                     label={t("onboarding.pause-on-fullscreen-apps")}
                     description={t("onboarding.pause-on-fullscreen-description")}
@@ -1050,6 +1175,8 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                     checked={cfg.general.pauseOnBatterySaver}
                     onChange={(v) => save((c) => (c.general.pauseOnBatterySaver = v))}
                   />
+                </section>
+                <section className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-4 md:col-span-2 md:grid md:grid-cols-2 md:gap-4">
                   <Toggle
                     label={t("onboarding.windows-accent-follows-wallpaper")}
                     description={t("onboarding.taskbar-and-window-highlights-shift-tone-with-yo")}
@@ -1064,7 +1191,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       save((c) => (c.sticker = { ...c.sticker, allMonitors: v }))
                     }
                   />
-                </div>
+                </section>
               </div>
 
               <StepNav
@@ -1079,74 +1206,51 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
           {step === 7 && (
             <>
-              <h1 className="lednum text-lg text-[var(--text)]">
-                {facts === null
-                  ? t("onboarding.checking")
-                  : complete
-                    ? t("onboarding.your-setup-is-ready")
-                    : t("onboarding.still-needs-attention")}
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--text-dim)]">
-                {t("onboarding.ready-in-under-a-minute")}
-              </p>
+              <StepHeading
+                icon={<IconCheck className="h-5 w-5" />}
+                title={
+                  facts === null
+                    ? t("onboarding.checking")
+                    : complete
+                      ? t("onboarding.your-setup-is-ready")
+                      : t("onboarding.still-needs-attention")
+                }
+                description={t("onboarding.ready-in-under-a-minute")}
+              />
 
               <div className="mt-5">
-                {
-
-
- }
-                <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-4">
-                  <Row label={t("onboarding.summary-displays")}>
-                    <span className="font-mono text-[11px] text-[var(--text-dim)]">
-                      {fact("displays")?.ok
-                        ? res || t("onboarding.resolution-unknown")
-                        : t("onboarding.none")}
-                    </span>
-                  </Row>
-                  <Row label={t("onboarding.summary-lighting")}>
-                    <span className="font-mono text-[11px] text-[var(--text-dim)]">
-                      {fact("lighting")?.ok
-                        ? t("onboarding.{n}-devices-detected", {
-                            n: fact("lighting")!.count,
-                          })
-                        :
-                          rgb.connected
-                            ? t("onboarding.no-lighting-found")
-                            : t("onboarding.no-openrgb-server")}
-                    </span>
-                  </Row>
-                  <Row label={t("onboarding.summary-mode")}>
-                    <span className="font-mono text-[11px] text-[var(--text-dim)]">
-                      {t(mode.label)}
-                    </span>
-                  </Row>
-                  <Row label={t("onboarding.summary-vault")}>
-                    <span className="font-mono text-[11px] text-[var(--text-dim)]">
-                      {cfg.gallery.length > 0
-                        ? t("onboarding.{n}-items-found", { n: cfg.gallery.length })
-                        : t("onboarding.empty-vault")}
-                    </span>
-                  </Row>
-                  <Row label={t("onboarding.summary-wallpaper")}>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <SummaryItem label={t("onboarding.summary-displays")}>
+                    {fact("displays")?.ok ? res || t("onboarding.resolution-unknown") : t("onboarding.none")}
+                  </SummaryItem>
+                  <SummaryItem label={t("onboarding.summary-lighting")}>
+                    {fact("lighting")?.ok
+                      ? t("onboarding.{n}-devices-detected", { n: fact("lighting")!.count })
+                      : rgb.connected
+                        ? t("onboarding.no-lighting-found")
+                        : t("onboarding.no-openrgb-server")}
+                  </SummaryItem>
+                  <SummaryItem label={t("onboarding.summary-mode")}>{t(mode.label)}</SummaryItem>
+                  <SummaryItem label={t("onboarding.summary-vault")}>
+                    {cfg.gallery.length > 0
+                      ? t("onboarding.{n}-items-found", { n: cfg.gallery.length })
+                      : t("onboarding.empty-vault")}
+                  </SummaryItem>
+                  <SummaryItem label={t("onboarding.summary-wallpaper")}>
                     <span className="flex min-w-0 items-center gap-2">
-                      {
-
- }
                       {activeEntry && (
                         <span className="block w-14 shrink-0 overflow-hidden rounded-md border border-[var(--line)]">
-                          <PickTile entry={activeEntry} active compact onPick={() => {}} />
+                          <span className="block aspect-video">
+                            <GalleryThumb entry={activeEntry} />
+                          </span>
                         </span>
                       )}
-                      <span className="max-w-[9rem] truncate font-mono text-[11px] text-[var(--text-dim)]">
-                        {activeEntry?.name ?? t("onboarding.none")}
-                      </span>
+                      <span className="min-w-0 truncate">{activeEntry?.name ?? t("onboarding.none")}</span>
                     </span>
-                  </Row>
-                  <Row label={t("onboarding.summary-autostart")}>
-                    <span className="font-mono text-[11px] text-[var(--text-dim)]">
-                      {cfg.general.autostart ? t("onboarding.on") : t("onboarding.off")}
-                    </span>
-                  </Row>
+                  </SummaryItem>
+                  <SummaryItem label={t("onboarding.summary-autostart")}>
+                    {cfg.general.autostart ? t("onboarding.on") : t("onboarding.off")}
+                  </SummaryItem>
                 </div>
               </div>
 
@@ -1187,9 +1291,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
         </section>
 
         <div className="mt-4 text-center">
-          {
-
- }
           <button
             onClick={finish}
             disabled={busy}
@@ -1198,6 +1299,35 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
             {t("onboarding.skip-set-up-later-in-settings")}
           </button>
         </div>
+        {pickerMode && (
+          <Modal
+            title={t(
+              pickerMode === "files"
+                ? "gallery.select-wallpapers"
+                : "gallery.choose-wallpaper-folder",
+            )}
+            onClose={() => setPickerMode(null)}
+            style={{ maxWidth: "56rem", maxHeight: "calc(100dvh - 2rem)" }}
+            className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+          >
+            <Suspense fallback={<div className="min-h-48" />}>
+              <MediaPickerModal
+                initialMode={pickerMode}
+                onImportFiles={(paths) => {
+                  setPickerMode(null);
+                  void importFiles(paths);
+                }}
+                onImportFolder={(path) => {
+                  setPickerMode(null);
+                  void importFolder(path);
+                }}
+              />
+            </Suspense>
+          </Modal>
+        )}
+          </main>
+        </div>
+      </div>
       </div>
     </div>
   );
@@ -1206,28 +1336,36 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 function ImportButton({
   onClick,
   disabled,
+  icon,
   title,
   hint,
   action,
 }: {
   onClick: () => void;
   disabled: boolean;
+  icon: ReactNode;
   title: string;
   hint: string;
   action: string;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex w-full items-center justify-between rounded-xl border border-[var(--line)] bg-[var(--panel)] px-4 py-3 text-left transition-all hover:border-[rgb(var(--glow)/0.5)] disabled:opacity-50"
+      className="group flex min-h-28 w-full flex-col items-start justify-between rounded-xl border border-[var(--line)] bg-[var(--panel)] p-3.5 text-left transition-all hover:-translate-y-0.5 hover:border-[rgb(var(--glow)/0.45)] hover:bg-[var(--panel-strong)] motion-reduce:transform-none motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.6)] disabled:pointer-events-none disabled:opacity-50"
     >
-      <span>
-        <ItemTitle as="span">{title}</ItemTitle>
-        <span className="mt-0.5 block text-xs text-[var(--text-faint)]">{hint}</span>
+      <span className="flex w-full items-start justify-between gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] text-[rgb(var(--glow))] transition-colors group-hover:border-[rgb(var(--glow)/0.3)]">
+          {icon}
+        </span>
+        <span className="shrink-0 rounded-full bg-[rgb(var(--glow)/0.08)] px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-[rgb(var(--glow))]">
+          {action}
+        </span>
       </span>
-      <span className="font-mono text-[10px] uppercase tracking-widest text-[rgb(var(--glow))]">
-        {action}
+      <span className="mt-3 block min-w-0">
+        <ItemTitle as="span">{title}</ItemTitle>
+        <span className="mt-0.5 block text-xs leading-relaxed text-[var(--text-faint)]">{hint}</span>
       </span>
     </button>
   );

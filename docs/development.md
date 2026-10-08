@@ -77,6 +77,11 @@ Devtools are off in every build, so F12 and Ctrl+Shift+I do nothing — see
    is `#[serde(rename_all = "camelCase")]`.
 5. Test it. Anything with a decision in it goes in the same file's `mod tests`.
 
+The wallpaper library uses `media_picker_list` for its in-app media browser.
+It lists common folders and available drives at the root, then only supported
+image/video files and child folders. Other workflows that use native file
+dialogs are not changed by this picker.
+
 ## Adding UI
 
 Compose from `components/ui.tsx`. The primitives there are not a style
