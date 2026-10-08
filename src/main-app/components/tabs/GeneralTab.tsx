@@ -69,19 +69,6 @@ import { RGB_MODE_LABEL } from "../../rgbModeLabels";
 import { buildReport } from "../devReport";
 import { versionDisagreement, versionLabel } from "../buildIdentity";
 
-/**
- * Every setting lives on one screen, in reading order. The index beside it is
- * an anchor list, not a router: it jumps the eye to a section and then tracks
- * where you already are, which is what makes one long page navigable instead
- * of merely long.
- *
- * Each entry owns a distinct icon. Seven identical chevrons in a row is a
- * list, not a map — the shapes are what let you find "the one with the
- * keyboard on it" without reading seven labels first.
- */
-// Catalog keys, resolved by `SettingsLayout` at render. The section index is
-// the first thing anyone sees in Settings, so it has to translate with the rest
-// of the page rather than staying as an English column beside Spanish cards.
 const SECTIONS: SettingsSectionDef[] = [
   {
     id: "appearance",
@@ -133,18 +120,8 @@ const SECTIONS: SettingsSectionDef[] = [
   },
 ];
 
-/**
- * DOM id for a section anchor. Kept off the raw id so it cannot collide.
- *
- * The anchor is also the section's own stacking context: several sections hold
- * more than one card, and `space-y-6` is a no-op for the single-card ones, so
- * the rhythm comes from here instead of from the page-level gap. Without it the
- * cards inside `about` butt against each other while every card above them has
- * breathing room.
- */
 const anchorId = (id: string) => `settings-section-${id}`;
 
-/** The nearest ancestor that actually scrolls, or the page itself. */
 function scrollParentOf(el: HTMLElement): HTMLElement {
   let node: HTMLElement | null = el.parentElement;
   while (node) {
@@ -154,13 +131,6 @@ function scrollParentOf(el: HTMLElement): HTMLElement {
   return document.scrollingElement as HTMLElement;
 }
 
-/**
- * Accent auto-shade control: toggle + strength slider in one row block.
- * Off = raw source colors (hardware/screen colors reach the UI untouched,
- * which can be hard to read on either theme). On = the shade corrector
- * lifts/darkens the accent until it clears the legibility floor, with the
- * slider dialing how far toward that correction the UI commits.
- */
 function AccentAutoShadeRow({ value }: { value: number }) {
   const on = value > 0.001;
   return (
@@ -174,8 +144,6 @@ function AccentAutoShadeRow({ value }: { value: number }) {
         }
       />
       {on && (
-        // Indented: a slider that only exists while its toggle is on should
-        // read as subordinate to that toggle, not as a peer control.
         <div className="border-l-2 border-[var(--line)] pl-4">
           <Slider
             label={t("common.adjustment-strength")}
@@ -194,22 +162,6 @@ function AccentAutoShadeRow({ value }: { value: number }) {
   );
 }
 
-/**
- * Language sits in Appearance because it is a preference about how the app
- * reads, not about what it does, and because anyone who cannot read the
- * current language is looking for it in exactly this card.
- *
- * `auto` is the default and the only option that can change on its own: it
- * follows the Windows display language, so a machine set to Spanish reads
- * Spanish the first time the dashboard opens, with nothing to configure. The
- * explicit choices exist for the case that matters more — a Spanish keyboard
- * on an English Windows, or a preference for reading a language that is not
- * the one you work in.
- *
- * Each option is named in its own language. "Español" in the list means the
- * same thing to someone who cannot read the rest of this screen, which is
- * exactly the person who needs to find this control.
- */
 function LanguagePicker({ value }: { value: string }) {
   const onChange = (v: string) =>
     useStore.getState().save((c) => (c.general.language = v));
@@ -251,26 +203,12 @@ export default function GeneralTab() {
       updateCheck: s.updateCheck,
     })),
   );
-  // "Never checked" is the honest reading of no record, and it is a different
-  // statement from "checked and found nothing".
   const check = updateCheck ?? { atMs: null, outcome: null };
   const locale = useLocale();
-  // The same one-line summary the update toast shows. `notes` is the raw
-  // markdown body from latest.json, so rendering it here is how the About card
-  // ends up printing "## 0.2.34 -- 2026-10-04 ### Added - **transfer:** ..."
-  // to a user; the full list is one scroll below in the changelog card.
   const updateSummary = summaryFor(updateAvailable?.notes ?? null);
-  // Each row drives a delete of its own entry, keyed by id so two rows can
-  // work without blocking one another. Applying and capturing are not here any
-  // more -- they belong to the picker dialog this card opens.
   const { pending, run } = usePending();
   const scenes = cfg?.scenes ?? [];
-  // The picker dialog owns capturing and switching, so this card only has to
-  // open it. The hook reads the config itself, so this surface and the header
-  // cannot end up deriving "which profile is running" differently.
   const picker = useConfigPicker();
-  // Appearance first: it is the setting people change most, and it is the
-  // one whose effect you notice immediately.
   const [section, setSection] = useState(SECTIONS[0]!.id);
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [confirmSetup, setConfirmSetup] = useState(false);
@@ -279,9 +217,6 @@ export default function GeneralTab() {
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
 
-  // Clicking an index entry scrolls the section under the reading line rather
-  // than jumping to a raw offset: `scroll-margin-top` on the anchor absorbs
-  // the container's top padding so the card header is not flush to the edge.
   const scrollToSection = useCallback((id: string) => {
     const el = document.getElementById(anchorId(id));
     if (!el) return;
@@ -289,8 +224,6 @@ export default function GeneralTab() {
     setSection(id);
   }, []);
 
-  // Highlight follows the scroll position, so the index stays truthful while
-  // the user scrolls or drags the scrollbar rather than only after a click.
   useEffect(() => {
     const root = pageRef.current?.parentElement;
     if (!root) return;
@@ -304,9 +237,6 @@ export default function GeneralTab() {
         const el = document.getElementById(anchorId(id));
         if (el && el.getBoundingClientRect().top <= line) current = id;
       }
-      // The last section can be shorter than the gap below the reading line,
-      // so at the very bottom of the page it would never win on geometry
-      // alone. Scrolling to the end means you are reading it.
       const atEnd =
         scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4;
       if (atEnd) current = ids[ids.length - 1]!;
@@ -436,28 +366,22 @@ export default function GeneralTab() {
         {anchor(
           "scenes",
           <Card title={t("common.profiles")} icon={<IconLayers />}>
-            {/* This card deliberately does not open the picker.
+            {
 
-                Two surfaces offering the same dialog is how they start to
-                disagree: Settings grew a button that opened it straight into
-                its save view, so the same action was reachable from two places
-                and the Overview's capture flow was no longer the obvious one.
-                Capturing and switching belong to the Overview, which owns the
-                header chip and the look on screen; Settings lists what exists
-                and lets you rename or delete it, which the picker does not do.
 
-                What is left is the list itself: rename and delete, which the
-                picker also offers per row. So this card is where a profile is
-                looked after, and the Overview is where one is applied or
-                captured — the two answers to two different questions, without
-                either opening the other's dialog. */}
+
+
+
+
+
+
+
+
+
+
+
+ }
             {scenes.length > 0 ? (
-              /* Rows, not a grid of tiles: a profile is identified by its name
-                 and its avatar, both of which read at a glance in a single
-                 column. A two-up grid spent horizontal space to make the names
-                 shorter, which is the wrong thing to shorten. The avatar leads
-                 because it is the same mark the header shows, so this list and
-                 the app chrome are visibly about the same thing. */
               <ul className="flex flex-col gap-1.5">
                 {scenes.map((s) => {
                   const isRunning = picker.activeId === s.id;
@@ -475,11 +399,6 @@ export default function GeneralTab() {
                         <div className="flex items-center gap-2">
                           <ItemTitle className="truncate">{s.name}</ItemTitle>
                           {isRunning && (
-                            /* The same mark the Overview card uses, down to
-                               the tick and the wording. The two lists show the
-                               same profiles, so the one that says which profile
-                               is running must not be the one that says it
-                               differently. */
                             <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[rgb(var(--glow))]">
                               <IconCheck className="h-3 w-3" />
                               {t("common.profile-applied-now")}
@@ -487,14 +406,14 @@ export default function GeneralTab() {
                           )}
                         </div>
                         <div className="truncate font-mono text-[10px] text-[var(--text-faint)]">
-                          {/* Stickers are part of what a profile restores now, so
-                              the row says so -- but only when there are any,
-                              since a count of zero is noise on a row about a
-                              look. The enum ids are translated — the same maps
-                              the gallery filter and the lighting picker read —
-                              not printed raw, which is how a Spanish user ended
-                              up reading "video · cycle" on a row about their
-                              profile. */}
+                          {
+
+
+
+
+
+
+ }
                           {t(GALLERY_KIND_LABEL[s.wallpaper.kind])} · {t(RGB_MODE_LABEL[s.rgb.mode])}
                           {s.stickers.length > 0 &&
                             ` · ${t("common.{n}-stickers", { n: s.stickers.length })}`}
@@ -510,21 +429,10 @@ export default function GeneralTab() {
                             : t("common.keep-one-profile")
                         }
                         onClick={() => {
-                          // Guarded again here rather than relying on the
-                          // disabled attribute alone: the button is a
-                          // convenience, the rule is not.
                           if (!picker.canDelete) return;
                           void run(
                             `scene-delete-${s.id}`,
                             async () => {
-                              // Not swallowed. A failed delete used to fall
-                              // through to the code below as though it had
-                              // worked: the user was told the profile was
-                              // deleted and handed an Undo button for something
-                              // still on disk, and pressing Undo would then
-                              // restore over a profile that never left. A
-                              // destructive action that did not happen has to
-                              // stop here.
                               await api.sceneDelete(s.id);
                               const fresh = await api.getConfig();
                               useStore.setState({ cfg: fresh });
@@ -533,18 +441,11 @@ export default function GeneralTab() {
                                 .undoDelete(
                                   t("common.deleted-profile", { name: s.name }),
                                   (next) => {
-                                    // Pushed back verbatim: the profile carries its
-                                    // own wallpaper + rgb snapshot, and keeping the
-                                    // id means anything pointing at it still resolves.
                                     next.scenes.push(s);
                                   },
                                 );
                             },
                             (error) => {
-                              // Nothing was deleted, so the list on screen is
-                              // still the truth and there is nothing to undo.
-                              // Silence would leave the user believing their
-                              // profile is gone.
                               useStore.getState().toast(
                                 "error",
                                 t("common.could-not-delete-profile-{name}-{error}", {
@@ -570,11 +471,11 @@ export default function GeneralTab() {
           </Card>,
         )}
 
-        {/* Import and export, in the profiles section rather than its own nav
-            entry. The two halves of it are about profiles and about the whole
-            configuration, and the profile half only makes sense next to the list
-            it exports — while the config half is the last-resort button nobody
-            should have to go hunting for. */}
+        {
+
+
+
+ }
         {anchor(
           "transfer",
           <TransferCard onChanged={(fresh) => useStore.setState({ cfg: fresh })} />,
@@ -592,12 +493,12 @@ export default function GeneralTab() {
           </Card>,
         )}
 
-        {/* Everything here is a thing you reach for when the app is already
-            misbehaving, not a preference you choose up front: what build you
-            are on, where the files are, what the log says. It used to be
-            scattered — the config reload sat inside Video playback, which is
-            why editing config.json was discoverable only if you knew it was
-            two cards below a video toggle. */}
+        {
+
+
+
+
+ }
         {anchor(
           "developer",
           <>
@@ -617,11 +518,11 @@ export default function GeneralTab() {
               right={
                 <span className="flex items-center gap-1.5 font-mono text-[10px] text-[var(--text-faint)]">
                   v{__APP_VERSION__}
-                  {/* The commit belongs here, not only in the Developer card.
-                      This is the line someone copies into a bug report, and a
-                      bare "v0.2.7" cannot say which build produced the bug —
-                      two local builds of the same version look identical
-                      unless one of them says it was dirty. */}
+                  {
+
+
+
+ }
                   {__APP_BUILD_ID__ && (
                     <span
                       className="rounded-sm bg-amber-500/20 px-1 text-amber-400"
@@ -688,11 +589,6 @@ export default function GeneralTab() {
                         const update = await checkForAppUpdate();
                         setUpdateAvailable(update);
                         if (update) {
-                          // Same offer as the startup check: install from the toast.
-                          // `repeat` because this button is the user asking --
-                          // if the automatic check already showed this version,
-                          // the announce-once guard would make the press a
-                          // silent no-op.
                           announceUpdate(update, { repeat: true });
                         } else {
                           useStore
@@ -731,34 +627,31 @@ export default function GeneralTab() {
                 </div>
               </div>
 
-              {/* The recurring check, which is not the button above it: coming
-                  back to the window always checks whatever this says, and the
-                  button is a question rather than a poll.
+              {
 
-                  A dropdown rather than a slider because the meaningful choices
-                  are a handful of cadences. A slider offered every value in
-                  between, and there is no such thing as a deliberate 47-minute
-                  update check -- the precision was an illusion over a decision
-                  nobody makes that way. */}
+
+
+
+
+
+
+ }
               <div className="mt-1">
                 <Select
                   label={t("common.update-check-interval")}
                   value={String(effectiveInterval(cfg?.general.updateCheckMinutes))}
                   options={intervalChoices(cfg?.general.updateCheckMinutes).map((m) => ({
                     id: String(m),
-                    // `intervalLabelKey` already resolves an off-list value to the
-                    // counted wording, so this is one lookup rather than a branch
-                    // that had to agree with it.
                     label: t(intervalLabelKey(m), { n: m }),
                   }))}
                   onChange={(v) =>
                     save((c) => (c.general.updateCheckMinutes = Number(v)))
                   }
                 />
-                {/* What the last check did, and when. Without this the interval
-                    above is a blind dropdown: nothing distinguishes a working
-                    one from one that has been failing hourly, or one that has
-                    never run. */}
+                {
+
+
+ }
                 <div className="mt-2 flex min-w-0 items-center gap-2 text-[11px] text-[var(--text-faint)]">
                   <span className="shrink-0">{t("update.last-check")}</span>
                   <span
@@ -785,9 +678,9 @@ export default function GeneralTab() {
               </div>
             </Card>
 
-            {/* The setup guide used to be the very first card on the settings
-                page, above everything, for a button most people press zero
-                times. It belongs with the version info. */}
+            {
+
+ }
             <Card title={t("common.setup-guide")} icon={<IconSparkle />}>
               {confirmSetup ? (
                 <div className="flex items-center justify-between gap-4">
@@ -835,28 +728,6 @@ export default function GeneralTab() {
   );
 }
 
-/**
- * The destructive corner of the app.
- *
- * Wiping is irreversible and sits next to Quitting, which is neither. They
- * used to be the same red button side by side, which is a good way to teach
- * someone that red means nothing here — and "Wipe app data" is the only
- * caller of factory_reset, so a misclick is unrecoverable. Quitting is now a
- * plain button, and it is the only control here.
- */
-/**
- * Import and export, as profiles or as the whole configuration.
- *
- * The asymmetry between the two is the point of the card rather than an
- * accident of it. Exporting profiles and importing profiles is additive and
- * harmless — names are uniqued and ids reminted, so nothing local can be
- * overwritten. Exporting the config and importing it is a replace, and it is
- * presented as one: the confirmation names what is lost, not just what happens.
- *
- * The confirmation lives in `TransferImport`, not here, because onboarding
- * offers the same import and the two copies of a destructive warning would
- * eventually disagree about what an import costs.
- */
 function TransferCard({ onChanged }: { onChanged: (cfg: Config) => void }) {
   const { run } = usePending();
 
@@ -865,7 +736,6 @@ function TransferCard({ onChanged }: { onChanged: (cfg: Config) => void }) {
       `transfer-export-${kind}`,
       async () => {
         const path = await api.transferPickSavePath(name);
-        // Cancelling a save dialog is the ordinary outcome, not a failure.
         if (!path) return;
         const written = await api.transferExport(kind, path);
         useStore
@@ -897,9 +767,9 @@ function TransferCard({ onChanged }: { onChanged: (cfg: Config) => void }) {
         </Btn>
       </div>
 
-      {/* Below the exports rather than beside them: `TransferImport` swaps the
-          whole block for its confirmation, and a swap that ate one button of a
-          three-button row would reflow the other two mid-decision. */}
+      {
+
+ }
       <TransferImport onChanged={onChanged} className="mt-3" />
 
       <p className="mt-4 text-xs leading-relaxed text-[var(--text-faint)]">
@@ -983,18 +853,6 @@ function DangerZone({
   );
 }
 
-/**
- * The log, and the button that puts it in front of the user.
- *
- * Every "attach your log to a bug report" instruction assumes the user can find
- * `%APPDATA%`, and that a 5 MB text file is something they can open. Neither
- * holds. So this shows the tail inline — the part where a failure actually
- * happened is always at the end — and offers Explorer for the full file.
- *
- * Error lines are picked out because that is what a person reads this for: the
- * timestamp is already on the line and the level is already colour-coded, so
- * the one thing missing was "skip to the part that matters".
- */
 function LogViewerCard() {
   const [lines, setLines] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1013,14 +871,10 @@ function LogViewerCard() {
     }
   }, []);
 
-  // Load once on mount: a card that needs a click before it has anything to say
-  // is a card most people never open.
   useEffect(() => {
     void load();
   }, [load]);
 
-  // Bounded again on this side, so the filter cannot produce an unbounded render
-  // from an already-bounded list.
   const shown = useMemo(() => {
     if (!lines) return [];
     if (!onlyErrors) return lines;
@@ -1079,18 +933,6 @@ function LogViewerCard() {
   );
 }
 
-/**
- * Build facts, configuration reload, and one button to hand them to an issue.
- *
- * Everything here is read from the running process through `dev_info`, not from
- * the frontend's build-time constants. That matters for exactly one of the
- * fields — the log level, which the backend resolves from `RUST_LOG` at
- * startup and the frontend cannot see — but a diagnostics panel that reports a
- * value it guessed is worse than no panel, because it is believed.
- *
- * "Copy details" exists because the alternative is a user transcribing six
- * values from a screenshot into GitHub, which is where bug reports die.
- */
 function DeveloperCard() {
   const [info, setInfo] = useState<DevInfo | null>(null);
   const [failed, setFailed] = useState(false);
@@ -1102,9 +944,6 @@ function DeveloperCard() {
     api
       .devInfo()
       .then((i) => alive && setInfo(i))
-      // A missing command means an old backend against a new frontend, which
-      // is exactly the situation this section exists to diagnose. Showing the
-      // failure is more useful than a panel that silently stays empty.
       .catch(() => alive && setFailed(true));
     return () => {
       alive = false;
@@ -1132,17 +971,12 @@ function DeveloperCard() {
       ]
     : [];
 
-  // A row only when there is something to say. "None" every session trains the
-  // reader to skip the line, and the one session where it matters is the one
-  // where it is not empty.
   const facts: [string, string][] = info?.lastPanic
     ? [...baseFacts, [t("common.dev-last-panic"), info.lastPanic]]
     : baseFacts;
 
   const copy = async () => {
     if (!info) return;
-    // `baseFacts`, not `facts`: the report appends the panic line raw, and
-    // stating it twice in one paste reads as two crashes.
     await copyText(
       buildReport(info.reportHeader, baseFacts, info.lastPanic),
       t("common.dev-details-copied"),
@@ -1167,10 +1001,6 @@ function DeveloperCard() {
       ) : (
         <>
           {info && versionDisagreement(info.version, __APP_VERSION__) && (
-            // The badge shows the bundle's version and this row shows the
-            // binary's. `check-versions.mjs` keeps them equal, so reaching here
-            // means that guard failed — and a version skew is otherwise invisible,
-            // because every command still works and every value looks plausible.
             <InfoNote tone="warn" className="mb-3">
               {t(
                 "common.bundle-{bundle}-running-binary-{running}-other-windows-may-be-running-older-code",
@@ -1182,8 +1012,8 @@ function DeveloperCard() {
             </InfoNote>
           )}
           <div className="panel-inset grid gap-x-6 gap-y-3 p-3.5 sm:grid-cols-2">
-            {/* Placeholder rows rather than a spinner: the grid is two columns of four,
-              so reserving that shape stops the card jumping when the facts land. */}
+            {
+ }
             {facts.length === 0 &&
               Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="h-8 animate-pulse rounded-sm bg-[var(--panel-sunken)]" />
@@ -1209,9 +1039,9 @@ function DeveloperCard() {
           {t("common.are-picked-up-automatically-within-a-few-seconds")}
         </p>
         <div className="mt-3">
-          {/* Guarded and reported like every other button: a failed reload left
-              the card claiming the config was fresh while the store kept the
-              stale one, and the failure never surfaced. */}
+          {
+
+ }
           <Btn
             disabled={reloadPending.has("reload-config")}
             onClick={() =>

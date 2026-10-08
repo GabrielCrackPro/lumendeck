@@ -1,5 +1,3 @@
-// The lighting engine card: device rows, the quick brightness/speed sliders,
-// and the grouped mode picker. Extracted from OverviewTab.tsx verbatim.
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Card, Chip, SwitchBtn, Segmented } from "../ui";
 import { DeviceRow } from "../DeviceRow";
@@ -9,11 +7,6 @@ import { RGB_MODES } from "@shared/constants";
 import type { Config, RgbDeviceInfo, RgbMode } from "@shared/types";
 import { t } from "../../i18n";
 
-/**
- * Compact inline slider for card headers: icon + percent readout + bare
- * range input. Tracks the pointer 1:1 locally; commits on release, like the
- * settings Slider. Used for the engine card's brightness quick-control.
- */
 function QuickSlider({
   icon,
   value,
@@ -58,12 +51,6 @@ function QuickSlider({
   );
 }
 
-/**
- * The eight lighting modes, split into the two families they actually belong
- * to. As one flat row of eight pills they read as a wall of labels with no
- * hint of what any of them do; grouped, the split is the useful one — the
- * first group tracks the wallpaper, the second runs on its own.
- */
 function ModePicker({
   mode,
   onSelect,
@@ -83,10 +70,10 @@ function ModePicker({
         const ownsActive = active?.group === g.id;
         return (
           <div key={g.id}>
-            {/* The row states which family this is, how many options it holds,
-                and -- only for the family that owns the current mode -- which
-                one is live. Naming the active mode next to the buttons is what
-                saves a user from inferring it from which pill is pressed. */}
+            {
+
+
+ }
             <div className="mb-1.5 flex items-baseline justify-between gap-3">
               <span className="kicker">{t(g.label)}</span>
               {ownsActive && active ? (
@@ -101,8 +88,6 @@ function ModePicker({
             </div>
             <Segmented
               label={t("common.{mode}-lighting-modes", { mode: t(g.label) })}
-              // Only the group holding the active mode shows a pressed button;
-              // the other has nothing selected, which is the honest state.
               value={ownsActive ? active.id : ""}
               onChange={(v) => onSelect(v as RgbMode)}
               options={modes.map((m) => ({
@@ -120,12 +105,6 @@ function ModePicker({
   );
 }
 
-/**
- * The engine card, extracted so OverviewTab reads as composition. Whether the
- * device list is expanded stays lifted in the tab: it is a property of how
- * much room the user wants this card to take, and must survive the row list
- * changing underneath it when a device connects.
- */
 export default function EngineCard({
   cfg,
   rgb,
@@ -136,8 +115,6 @@ export default function EngineCard({
   isAnimatedMode,
   excluded,
   allDevices,
-  // The body below was written against the tab's own state setter; the alias
-  // keeps the moved JSX byte-identical rather than renaming inside it.
   onAllDevices: setAllDevices,
 }: {
   cfg: Config;
@@ -153,10 +130,6 @@ export default function EngineCard({
 }) {
   const ledActive = counts.active;
   const ledTotal = counts.total;
-  // Which device rows the engine card renders this frame. See deviceList.ts for
-  // why the list is capped at all. Not named `window`: this file uses the
-  // global in a dozen places, and shadowing it inside one component is the kind
-  // of collision that typechecks and then misbehaves at runtime.
   const deviceRows = deviceWindow(rgb.devices, allDevices);
   return (
         <Card
@@ -178,13 +151,13 @@ export default function EngineCard({
               <Chip tone={rgb.connected ? "ok" : "danger"} pulse={rgb.connected}>
                 {rgb.connected ? t("common.connected") : t("common.offline")}
               </Chip>
-              {/* Bare here on purpose. The card header already says
-                  "Lighting engine", so a visible label would only repeat it —
-                  and that repetition is what overflowed the header and made
-                  the card clip every switch down its right edge. The
-                  accessible name comes from the tooltip instead, and it is
-                  this switch rather than a device's mute switch because the
-                  header and the chip beside it describe the whole engine. */}
+              {
+
+
+
+
+
+ }
               <SwitchBtn
                 checked={cfg.rgb.enabled}
                 onChange={(v) => save((c) => (c.rgb.enabled = v))}
@@ -195,17 +168,8 @@ export default function EngineCard({
           }
         >
           <div
-            // `min-w-0` down this chain: a grid or flex item's automatic
-            // minimum size is its content width, so without a zero minimum
-            // anywhere on the path the device list can widen the whole card
-            // and the panel's `overflow-hidden` clips the switch off the end.
             className="relative min-w-0"
             style={{
-              // Audio-reactive halo: volume widens and brightens a glow around
-              // the device list; a detected beat adds a short flash on top.
-              // Kept here rather than on the wallpaper stage as well: this box
-              // sits inside the card's padding, so the glow stays on the card's
-              // own surface instead of ringing the outside of it.
               boxShadow: cfg.rgb.enabled
                 ? "0 0 calc(6px + var(--al, 0) * 34px) rgb(var(--glow) / calc(0.05 + var(--al, 0) * 0.26 + var(--beat, 0) * 0.2))"
                 : undefined,
@@ -239,11 +203,11 @@ export default function EngineCard({
                   />
                 ))}
               </ul>
-                {/* The way out of the cap. Without it the six rows below are not
-                    a limit but a disappearance: a seventh device would be
-                    unmutable, unrenamable and invisible, which is the same
-                    unreachable-because-excluded trap the muted-device decision
-                    above exists to avoid. */}
+                {
+
+
+
+ }
                 {deviceRows.collapsible && (
                   <button
                     type="button"
@@ -257,19 +221,19 @@ export default function EngineCard({
                     })}
                   </button>
                 )}
-                {/* The way back. The list is not a one-way trip: a machine with
-                    twelve devices leaves a card three times taller than the one
-                    beside it, and the way to undo that should not be restarting
-                    the app. */}
+                {
+
+
+ }
                 {allDevices && rgb.devices.length > DEVICE_ROWS_COLLAPSED && (
                   <button
                     type="button"
                     onClick={() => setAllDevices(false)}
                     className="mt-2 flex w-full items-center justify-center gap-1.5 py-1 text-[11px] text-[var(--text-faint)] transition-colors hover:text-[var(--text)]"
                   >
-                    {/* Up, because this collapses. `rotate-90` points down,
-                        which is what the expand button beside it uses — the
-                        two then disagree about which way the list goes. */}
+                    {
+
+ }
                     <IconChevronRight className="h-3 w-3 shrink-0 -rotate-90" />
                     {t("lighting.show-fewer-devices")}
                   </button>
@@ -300,7 +264,7 @@ export default function EngineCard({
             )}
           </div>
 
-          {/* control bar: brightness + speed sliders share one row */}
+          { }
           <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-2">
             {cfg.rgb.enabled ? (
               <>
@@ -341,8 +305,8 @@ export default function EngineCard({
             )}
           </div>
 
-          {/* modes: grouped into the two families they belong to, with the
-              active mode's description always visible rather than hover-only. */}
+          {
+ }
           <div className="mt-3.5">
             <ModePicker
               mode={cfg.rgb.mode}

@@ -1,22 +1,8 @@
-// The whole verification set, in one command.
-//
-// Six checks that CI runs as six separate steps, and that everyone had been
-// remembering to run by hand in roughly the right order. The failure mode this
-// exists to prevent is not "someone skipped a test" — it is "someone ran the
-// three fast checks, declared done, and shipped an i18n key that does not exist
-// in the Spanish catalog". The slow checks are last so the cheap ones fail first.
-//
-// Usage:
-//   node scripts/verify.mjs              everything
-//   node scripts/verify.mjs --no-build   skip the production bundle
-//
-// Exits non-zero if any step fails, and prints a summary either way.
 
 import { spawnSync } from "node:child_process";
 
 const noBuild = process.argv.includes("--no-build");
 
-/** Each step: what it is, and how to run it. `cwd` is relative to the repo. */
 const STEPS = [
   {
     name: "versions in sync",
@@ -70,17 +56,8 @@ for (const step of STEPS) {
   process.stdout.write(`\n--- ${step.name} ` + "-".repeat(Math.max(0, 46 - step.name.length)) + "\n");
   const res = spawnSync([step.cmd, ...step.args].join(" "), {
     cwd: step.cwd ? new URL(`../${step.cwd}/`, import.meta.url) : process.cwd(),
-    // Captured rather than inherited, so a failure can be reported with the
-    // name of the thing that failed. `stdio: "inherit"` streamed it past, and a
-    // rare intermittent failure then costs an afternoon of reruns trying to
-    // catch it again: one Rust test fails roughly once in thirty-five full runs
-    // and has never been caught twice in a row.
     encoding: "utf8",
     maxBuffer: 64 << 20,
-    // A single command string rather than an argv array with `shell: true`:
-    // Node deprecates the combination because the arguments are concatenated
-    // unescaped. Every token used here is a space-free executable or flag, and
-    // `shell` is what makes `npx` and `cargo` resolve identically on Windows.
     shell: true,
   });
   const secs = ((Date.now() - started) / 1000).toFixed(1);
@@ -89,9 +66,6 @@ for (const step of STEPS) {
   } else {
     failed = true;
     results.push({ name: step.name, state: "FAILED", secs });
-    // The named failures first, because that is the one line nobody should have
-    // to go looking for, then enough of the surrounding output to read the
-    // assertion that failed with.
     const output = `${res.stdout ?? ""}${res.stderr ?? ""}`;
     const named = output
       .split("\n")
@@ -101,8 +75,6 @@ for (const step of STEPS) {
     }
     const tail = output.trimEnd().split("\n").slice(-40).join("\n");
     if (tail) console.log(`\n${tail}\n`);
-    // Stop at the first failure. Running the remaining checks after something
-    // is already broken produces noise that hides the real error.
     break;
   }
 }

@@ -9,9 +9,6 @@ const ANY_READY = true;
 
 describe("reconcileImportedConfig", () => {
   it("keeps the wizard mounted even when the file says setup was finished", () => {
-    // The regression this exists for: App.tsx renders Onboarding only while
-    // this flag is false, so writing it as true unmounts the wizard and the
-    // receipt never renders.
     expect(reconcileImportedConfig(cfg(true), ANY_READY).store.general.onboarded).toBe(
       false,
     );
@@ -28,16 +25,10 @@ describe("reconcileImportedConfig", () => {
   });
 
   it("visits requirements first when the machine has no OpenRGB", () => {
-    // The one hard dependency. A config carrying lighting settings restored
-    // onto a machine that has never run OpenRGB is a config that looks applied
-    // and drives nothing.
     expect(reconcileImportedConfig(cfg(true), false).landing).toBe("requirements");
   });
 
   it("stays on the config step for a half-finished imported setup", () => {
-    // A file with onboarded: false is someone interrupted mid-wizard. There
-    // are still answers to give, so the wizard keeps asking for them — and
-    // OpenRGB is one of them, so this holds either way.
     expect(reconcileImportedConfig(cfg(false), true).landing).toBe("config");
     expect(reconcileImportedConfig(cfg(false), false).landing).toBe("config");
   });

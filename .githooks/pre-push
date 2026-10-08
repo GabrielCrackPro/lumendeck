@@ -1,13 +1,6 @@
 #!/bin/sh
-# CI runs `pnpm changelog:check` on every push; failing there costs a full
-# windows-latest spin-up to learn what this hook says in a second. Blocks the
-# push until every user-facing commit since the last release is in the file.
 set -e
 
-# The newest tag decides which commits count as unreleased. A dev machine
-# that has not fetched since the last release would check a stale range and
-# demand entries CI never asks for, so refresh tags first. Failure here
-# (offline, no remote) must not block the push — CI remains the backstop.
 git fetch --tags --quiet origin 2>/dev/null || true
 
 pnpm changelog:check

@@ -1,27 +1,3 @@
-// First-run onboarding, rebuilt around the reference screens.
-//
-// The shape comes from those screens rather than from a step-by-step form:
-// every panel is the same three parts — a caption naming what this step is
-// doing, a column of rows carrying labels and values, and a fixed footer with
-// the secondary action on the left and the primary on the right. What changes
-// between steps is only the rows and the action the footer offers.
-//
-//  0. Detect      — read the machine, show what was found, all of it skippable
-//  1. Requirements — install or start OpenRGB, the one hard dependency
-//  2. Wallpaper   — put something on the screen, from the vault
-//  3. Import      — pull media into the vault (file / folder / URL)
-//  4. Lighting    — the devices found, or skip (wallpaper-only is valid)
-//  5. Mood        — a starting lighting mode
-//  6. Config      — the toggles most people change
-//  7. Done        — a read-only receipt, then a name for the look
-//
-// Skippable at any point; the app is fully usable without finishing.
-//
-// Two judgements deliberately live outside this file. "Found" is decided in
-// onboardingDetect.ts, because the same facts drive both the detect rows and
-// the closing receipt and two JSX copies would eventually disagree. The
-// AMOLED default is in onboardingAmoled.ts, for the same reason, plus the rule
-// that it stops writing once the user has touched the toggle.
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useEffectiveTheme } from "../theme";
@@ -44,8 +20,6 @@ import {
 import { RGB_MODES } from "@shared/constants";
 import { truncateError } from "../utilities";
 import { newlyAddedEntries, resolvePicked } from "./gallery/mediaKind";
-// The vault's own tile imagery. A wallpaper chosen by its filename is chosen
-// by the one piece of information that says nothing about how it looks.
 import { GalleryThumb } from "./gallery/GalleryThumb";
 import { autoIndexEnabled, buildAfterImport } from "./gallery/autoIndex";
 import TransferImport from "./TransferImport";
@@ -62,15 +36,6 @@ import {
 import type { Config, GalleryEntry, RgbMode } from "@shared/types";
 import { t } from "../i18n";
 
-/**
- * The caption each step carries, mirroring the reference screens where the
- * panel above the card names the operation being performed.
- *
- * A lookup table rather than seven literal `t()` calls: the caption sits in the
- * header, outside the per-step blocks, so there is nowhere to put a literal.
- * The i18n checker resolves table values by name, which is what keeps these
- * from reading as dead keys.
- */
 const STEP_LABELS: Record<number, string> = {
   0: "onboarding.caption-detect",
   1: "onboarding.caption-requirements",
@@ -84,20 +49,6 @@ const STEP_LABELS: Record<number, string> = {
 
 const STEP_COUNT = 8;
 
-/**
- * The stepper.
- *
- * Segments rather than numbered circles: eight circles eat more width than they
- * earn and make a setup meant to take a minute feel long. Only steps already
- * visited are clickable — re-entering one costs nothing to offer, and someone
- * who realises they skipped lighting should not have to press Back six times.
- * Forward jumps stay off, because skipping ahead would leave the closing
- * summary describing a step nobody saw.
- *
- * `needsAttention` marks a step whose work is not finished — the requirements
- * step with nothing installed — so it stays visibly outstanding rather than
- * being scrolled past and forgotten.
- */
 function Stepper({
   step,
   onJump,
@@ -105,7 +56,6 @@ function Stepper({
 }: {
   step: number;
   onJump: (n: number) => void;
-  /** Steps that are behind us but still unfinished. */
   needsAttention?: (n: number) => boolean;
 }) {
   return (
@@ -135,13 +85,6 @@ function Stepper({
   );
 }
 
-/**
- * The footer, identical on every step: secondary left, primary right.
- *
- * Extracted because it was seven near-identical copies that had already drifted
- * twice. `onBack` is optional because the first step has no step behind it —
- * its left action is "leave setup", which is a different thing and says so.
- */
 function StepNav({
   onBack,
   backLabel,
@@ -157,12 +100,6 @@ function StepNav({
   nextLabel: string;
   onNext: () => void;
   nextDisabled?: boolean;
-  /**
-   * Hover text for the primary button.
-   *
-   * The only way to explain a *disabled* button — it cannot take a click, so
-   * nothing else will ever say why.
-   */
   nextTitle?: string;
 }) {
   return (
@@ -186,15 +123,6 @@ function StepNav({
   );
 }
 
-/**
- * One wallpaper, as it looks in the vault.
- *
- * Deliberately not `GalleryCard`: that carries selection, starring, renaming,
- * per-display badges and a drawer opener, none of which mean anything during
- * first run. What is worth keeping is the shape — media on top, a name strip
- * below, and a ring on whichever wallpaper is actually live — so what is picked
- * here is recognisable in the vault afterwards.
- */
 function PickTile({
   entry,
   active,
@@ -203,9 +131,7 @@ function PickTile({
   onPick,
 }: {
   entry: GalleryEntry;
-  /** This wallpaper is on the displays right now. */
   active: boolean;
-  /** The summary's thumbnail, which has no room for a name strip. */
   compact?: boolean;
   disabled?: boolean;
   onPick: () => void;
@@ -252,11 +178,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     useShallow((s) => ({ cfg: s.cfg, save: s.save, rgb: s.rgb })),
   );
   const [step, setStep] = useState(0);
-  /* Which way the last step change went, so the panel can enter from the side
-     you travelled towards. A separate setter for `step` would let a caller
-     move the wizard without recording a direction, and the animation would
-     then silently disagree with the movement — so every jump goes through
-     `goTo` below instead. */
   const [direction, setDirection] = useState<1 | -1>(1);
   const goTo = (next: number) => {
     setDirection(next >= step ? 1 : -1);
@@ -265,43 +186,20 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [urlMode, setUrlMode] = useState(false);
   const [url, setUrl] = useState("");
-  // What this run added, kept as entries rather than ids so the tiles can show
-  // the media itself.
   const [added, setAdded] = useState<GalleryEntry[]>([]);
-  // Where the last batch came from, so the grid can say what was just added
-  // rather than leaving the user to remember which folder they just opened.
-  // The last path segment only: `basename` drops the extension, which is right
-  // for "clip.mp4" and wrong for a folder called "2024.backups".
   const [importSource, setImportSource] = useState<string | null>(null);
   const [profileName, setProfileName] = useState("");
-  // null means the pass has not reported yet, which renders as "checking"
-  // rather than as four rows of nothing.
   const [facts, setFacts] = useState<DetectedFact[] | null>(null);
   const [detecting, setDetecting] = useState(true);
   const [primary, setPrimary] = useState<{ w: number; h: number } | null>(null);
-  // Every display, not just the primary one. A two-monitor machine is told how
-  // many screens it has, but not which two — which is the question people
-  // actually have when a wallpaper lands on the wrong one.
   const [monitors, setMonitors] = useState<MonitorEntry[]>([]);
-  // The requirements step. `installed` is where the portable build was
-  // unpacked, so a second run of setup offers "start it" rather than asking
-  // someone to download the same 21 MB again.
   const [openrgbPath, setOpenrgbPath] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
-  // Whether the AMOLED toggle has been touched *by the user*, as opposed to
-  // written by the rule below. Without it the rule re-asserts itself every time
-  // the theme re-resolves, quietly undoing a deliberate choice.
   const [amoledTouched, setAmoledTouched] = useState(false);
-  // The theme that is actually painted, so "system" is followed rather than
-  // assumed dark. Read before the `!cfg` bail-out: it is a hook.
   const theme = useEffectiveTheme(cfg?.general.theme);
   const toast = (tone: "error" | "ok", msg: string) =>
     useStore.getState().toast(tone, msg);
 
-  /* AMOLED tracks the theme for as long as the user has not said otherwise.
-     `amoledDefault` returning null is the stop signal, and the equality guard
-     is what keeps this from saving on every render once it has settled.
-     Above the `!cfg` bail-out: it is a hook, and the bail-out is conditional. */
   useEffect(() => {
     const next = amoledDefault(theme, amoledTouched);
     if (next === null || !cfg || (cfg.general.amoled ?? false) === next) return;
@@ -310,16 +208,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     });
   }, [theme, amoledTouched, cfg, save]);
 
-  /**
-   * Read the machine and turn it into facts.
-   *
-   * Reads `rgb` and `gallery` off the store rather than the props the component
-   * closed over, so "Check again" after a lighting retry and the first-run
-   * pass go through the same path. Both system calls are allowed to fail: a
-   * detection pass that throws leaves a blank wizard on first launch, which is
-   * the one moment nobody can get past. A failed read is a missing fact, and
-   * the copy for a missing fact already says what to do about it.
-   */
   const runDetect = async () => {
     setDetecting(true);
     const [mons, vol] = await Promise.all([
@@ -338,8 +226,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
         rgbConnected: s.rgb.connected,
         rgbDeviceCount: s.rgb.devices.length,
         vaultCount: s.cfg?.gallery.length ?? 0,
-        // The mute flag is not a missing output: a muted machine still has
-        // speakers, and the reactive modes sample them fine.
         audioAvailable: Array.isArray(vol) && vol.length === 2 && typeof vol[0] === "number",
       }),
     );
@@ -350,17 +236,10 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     void runDetect();
   }, []);
 
-  /* The requirements status is read when the step is reached rather than on
-     mount, so a build installed during this same run is reflected. Reading it
-     once at startup is what would make the step look finished when it is not. */
   useEffect(() => {
     if (step === 1) void readOpenrgb();
   }, [step]);
 
-  /* Below every hook on purpose. This component renders before the config
-     arrives, so an early return placed above a hook makes the first pass run
-     fewer hooks than the second — which React treats as a rules violation and
-     throws on, rather than something that merely looks odd. */
   if (!cfg) return null;
 
   const finish = () => {
@@ -373,18 +252,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     });
   };
 
-  /**
-   * Name the setup they have just built and capture it.
-   *
-   * Offered at the end rather than left to Settings because the first run is
-   * the one moment the machine is on a look worth coming back to, and a
-   * profile nobody named is one nobody switches to. Skippable, because a blank
-   * name is not a reason to trap anyone on the last screen of setup.
-   *
-   * The profile is captured before `onboarded` is set so a failure here leaves
-   * the wizard open on this step rather than closing over a name that was
-   * never saved.
-   */
   const createProfile = async () => {
     const name = profileName.trim();
     if (name.length === 0) {
@@ -394,8 +261,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     setBusy(true);
     try {
       await api.sceneSave(name);
-      // Re-read rather than trusting the returned scene: the capture happened
-      // on the Rust side and its view of the config is the one that was written.
       useStore.setState({ cfg: await api.getConfig() });
     } catch (e) {
       toast("error", t("common.save-failed-{error}", { error: truncateError(e) }));
@@ -403,23 +268,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
       return;
     }
     setBusy(false);
-    // Straight to done: the profile now exists, so there is no state worth
-    // landing back on and the wizard's last screen has been seen.
     finish();
   };
 
-  /**
-   * Put something on the screen, then move on.
-   *
-   * Applies whatever is already showing before falling back to the first vault
-   * entry. Blindly applying `gallery[0]` looked harmless but silently undid a
-   * choice: clicking the fifth tile and then pressing this button put the first
-   * one up instead, with no indication that the click had been discarded.
-   *
-   * The failure is caught rather than left to the `finally`: an apply that
-   * throws used to escape as an unhandled rejection, which left the button
-   * looking permanently stuck and told the user nothing at all.
-   */
   const applyWallpaperAndContinue = async () => {
     setBusy(true);
     try {
@@ -433,31 +284,12 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     }
   };
 
-  /**
-   * Measure what an import just brought in, so the vault can be sorted and
-   * filtered by resolution and length the moment the wizard is out of the way.
-   *
-   * This is the whole reason the import step is worth indexing at all: the
-   * closing receipt and the Wallpaper tab both read the index, and without it a
-   * user's first import lands as a vault of entries the app knows nothing about.
-   *
-   * Deliberately not awaited by the import handlers' callers in the sense of
-   * blocking the wizard — but it *is* awaited inside them, so `busy` stays true
-   * while it works. A folder of two hundred files takes long enough that
-   * releasing the buttons first would show an apparently idle screen for
-   * several seconds with nothing indicating why.
-   *
-   * Failures are swallowed. The import itself succeeded, and reporting the
-   * measurement as a failed import would be a lie; the toolbar's index button
-   * is still there.
-   */
   const indexNewMedia = async (fresh: Config, count: number) => {
     if (!autoIndexEnabled(fresh.wallpaper)) return;
     if (count <= 0) return;
     try {
       await buildAfterImport({
         added: count,
-        // The wizard never starts a build of its own, so nothing can be running.
         building: false,
         entries: fresh.gallery,
         index: readCache(),
@@ -514,8 +346,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     try {
       await api.galleryApply(id);
       toast("ok", t("common.wallpaper-applied"));
-      // The config re-read is what moves the ring onto the newly applied tile.
-      // Without it the grid would still claim the old wallpaper was live.
       useStore.setState({ cfg: await api.getConfig() });
     } catch (e) {
       toast("error", t("onboarding.apply-failed-{error}", { error: truncateError(e) }));
@@ -547,12 +377,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
   const fact = (id: DetectedFact["id"]) => facts?.find((f) => f.id === id);
 
-  /** What the requirements step knows, refreshed whenever it is shown. */
   const readOpenrgb = async () => {
     try {
       const st = await api.openrgbStatus();
-      // st.version is what the pinned manifest says we would fetch; the step
-      // does not print it, so only the installed path is kept.
       setOpenrgbPath(st.installedAt);
     } catch {
       // A status read that fails is not worth blocking setup over; the step
@@ -561,32 +388,13 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     }
   };
 
-  /**
-   * Start the server and wait until it is actually answering.
-   *
-   * The refresh afterwards is the part that matters: spawning a process says
-   * "we started something", polling says "it worked". Without it the step would
-   * still offer a Start button for a server that had come up perfectly well.
-   */
   const startOpenrgbAt = async (exe: string) => {
     await api.openrgbLaunch(exe);
     await api.rgbRefresh();
     useStore.getState().setRgb(await api.rgbStatus());
-    // Re-read the facts, or the stepper's outstanding marker and the closing
-    // receipt keep reporting a lighting failure the user fixed on this very
-    // screen. The lighting step's retry does the same thing for the same
-    // reason.
     await runDetect();
   };
 
-  /**
-   * Download, then start it, in one go.
-   *
-   * Chained deliberately. Stopping after the download would leave someone with
-   * a server on disk that is not running, which is the same state they were in
-   * before they clicked — the worst possible place for a first-run step to
-   * finish, because they would believe their lights were handled.
-   */
   const installOpenrgb = async () => {
     setFetching(true);
     try {
@@ -614,31 +422,10 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     }
   };
 
-  /**
-   * "Running" means the server answered *and* is holding a device.
-   *
-   * A server that answers with an empty device list is not a working setup —
-   * it is the state where a user clicks Start, watches a tray icon appear,
-   * and sees no lights and no explanation. Same rule as the detect step.
-   */
   const openrgbRunning = rgb.connected && rgb.devices.length > 0;
 
-  /**
-   * A download is genuinely the next action only when nothing is on disk *and*
-   * nothing is running. Someone with OpenRGB installed system-wide reports no
-   * local path but a live connection, and telling them where we would have put
-   * a download they never made is noise at best.
-   */
   const willDownload = !openrgbPath && !openrgbRunning;
 
-  /**
-   * Every string on this step, decided once.
-   *
-   * Three pieces of state were driving six nested ternaries across the hint,
-   * the chip and the button. Resolving them here means the row and the button
-   * cannot disagree about what state they are in, and adding a state is one
-   * entry rather than four edits.
-   */
   const requirementCopy = {
     hint: openrgbRunning
       ? t("onboarding.openrgb-running")
@@ -659,12 +446,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
         : t("onboarding.download-and-start-openrgb"),
   } as const;
 
-  /** Screen names, shown only when there is more than one to tell apart. */
   const otherDisplays = monitors.filter((m) => !m.primary);
   const res = resolutionLabel(primary?.w ?? null, primary?.h ?? null);
   const complete = facts !== null && setupIsComplete(facts);
-  // Kind and source together: a folder can hold two files with the same name,
-  // and a URL entry can share a source string with a local one.
   const activeEntry =
     cfg.gallery.find(
       (g) => g.kind === cfg.wallpaper.kind && g.source === cfg.wallpaper.source,
@@ -672,14 +456,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   const mode =
     RGB_MODES.find((m) => m.id === cfg.rgb.mode) ?? RGB_MODES[0]!;
 
-  /**
-   * The modes worth offering in a sixty-second setup.
-   *
-   * Reactive plus breathe: enough to show what the lighting is for without
-   * turning the screen into a list of eight. Audio-reactive joins them only
-   * when an audio output was found, because it samples what the machine is
-   * playing and there is nothing to sample without one.
-   */
   const moodModes = () =>
     RGB_MODES.filter(
       (m) =>
@@ -688,7 +464,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
         (m.id === "audioReactive" && fact("audio")?.ok),
     );
 
-  /** The vault as a grid of pickable tiles, capped and scrolling. */
   const vaultGrid = (entries: GalleryEntry[]) => (
     <div className="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
       {entries.map((g) => (
@@ -703,12 +478,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     </div>
   );
 
-  /**
-   * One detected fact as a row: what was looked for, what came back, and a chip
-   * that says whether it counts. The hint renders only when there is something
-   * to say beyond "ready" — audio has no detail worth a second line, and an
-   * empty hint line reads as a layout bug.
-   */
   const factRow = (id: DetectedFact["id"], label: string, hint: string | null) => {
     const f = fact(id);
     return (
@@ -723,20 +492,16 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    /* The scroll and the centring have to be different elements: a centred
-       flex column taller than the viewport pushes content past BOTH edges of an
-       `overflow-hidden` box, and the footer becomes unreachable. `min-h-screen`
-       means centring only applies when there is room to centre in. */
     <div className="grain relative h-screen overflow-y-auto">
       <div className="aura" />
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center px-6 py-10">
-        {/* The lockup is here rather than on the card because this flow has no
-            title bar: without it nothing names the app on any of the eight
-            steps. `pulse` only on the first screen — that is where the app is
-            introducing itself and genuinely working in the background, which
-            is the splash case the prop is documented for. On the steps after it
-            the header is chrome, and a logo that breathes for the rest of the
-            setup is just a distraction. */}
+        {
+
+
+
+
+
+ }
         <div className="mb-3 flex items-center justify-between gap-4">
           <span className="flex min-w-0 items-center gap-2.5">
             <AppMark size={22} pulse={step === 0} />
@@ -747,8 +512,8 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
           </span>
         </div>
 
-        {/* The caption names the step. On its own line because the lockup row
-            above is already carrying the position. */}
+        {
+ }
         <div className="mb-4 flex items-center gap-3">
           <IconSparkle className="h-4 w-4 shrink-0 text-[rgb(var(--glow))]" />
           <span className="kicker truncate">{t(STEP_LABELS[step] ?? STEP_LABELS[0]!)}</span>
@@ -761,9 +526,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
           </span>
         </div>
 
-        {/* Keyed on `step` so each step is a fresh subtree: the enter animation
-            has to replay for every step, and React reuses the DOM node when
-            only the class changes. */}
+        {
+
+ }
         <section
           key={step}
           className={`glass p-7 step-enter-${direction === 1 ? "forward" : "back"}`}
@@ -779,8 +544,8 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                 {t("onboarding.here-is-what-we-found")}
               </p>
 
-              {/* One panel of rows. Nothing is editable here: this step reports, and the
-                  steps after it are where anything changes. */}
+              {
+ }
               <div className="mt-5">
                 <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-4">
                   <div className="flex items-center justify-between gap-3 py-2">
@@ -807,8 +572,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                     t("onboarding.displays"),
                     fact("displays")?.ok
                       ? [
-                          // "Primary" only earns its place when there is another
-                          // screen it could be confused with.
                           res
                             ? fact("displays")!.count > 1
                               ? `${t("onboarding.primary-display")} · ${res}`
@@ -850,14 +613,14 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                 {t("onboarding.detection-only-reads-your-machine")}
               </InfoNote>
 
-              {/* Restoring a setup, offered before anything is configured rather
-                  than after. The steps below this one are not merely redundant
-                  for someone with an exported config, they are destructive:
-                  advancing past the wallpaper step calls `galleryApply`, so a
-                  wizard that offered import last would apply a wallpaper, import
-                  a batch of media and set a lighting mode, and then replace all
-                  three with the file. Importing first and jumping to the receipt
-                  means the file is the only thing that ever wrote the config. */}
+              {
+
+
+
+
+
+
+ }
               <div className="mt-5 border-t border-[var(--line)] pt-5">
                 <div className="flex items-center gap-3">
                   <IconUpload className="h-5 w-5 text-[rgb(var(--glow))]" />
@@ -871,28 +634,10 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                   onChanged={(fresh) => {
                     const { store, landing } = reconcileImportedConfig(fresh, openrgbRunning);
                     useStore.setState({ cfg: store });
-                    // The imported config carries its own theme, so the AMOLED
-                    // rule must stop writing over it. Without this the rule
-                    // would re-assert its own default on the very next render
-                    // and the file's value would silently not survive.
                     setAmoledTouched(true);
-                    // A config import replaced the vault, so the step 3 grid's
-                    // entries — held as objects, not ids — are now gone. Harmless
-                    // on the way in, since nothing has been imported yet, but the
-                    // stepper lets a visitor jump back to any visited step, and a
-                    // stale tile there would offer media the backend dropped.
                     setAdded([]);
                     setImportSource(null);
-                    // The detect rows above were answered by the config this
-                    // import replaced, so they are now describing the old one.
                     void runDetect();
-                    // Forward, and past the wallpaper and vault steps: those are
-                    // ones the file has already answered, and the wallpaper step
-                    // would overwrite its way through them. `landing` decides
-                    // whether anything is left to ask — the receipt when the file
-                    // was a finished setup and OpenRGB is running, the
-                    // requirements step when there is no lighting to drive, the
-                    // settings step when the file was itself half-finished.
                     goTo(landing === "receipt" ? 7 : landing === "requirements" ? 1 : 6);
                   }}
                 />
@@ -903,9 +648,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                 backLabel={t("onboarding.skip-setup")}
                 backDisabled={detecting}
                 nextLabel={t("onboarding.continue")}
-                /* To the requirements step, not past it. Shifting every
-                   `goTo` forward by one to make room for the new step
-                   quietly pointed this one at the step after it. */
                 onNext={() => goTo(1)}
                 nextDisabled={detecting}
               />
@@ -933,9 +675,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
 
                 <div className="border-t border-[var(--line)] py-3">
                   {openrgbRunning ? (
-                    /* No button once it is running: an action that cannot
-                       change anything is worse than no action, and a live one
-                       beside "Continue" reads as a thing still to be done. */
                     <div className="flex items-start gap-2 text-[12px] leading-relaxed text-[var(--text-dim)]">
                       <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
                       <span>{t("onboarding.openrgb-running-note")}</span>
@@ -953,10 +692,10 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                       >
                         {requirementCopy.action}
                       </Btn>
-                      {/* Where it went. The portable build is invisible to
-                          Windows, so a user who wants to remove it, or to find
-                          it after a cleaner clears the folder, has nothing to
-                          go on otherwise. */}
+                      {
+
+
+ }
                       {openrgbPath && (
                         <p className="mt-2 break-all font-mono text-[10px] text-[var(--text-faint)]">
                           {openrgbPath}
@@ -967,10 +706,10 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                 </div>
               </div>
 
-              {/* Provenance only matters while a download is the next thing
-                  that will happen. Once it is on disk, or running from an
-                  install the user made themselves, the note is describing a
-                  fetch that either already happened or never will. */}
+              {
+
+
+ }
               {willDownload && (
                 <InfoNote className="mt-3">{t("onboarding.requirements-verified")}</InfoNote>
               )}
@@ -1025,9 +764,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                 onBack={() => goTo(1)}
                 backLabel={t("onboarding.back")}
                 nextLabel={
-                  // "Use my first" only when there is nothing showing yet.
-                  // Otherwise the button is just moving on, and calling it
-                  // that would invite a second click that changes nothing.
                   cfg.gallery.length > 0 && !activeEntry
                     ? t("onboarding.use-my-first-wallpaper")
                     : t("onboarding.continue")
@@ -1063,9 +799,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                           {t("onboarding.{n}-items-found", { n: added.length })}
                         </span>
                       </div>
-                      {/* A folder import is where the file count stops being
-                          small: a capped grid scrolls where a list of names
-                          would have pushed the footer off the panel. */}
+                      {
+
+ }
                       {vaultGrid(added)}
                       <p className="mt-2.5 text-dim-sm">
                         {t("onboarding.pick-a-thumbnail-to-put-it-on-your-screen")}
@@ -1177,10 +913,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                             await api.rgbRefresh();
                             useStore.setState({ cfg: await api.getConfig() });
                             useStore.getState().setRgb(await api.rgbStatus());
-                            // The detect rows were answered by the same server
-                            // that just came up; without this the receipt at the
-                            // end would report a lighting fact that was fixed
-                            // two screens ago.
                             await runDetect();
                           } catch {
                             // status stays offline; the copy above reflects it
@@ -1194,8 +926,8 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                     )}
                   </div>
 
-                  {/* Names and LED counts answer "is my keyboard in there?"
-                      without a trip to the lighting tab. */}
+                  {
+ }
                   {rgb.connected && rgb.devices.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1.5 border-t border-[var(--line)] pt-3">
                       {rgb.devices.map((d) => (
@@ -1279,8 +1011,8 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
               </p>
 
               <div className="mt-5">
-                {/* The same pickers as Settings, so the choices made here look
-                    exactly like the ones they will find later. */}
+                {
+ }
                 <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-4">
                   <ThemePicker
                     value={cfg.general.theme}
@@ -1295,7 +1027,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                     }
                     checked={cfg.general.amoled ?? false}
                     onChange={(v) => {
-                      // Claim the toggle, so the theme rule stops writing to it.
                       setAmoledTouched(true);
                       save((c) => (c.general.amoled = v));
                     }}
@@ -1360,10 +1091,10 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
               </p>
 
               <div className="mt-5">
-                {/* Read-only, deliberately. This is a receipt for what the
-                    earlier screens applied, not a second place to change it: an
-                    editable summary that disagrees with the real config is worse
-                    than no summary at all. */}
+                {
+
+
+ }
                 <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] px-4">
                   <Row label={t("onboarding.summary-displays")}>
                     <span className="font-mono text-[11px] text-[var(--text-dim)]">
@@ -1378,10 +1109,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                         ? t("onboarding.{n}-devices-detected", {
                             n: fact("lighting")!.count,
                           })
-                        : // The same distinction step 0 makes. "OpenRGB is not
-                          // running" on a screen where OpenRGB is running with
-                          // nothing attached sends the user looking for the
-                          // wrong problem entirely.
+                        :
                           rgb.connected
                             ? t("onboarding.no-lighting-found")
                             : t("onboarding.no-openrgb-server")}
@@ -1401,9 +1129,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                   </Row>
                   <Row label={t("onboarding.summary-wallpaper")}>
                     <span className="flex min-w-0 items-center gap-2">
-                      {/* Only ever the wallpaper actually on screen. Falling back to the first
-                      vault entry would put a picture beside the word "None"
-                      and make an unset screen look set. */}
+                      {
+
+ }
                       {activeEntry && (
                         <span className="block w-14 shrink-0 overflow-hidden rounded-md border border-[var(--line)]">
                           <PickTile entry={activeEntry} active compact onPick={() => {}} />
@@ -1447,9 +1175,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                 backDisabled={busy}
                 nextLabel={busy ? t("onboarding.saving-your-look") : t("onboarding.create-profile")}
                 onNext={() => void createProfile()}
-                // Trimmed, not raw: a name of spaces is not a name, and
-                // `createProfile` refuses it. The button has to agree with the
-                // guard or it will offer an action that cannot succeed.
                 nextDisabled={busy || profileName.trim().length === 0}
                 nextTitle={
                   profileName.trim().length === 0 && !busy
@@ -1462,9 +1187,9 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
         </section>
 
         <div className="mt-4 text-center">
-          {/* Disabled while a save is in flight. The footer buttons all guard
-              on `busy`, and this one was the exception: clicking it twice ran
-              two writes to the same config and called `onDone` twice. */}
+          {
+
+ }
           <button
             onClick={finish}
             disabled={busy}
@@ -1478,12 +1203,6 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   );
 }
 
-/**
- * One import route, as a row rather than a card.
- *
- * Rows instead of the three stacked cards this step used to have: at the
- * panel width this step now uses, those cards were mostly padding.
- */
 function ImportButton({
   onClick,
   disabled,

@@ -13,8 +13,6 @@ describe("parseVersion", () => {
   });
 
   it("rejects anything that is not major.minor.patch", () => {
-    // The release workflow writes three numeric components and nothing else, so
-    // anything else is a value this check cannot reason about.
     expect(parseVersion("0.2")).toBeNull();
     expect(parseVersion("0.2.8-rc.1")).toBeNull();
     expect(parseVersion("v0.2.8")).toBeNull();
@@ -31,16 +29,12 @@ describe("compareVersionToLatest", () => {
   });
 
   it("passes when the repository is exactly one release behind", () => {
-    // Not a fault: the workflow publishes `latest + 1` and rewrites the files
-    // only inside the runner, so a permanent one-version lag is the designed
-    // steady state. Failing here would block every release.
     const result = compareVersionToLatest("0.2.28", "v0.2.29");
     expect(result.ok).toBe(true);
     expect(result.behindBy).toBe(1);
   });
 
   it("passes when the repository is ahead of the newest release", () => {
-    // A version bumped ahead of its release is normal preparation.
     const result = compareVersionToLatest("0.3.0", "v0.2.28");
     expect(result.ok).toBe(true);
   });

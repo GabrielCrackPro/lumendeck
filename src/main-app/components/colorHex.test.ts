@@ -12,8 +12,6 @@ describe("parseHex", () => {
   });
 
   it("expands three-digit shorthand by doubling each digit", () => {
-    // The regression: `#f0a` is how colours are written by hand, and the old
-    // parser refused it and snapped the field back to the old value.
     expect(parseHex("#f0a")).toEqual([0xff, 0x00, 0xaa]);
     expect(parseHex("fff")).toEqual([255, 255, 255]);
     expect(parseHex("#000")).toEqual([0, 0, 0]);
@@ -65,7 +63,6 @@ describe("formatHex", () => {
   });
 
   it("rounds rather than truncating a fractional channel", () => {
-    // 0.5 must not become "0", or picking a colour silently shifts it.
     expect(formatHex([0.5, 1.5, 2.4])).toBe("#010202");
   });
 
@@ -79,7 +76,6 @@ describe("formatHex", () => {
 describe("tidyHexDraft", () => {
   it("drops the # and uppercases, keeping what is being typed", () => {
     expect(tidyHexDraft(" #f0a ")).toBe("F0A");
-    // Partial input must survive: "f0" is mid-typing, not invalid.
     expect(tidyHexDraft("f0")).toBe("F0");
     expect(tidyHexDraft("")).toBe("");
   });

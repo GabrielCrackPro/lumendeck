@@ -1,24 +1,10 @@
-// Writing the palette into the stylesheet.
-//
-// A CSS file cannot import from a TypeScript module, so the direction of
-// dependency is arranged rather than declared: [THEME_BLOCKS] becomes the three
-// theme blocks, and index.css carries a `/* theme-tokens */` marker where they
-// belong. The marker is the whole contract — the plugin replaces it, and a
-// stylesheet that has lost it is a build failure rather than an app that
-// quietly renders with no colours defined.
-//
-// Both halves are pure string functions, so the tests exercise them without
-// running Vite; the plugin in vite.config.ts is a wrapper.
 
 import { CODE_ONLY_TOKENS, THEME_BLOCKS, type ThemeBlock } from "./palette";
 
-/** The line in index.css that stands in for the generated blocks. */
 export const THEME_TOKEN_MARKER = "/* theme-tokens */";
 
-/** How the generated blocks introduce themselves. */
 const GENERATED_BY = "/* Generated from src/shared/palette.ts";
 
-/** One selector's worth of declarations, as authored in the source data. */
 function renderBlock(block: ThemeBlock): string {
   const lines: string[] = [];
   if (block.colorScheme) {
@@ -32,7 +18,6 @@ function renderBlock(block: ThemeBlock): string {
   return `${block.selector} {\n${lines.join("\n")}\n}`;
 }
 
-/** The three theme blocks, in cascade order, ready to drop into a stylesheet. */
 export function renderThemeBlocks(): string {
   return [
     "/* Generated from src/shared/palette.ts by the themeTokens plugin in",
@@ -42,19 +27,6 @@ export function renderThemeBlocks(): string {
   ].join("\n\n");
 }
 
-/**
- * Put the generated theme blocks where the marker is.
- *
- * Idempotent: a pass over already-generated CSS returns it untouched. The
- * marker is consumed by the first pass, so without this a second pass over the
- * same file would report a missing marker rather than the fact that it had
- * already done the work.
- *
- * Throws when the marker is missing from the source or has been duplicated,
- * because both mean the stylesheet and the palette no longer agree about where
- * the theme lives, and a build that quietly emitted the blocks twice, or not at
- * all, would fail far away from the edit that caused it.
- */
 export function injectThemeTokens(css: string): string {
   if (css.includes(GENERATED_BY)) return css;
   const first = css.indexOf(THEME_TOKEN_MARKER);

@@ -1,9 +1,4 @@
-// Shader presets for the wallpaper renderer.
 
-/**
- * Pick the backing-store size for a shader canvas on a given monitor.
- * Native resolution when affordable; capped at 4K width for GPU safety.
- */
 export function shaderCanvasSize(
   screenW: number,
   screenH: number,

@@ -9,8 +9,6 @@ describe("deviceWindow", () => {
     const w = deviceWindow(d, false);
     expect(w.visible).toEqual(d);
     expect(w.hidden).toBe(0);
-    // No toggle when there is nothing behind it: a "show all" that shows six
-    // of six is a control that does nothing.
     expect(w.collapsible).toBe(false);
   });
 
@@ -19,8 +17,6 @@ describe("deviceWindow", () => {
     expect(w.visible).toHaveLength(DEVICE_ROWS_COLLAPSED);
     expect(w.hidden).toBe(4);
     expect(w.collapsible).toBe(true);
-    // The first rows, in order — the cap takes from the bottom, so the devices
-    // nearest the card's header are the ones always on screen.
     expect(w.visible[0]).toBe(0);
     expect(w.visible[DEVICE_ROWS_COLLAPSED - 1]).toBe(
       DEVICE_ROWS_COLLAPSED - 1,
@@ -36,15 +32,11 @@ describe("deviceWindow", () => {
   });
 
   it("keeps the expanded choice when the device count changes", () => {
-    // The card holds `expanded` in its own state, so a device arriving mid
-    // session must not silently re-collapse a list the user had opened.
     expect(deviceWindow(many(3), true).visible).toHaveLength(3);
     expect(deviceWindow(many(10), true).visible).toHaveLength(10);
   });
 
   it("never hides every device, whatever cap it is handed", () => {
-    // A cap of 0 or negative from a bad config would otherwise produce an
-    // empty list with no affordance to recover from.
     for (const cap of [0, -5, 0.4, NaN]) {
       const w = deviceWindow(many(4), false, cap);
       expect(w.visible.length).toBeGreaterThanOrEqual(1);
@@ -53,8 +45,6 @@ describe("deviceWindow", () => {
   });
 
   it("does not mutate or alias the caller's array", () => {
-    // The list comes straight out of the store. A window that sorted or spliced
-    // it in place would reorder the device list the user sees everywhere else.
     const d = many(10);
     const before = [...d];
     deviceWindow(d, true);
@@ -88,8 +78,6 @@ describe("ledCounts", () => {
   });
 
   it("excludes a muted device's LEDs from active but not from total", () => {
-    // Mutually consistent by construction: the whole reason this is one walk
-    // is that the figures used to be derived in two files and could disagree.
     const c = ledCounts(devices, [2]);
     expect(c).toEqual({ total: 132, active: 108, muted: 1, unmuted: 2 });
     expect(c.active).toBeLessThan(c.total);

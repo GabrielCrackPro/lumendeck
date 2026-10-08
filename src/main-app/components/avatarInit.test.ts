@@ -11,14 +11,10 @@ describe("avatarInitial", () => {
   });
 
   it("keeps a name that starts with a digit", () => {
-    // Inventing a letter for "3AM" would be a lie about what the config is
-    // called; the 3 is the honest answer.
     expect(avatarInitial("3AM")).toBe("3");
   });
 
   it("takes the whole first character, not half of it", () => {
-    // A surrogate pair sliced by index renders as U+FFFD in the circle, which
-    // is exactly the kind of thing this function exists to prevent.
     expect(avatarInitial("\u{1F3B9} night")).toBe("\u{1F3B9}");
     expect(avatarInitial("éclair")).toBe("É");
   });
@@ -28,8 +24,6 @@ describe("avatarInitial", () => {
   });
 
   it("returns empty for a name that has none", () => {
-    // Absent, null and blank are all the same state: nothing to draw, so the
-    // caller falls back to an icon rather than to a glyph.
     expect(avatarInitial("")).toBe("");
     expect(avatarInitial("   ")).toBe("");
     expect(avatarInitial(null)).toBe("");

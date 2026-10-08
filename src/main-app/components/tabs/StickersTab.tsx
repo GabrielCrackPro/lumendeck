@@ -11,10 +11,7 @@ import type { StickerDef, StickerFit } from "@shared/types";
 import { t } from "../../i18n";
 import { toMediaSrc } from "../mediaSrc";
 
-/** Live media strip for a sticker card: image/GIF or muted video. */
 function StickerPreview({ s }: { s: StickerDef }) {
-  // `url` is already a served URL -- the backend normalises it at
-  // placement time -- so it must not be converted a second time.
   const src = toMediaSrc(s.url, (path) => convertFileSrc(path, "media"));
   const isVideo = /\.(mp4|webm|mov|m4v|mkv)$/i.test(s.url);
   return (
@@ -58,19 +55,12 @@ export default function StickersTab() {
   const { cfg, save } = useStore(
     useShallow((s) => ({ cfg: s.cfg, save: s.save })),
   );
-  // Keyed per sticker so one row's save does not block another's; the import
-  // key also covers the placement session, which stays pending until the user
-  // finishes placing or cancels.
   const { pending, run } = usePending();
   const busy = pending.has("import");
   const [placing, setPlacing] = useState(false);
   const [editing, setEditing] = useState(false);
-  // Which sticker the keyboard targets while editing (last clicked card).
   const [selected, setSelected] = useState<string | null>(null);
 
-  // Keyboard control while editor mode is on: arrows nudge the selected
-  // sticker (Shift = 10px), Delete/Backspace removes it. Lives in the
-  // dashboard because the wallpaper webviews never receive OS key focus.
   useEffect(() => {
     if (!editing) return;
     const onKey = (e: KeyboardEvent) => {
@@ -108,7 +98,6 @@ export default function StickersTab() {
     return () => window.removeEventListener("keydown", onKey);
   }, [editing, selected]);
 
-  // Reflect backend placement/editor state in the UI.
   useEffect(() => {
     import("@tauri-apps/api/event")
       .then(({ listen }) => {
@@ -122,8 +111,6 @@ export default function StickersTab() {
 
   const importAndPlace = () => {
     console.info("[stickers] add clicked");
-    // The guard is the hook's: a second press while the picker is open would
-    // otherwise stack a second OS dialog behind the first.
     void run("import", async () => {
       const file = await api.pickImageFile();
       console.info("[stickers] picker returned", file);
@@ -136,9 +123,6 @@ export default function StickersTab() {
   const update = (id: string, patch: Partial<StickerDef>) => {
     const s = cfg.stickers.find((x) => x.id === id);
     if (!s) return;
-    // Single path: update_sticker persists AND broadcasts CONFIG_CHANGED;
-    // the store refresh picks it up. No parallel save() (that used to fire a
-    // second broadcast with the same data).
     api.updateSticker({ ...s, ...patch }).catch(console.error);
   };
 
@@ -152,7 +136,7 @@ export default function StickersTab() {
             </span>
           }
         >
-          {/* Session banner: replaces the controls when a mode is active */}
+          { }
           {placing ? (
             <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-[rgb(var(--glow)/0.4)] bg-[rgb(var(--glow)/0.08)] px-3.5 py-2.5">
               <span className="text-xs font-medium text-[rgb(var(--glow))]">

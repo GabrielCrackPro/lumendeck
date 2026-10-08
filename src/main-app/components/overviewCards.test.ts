@@ -25,15 +25,6 @@ const sticker = (id: string): StickerDef =>
     visible: true,
   } as StickerDef);
 
-/**
- * A profile fixture holding only what these functions read.
- *
- * Cast at the fixture boundary rather than spelled out field by field, for the
- * reason `profileMatch.test.ts` gives: `WallpaperConfig` and `RgbConfig` carry
- * volume, slideshow, mixer, zones and device names, none of which any assertion
- * here touches. The defaults are complete so that a fixture omitting one cannot
- * read as `undefined` at runtime and quietly change an answer.
- */
 const profile = (id: string, over: Partial<SceneProfile> = {}): SceneProfile =>
   ({
     id,
@@ -46,17 +37,9 @@ const profile = (id: string, over: Partial<SceneProfile> = {}): SceneProfile =>
     ...over,
   } as SceneProfile);
 
-/** `count` profiles named p0..pN-1, in order. */
 const many = (count: number): SceneProfile[] =>
   Array.from({ length: count }, (_, i) => profile(`p${i}`));
 
-/**
- * A hotkey config where every action is unbound, with `over` applied.
- *
- * Built from `HOTKEY_ACTIONS` rather than a hand-written list so a new action
- * added to the catalogue is covered by default instead of reading as `undefined`
- * and throwing inside `globalHotkeyState`.
- */
 const hotkeys = (over: Partial<Record<HotkeyActionId, string>> = {}): HotkeyConfig => {
   const out: Partial<Record<HotkeyActionId, { accelerator: string }>> = {};
   for (const { id } of HOTKEY_ACTIONS) out[id] = { accelerator: over[id] ?? "" };
@@ -75,14 +58,11 @@ describe("visibleProfiles", () => {
     const r = visibleProfiles(many(8), null);
     expect(r.shown).toHaveLength(OVERVIEW_PROFILE_LIMIT);
     expect(r.hidden).toBe(3);
-    // First in, first shown: truncating must not reshuffle the list.
     expect(r.shown[0]!.id).toBe("p0");
     expect(r.shown[OVERVIEW_PROFILE_LIMIT - 1]!.id).toBe("p4");
   });
 
   it("keeps the applied profile visible even when it is past the cut", () => {
-    // The bug this exists for: apply p7 from Settings, and a card that
-    // truncates by position shows nothing that says what is running.
     const scenes = many(8);
     const r = visibleProfiles(scenes, "p7");
     expect(r.shown.map((s) => s.id)).toContain("p7");
@@ -93,9 +73,6 @@ describe("visibleProfiles", () => {
     const scenes = many(8);
     const r = visibleProfiles(scenes, "p7");
     expect(r.shown).toHaveLength(OVERVIEW_PROFILE_LIMIT);
-    // The cut stays at the end of the list: p4 is the row that goes, and p5
-    // does not jump forward to take its place. The active profile is added to
-    // the visible window, it does not reorder it.
     expect(r.shown.map((s) => s.id)).toEqual(["p0", "p1", "p2", "p3", "p7"]);
   });
 
@@ -105,8 +82,6 @@ describe("visibleProfiles", () => {
   });
 
   it("ignores an applied id that is no longer in the list", () => {
-    // Deleting from the picker leaves the header holding a ghost id. It must
-    // not evict a real row looking for something that is gone.
     const r = visibleProfiles(many(8), "deleted");
     expect(r.shown.map((s) => s.id)).toEqual(["p0", "p1", "p2", "p3", "p4"]);
     expect(r.hidden).toBe(3);
@@ -143,7 +118,6 @@ describe("profileSummary", () => {
 
 describe("condenseWindowShortcuts", () => {
   const LABEL = "Switch tab";
-  // The overlay's real shape: palette, five Ctrl+digit tabs, then three more.
   const rows = [
     { keys: ["Ctrl", "K"], what: "Command palette" },
     { keys: ["Ctrl", "1"], what: "Overview" },
@@ -175,16 +149,12 @@ describe("condenseWindowShortcuts", () => {
 
   it("keeps the folded row where the first tab was, not at the end", () => {
     const out = condenseWindowShortcuts(rows, LABEL);
-    // Palette first, then the folded tabs, then the rest: order is the
-    // overlay's order with the run collapsed in place.
     expect(out[0]!.what).toBe("Command palette");
     expect(out[1]!.what).toBe(LABEL);
     expect(out[2]!.what).toBe("Collapse / expand sidebar");
   });
 
   it("leaves a non-tab Ctrl row alone", () => {
-    // Ctrl+B is the only remaining Ctrl+letter binding; folding on digits is
-    // what keeps it from disappearing into the tab group.
     const out = condenseWindowShortcuts(rows, LABEL);
     expect(out.some((r) => r.what === "Collapse / expand sidebar")).toBe(true);
   });
@@ -195,8 +165,6 @@ describe("condenseWindowShortcuts", () => {
       { keys: ["Ctrl", "1"], what: "Overview" },
       { keys: ["Esc"], what: "Close / go back" },
     ];
-    // A single tab is a real binding, not a range: "Ctrl 1" would claim keys
-    // that are not bound to anything.
     expect(condenseWindowShortcuts(one, LABEL)).toEqual(one);
   });
 
@@ -213,7 +181,6 @@ describe("condenseWindowShortcuts", () => {
   });
 
   it("does not fold a digit row that has extra keys", () => {
-    // "Ctrl+Shift+1" is a different binding shape and must stay its own row.
     const shifted = [
       { keys: ["Ctrl", "1"], what: "Overview" },
       { keys: ["Ctrl", "2"], what: "Lighting" },
@@ -243,13 +210,10 @@ describe("splitAccelerator", () => {
   });
 
   it("returns nothing for a combo with no single key", () => {
-    // "Ctrl+A+B" has two key tokens, so there is no one key to draw.
     expect(splitAccelerator("Ctrl+A+B")).toEqual([]);
   });
 
   it("returns nothing rather than echoing a combo that will not parse", () => {
-    // The Settings row shows these in red; a card that printed one back would
-    // look like a working binding.
     expect(splitAccelerator("Ctrl++")).toEqual([]);
   });
 });
@@ -279,15 +243,10 @@ describe("globalHotkeyState", () => {
       hotkeys({ nextWallpaper: "Ctrl+Alt+N", toggleDashboard: "Ctrl+Alt+D" }),
       true,
     );
-    // HOTKEY_ACTIONS order, so the card lists actions the same way every
-    // time instead of reshuffling as the config object changes.
     expect(s.bound.map((r) => r.id)).toEqual(["toggleDashboard", "nextWallpaper"]);
   });
 
   it("counts bindings as bound but dormant while the master switch is off", () => {
-    // The distinction the old card could not make: these keys are not taken,
-    // but they are not unbound either, and reporting them as unbound sends the
-    // user to rebind keys they already bound.
     const s = globalHotkeyState(hotkeys({ toggleDashboard: "Ctrl+Alt+D" }), false);
     expect(s.boundCount).toBe(1);
     expect(s.dormant).toBe(true);
@@ -322,9 +281,6 @@ describe("attentionItems", () => {
   });
 
   it("reports every problem at once, not just the first", () => {
-    // The old strip suppressed "lighting off" whenever anything else was
-    // wrong, so a machine with OpenRGB down and the lights off was told about
-    // one of the two and nothing about the other.
     expect(attentionItems({ rgbConnected: false, wallpaperPaused: true, lightingEnabled: false }).map((i) => i.id)).toEqual([
       "openrgb-offline",
       "wallpaper-paused",
@@ -333,8 +289,6 @@ describe("attentionItems", () => {
   });
 
   it("puts the offline engine first", () => {
-    // It is the reason the rest may be consequences rather than choices, and
-    // the one that is not fixed from this screen.
     const ids = attentionItems({ rgbConnected: false, wallpaperPaused: false, lightingEnabled: false }).map((i) => i.id);
     expect(ids[0]).toBe("openrgb-offline");
   });
@@ -343,8 +297,6 @@ describe("attentionItems", () => {
     const items = attentionItems({ rgbConnected: false, wallpaperPaused: true, lightingEnabled: false });
     expect(items[0]!.action).toEqual({ kind: "navigate", tab: "rgb" });
     expect(items[1]!.action).toEqual({ kind: "navigate", tab: "wallpaper" });
-    // The master switch is on this very screen; sending someone to another tab
-    // to find it is the thing this strip is replacing.
     expect(items[2]!.action).toEqual({ kind: "toggle-lighting" });
   });
 

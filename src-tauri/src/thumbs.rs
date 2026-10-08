@@ -1,16 +1,9 @@
-//! Real video thumbnail extraction via the Windows Shell.
-//!
-//! Uses `IShellItemImageFactory::GetImage` — the same pipeline Explorer uses
-//! for file thumbnails (decoder + OS cache included). No ffmpeg needed.
-//! Result: PNG files under `%APPDATA%/LumenDeck/thumbs/<hash>.png`, referenced
-//! from gallery entries through the `media://` protocol.
 
 #![cfg(windows)]
 
 use crate::config::{GalleryEntry, WallpaperKind};
 use std::path::PathBuf;
 
-/// Directory holding generated thumbnails.
 pub fn thumbs_dir() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -18,9 +11,7 @@ pub fn thumbs_dir() -> PathBuf {
         .join("thumbs")
 }
 
-/// Stable file name for a source path (hash, so paths stay filesystem-safe).
 fn thumb_path(source: &str) -> PathBuf {
-    // FNV-1a 64 of the source path.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in source.as_bytes() {
         h ^= *b as u64;
@@ -29,8 +20,6 @@ fn thumb_path(source: &str) -> PathBuf {
     thumbs_dir().join(format!("{h:016x}.png"))
 }
 
-/// Extract a poster frame for `source` and save it as PNG.
-/// Returns the PNG path on success. Cheap no-op if it already exists.
 pub fn ensure_thumb(source: &str, size: u32) -> Result<PathBuf, String> {
     let out = thumb_path(source);
     if out.exists() {
@@ -42,19 +31,12 @@ pub fn ensure_thumb(source: &str, size: u32) -> Result<PathBuf, String> {
     Ok(out)
 }
 
-/// Does this entry benefit from a generated thumbnail?
 pub fn wants_thumb(entry: &GalleryEntry) -> bool {
     matches!(entry.kind, WallpaperKind::Video | WallpaperKind::Image)
         && entry.thumb.is_none()
         && std::path::Path::new(&entry.source).is_file()
 }
 
-/// Discard the cached poster frame and extract it again.
-///
-/// `ensure_thumb` is a no-op once the file exists, which is right for the
-/// background worker and wrong for an explicit "regenerate": a cached frame
-/// that is black, or was captured before a re-encode, would otherwise be
-/// unrecoverable short of hunting down the PNG in %APPDATA% by hand.
 pub fn regenerate_thumb(source: &str, size: u32) -> Result<PathBuf, String> {
     let out = thumb_path(source);
     if out.exists() {
@@ -78,7 +60,6 @@ fn extract_shell_thumb(source: &str, size: u32, out: &PathBuf) -> Result<(), Str
     use windows::Win32::Graphics::Gdi::HBITMAP;
 
     unsafe {
-        // COM is required for the Shell APIs; this thread is our own.
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
 
         let path = HSTRING::from(source);
@@ -89,9 +70,6 @@ fn extract_shell_thumb(source: &str, size: u32, out: &PathBuf) -> Result<(), Str
             .cast()
             .map_err(|e| format!("no image factory: {e}"))?;
 
-        // THUMBNAILONLY fails when the shell has no cached thumbnail yet, so
-        // first ask the shell to build one (RESIZETOFIT = default pipeline),
-        // then fall back to thumbnail-only / icon-only.
         let hbitmap: HBITMAP = factory
             .GetImage(
                 SIZE {
@@ -120,9 +98,6 @@ fn extract_shell_thumb(source: &str, size: u32, out: &PathBuf) -> Result<(), Str
             })
             .map_err(|e| format!("GetImage: {e}"))?;
 
-        // Convert the DDB handle into a top-down 32bpp DIB we can read.
-        // Dimensions come from GetObjectW — the null-buffer GetDIBits query is
-        // unreliable for shell-provided bitmaps.
         let mut bm = BITMAP::default();
         if GetObjectW(
             HGDIOBJ(hbitmap.0),
@@ -140,10 +115,10 @@ fn extract_shell_thumb(source: &str, size: u32, out: &PathBuf) -> Result<(), Str
         let mut bmi = BITMAPINFO::default();
         bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
         bmi.bmiHeader.biWidth = w;
-        bmi.bmiHeader.biHeight = -(h as i32); // top-down rows
+        bmi.bmiHeader.biHeight = -(h as i32);
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = DIB_RGB_COLORS.0 as u32; // BI_RGB
+        bmi.bmiHeader.biCompression = DIB_RGB_COLORS.0 as u32;
 
         let buf_len = (w as usize) * (h as usize) * 4;
         let mut pixels = vec![0u8; buf_len];
@@ -161,7 +136,6 @@ fn extract_shell_thumb(source: &str, size: u32, out: &PathBuf) -> Result<(), Str
             return Err("GetDIBits failed".into());
         }
 
-        // BGRA -> RGBA in place, then encode PNG via the `image` crate.
         for px in pixels.chunks_exact_mut(4) {
             px.swap(0, 2);
         }
@@ -177,13 +151,10 @@ fn extract_shell_thumb(source: &str, size: u32, out: &PathBuf) -> Result<(), Str
     }
 }
 
-/// How the thumb path is exposed to webviews: media:// URL.
 pub fn thumb_media_url(path: &PathBuf) -> String {
     crate::media::to_media_url(&path.to_string_lossy())
 }
 
-/// Fill in missing thumbnails for the whole gallery on a worker thread;
-/// persists after each new thumb so the UI updates live via config events.
 pub fn spawn_gallery_thumb_worker() {
     std::thread::Builder::new()
         .name("gallery-thumbs".into())
@@ -206,7 +177,6 @@ pub fn spawn_gallery_thumb_worker() {
                                 slot.thumb = Some(url);
                             }
                         });
-                        // Broadcast so the UI re-renders the card live.
                         if let Some(app) = crate::app_handle() {
                             let cfg = crate::config_store::get();
                             crate::events::emit_all(&app, crate::events::CONFIG_CHANGED, &cfg);
@@ -221,7 +191,6 @@ pub fn spawn_gallery_thumb_worker() {
                         );
                     }
                 }
-                // Be a good citizen: one thumbnail per tick.
                 std::thread::sleep(std::time::Duration::from_millis(250));
             }
         })

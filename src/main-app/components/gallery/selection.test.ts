@@ -15,10 +15,8 @@ import {
 const IDS = ["a", "b", "c", "d", "e"];
 const set = (...ids: string[]) => new Set(ids);
 const list = (s: ReadonlySet<string>) => [...s];
-/** A selection of the given ids, anchored on the first. */
 const sel = (...ids: string[]): Selection =>
   ids.length ? { selected: set(...ids), anchor: ids[0] ?? null } : emptySelection();
-/** A selection of the given ids with an explicit anchor. */
 const selFrom = (anchor: string | null, ...ids: string[]): Selection => ({
   selected: set(...ids),
   anchor,
@@ -32,9 +30,6 @@ describe("selectOne", () => {
   });
 
   it("discards a previous selection", () => {
-    // The old model kept `selectedId` for the drawer and `checked` for bulk
-    // work at the same time. There is now one selection, so picking a new tile
-    // gives up the old one.
     const next = applyClick(sel("a", "b"), IDS, "d", {});
     expect(list(next.selected)).toEqual(["d"]);
   });
@@ -54,14 +49,11 @@ describe("spanBetween", () => {
   });
 
   it("returns null when the anchor is not on screen", () => {
-    // The paging and filtering case. Returning null is how the caller knows to
-    // fall back deliberately rather than span against a position that is gone.
     expect(spanBetween(IDS, "z", "c")).toBeNull();
     expect(spanBetween(IDS, "c", "z")).toBeNull();
   });
 
   it("follows the order it is given, not the order of the ids", () => {
-    // Sorting can reverse the grid; the run must be the one the user sees.
     expect(spanBetween(["e", "d", "c", "b", "a"], "e", "c")).toEqual(["e", "d", "c"]);
   });
 });
@@ -74,8 +66,6 @@ describe("plain click", () => {
   });
 
   it("keeps the tile selected when it is clicked again", () => {
-    // Deliberate: clearing on re-click would deselect the tile out from under
-    // someone who is about to press Apply.
     const s = applyClick(sel("c"), IDS, "c", {});
     expect(list(s.selected)).toEqual(["c"]);
   });
@@ -102,8 +92,6 @@ describe("ctrl-click", () => {
   it("can empty the selection entirely", () => {
     const s = applyClick(sel("a"), IDS, "a", { ctrl: true });
     expect(s.selected.size).toBe(0);
-    // The anchor stays put, so the next Shift-click still spans rather than
-    // silently becoming a plain click.
     expect(s.anchor).toBe("a");
   });
 });
@@ -145,8 +133,6 @@ describe("shift-click", () => {
   });
 
   it("adopts the clicked tile as anchor when the old one scrolled off", () => {
-    // The bug this exists to prevent: degrading to a plain select but leaving
-    // the stale anchor behind, so every later Shift-click degraded again.
     const page = ["d", "e"];
     const s = applyClick(sel("a", "b"), page, "e", { shift: true });
     expect(list(s.selected)).toEqual(["e"]);
@@ -171,15 +157,12 @@ describe("selectAll", () => {
   });
 
   it("clears the selection absolutely when asked to untick", () => {
-    // Ctrl+A twice must leave nothing selected. Keeping a hidden remainder
-    // would make the second press look broken.
     const s = selectAll(IDS, false);
     expect(s.selected.size).toBe(0);
     expect(s.anchor).toBeNull();
   });
 
   it("selects only what is visible, not the whole vault", () => {
-    // So a filter cannot become a way to apply three hundred wallpapers.
     const s = selectAll(["a", "b"], true);
     expect(list(s.selected)).toEqual(["a", "b"]);
   });
@@ -205,8 +188,6 @@ describe("selectAllState", () => {
   });
 
   it("ignores selections that are not visible", () => {
-    // Otherwise a hidden selection makes the control claim more than unticking
-    // the visible ones would deliver.
     expect(selectAllState(set("a", "b", "z"), ["a", "b"])).toBe("all");
     expect(selectAllState(set("z"), ["a", "b"])).toBe("none");
   });
@@ -257,11 +238,3 @@ describe("anchorIsVisible", () => {
     expect(anchorIsVisible(IDS, null)).toBe(false);
   });
 });
-
-// `applyOrder` used to live here and is gone. It ordered the selection for a
-// bulk apply that applied *every* selected wallpaper in turn, which is why the
-// button's tooltip and `applyOrder`'s own comment disagreed with what the user
-// saw: twenty wallpaper changes for a selection that ends in the same place
-// either way. The apply now sets one wallpaper, and the ordering that decision
-// needs lives in bulkSelection.ts as `bulkApplyPlan`, alongside the delete it
-// shares an order with. Two copies of one rule is how they drift.

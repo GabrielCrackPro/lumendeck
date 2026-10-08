@@ -28,9 +28,6 @@ describe("bulkApplyPlan", () => {
   });
 
   it("applies only the newest, not every selected wallpaper", () => {
-    // The defect: the bar applied each in turn, so a five-item selection
-    // changed every display five times and raised five toasts, while the
-    // button's own tooltip promised it applied the last one.
     const plan = bulkApplyPlan(VAULT, set("old", "mid", "new"));
     expect(plan.apply?.id).toBe("new");
     expect(plan.collapsed).toBe(3);
@@ -47,8 +44,6 @@ describe("bulkApplyPlan", () => {
   });
 
   it("orders by age, not by array position", () => {
-    // The vault list is not sorted by age; relying on its order would make
-    // "the last one" depend on the backend's serialisation.
     const shuffled = [VAULT[2]!, VAULT[0]!, VAULT[1]!, VAULT[3]!];
     expect(bulkApplyPlan(shuffled, set("old", "new"))?.apply?.id).toBe(
       bulkApplyPlan(VAULT, set("old", "new"))?.apply?.id,
@@ -75,8 +70,6 @@ describe("bulkApplyPlan", () => {
 
 describe("bulkRemovePlan", () => {
   it("removes every selected entry, unlike the apply", () => {
-    // There is no "last one wins" to collapse a delete onto: each wallpaper has
-    // to actually leave the vault.
     expect(bulkRemovePlan(VAULT, set("old", "mid", "new")).map((x) => x.id)).toEqual([
       "old",
       "mid",
@@ -100,8 +93,6 @@ describe("bulkRemovePlan", () => {
 
 describe("restoreEntries", () => {
   it("puts every removed entry back in one call", () => {
-    // The defect: one undo toast per deleted wallpaper, so undoing a
-    // five-item delete took five presses.
     const removed = bulkRemovePlan(VAULT, set("old", "mid"));
     const restored = restoreEntries(VAULT.filter((x) => x.id === "new"), removed);
     expect(restored.map((x) => x.id)).toEqual(["new", "old", "mid"]);

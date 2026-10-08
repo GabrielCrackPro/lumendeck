@@ -23,20 +23,15 @@ describe("formatDuration", () => {
   });
 
   it("floors rather than rounds", () => {
-    // A clock that rounds up can display a duration the track does not have,
-    // which then disagrees with the last frame of the progress bar.
     expect(formatDuration(59.9)).toBe("0:59");
     expect(formatDuration(0.4)).toBe("0:00");
   });
 
   it("clamps a negative position to zero", () => {
-    // The two copies of this function disagreed here: one clamped, one did
-    // not, so a sample that drifted a few ms before zero rendered "-0:01".
     expect(formatDuration(-5)).toBe("0:00");
   });
 
   it("survives a non-finite duration", () => {
-    // A live stream can report no duration at all.
     expect(formatDuration(NaN)).toBe("0:00");
     expect(formatDuration(Infinity)).toBe("0:00");
   });
@@ -44,8 +39,6 @@ describe("formatDuration", () => {
 
 describe("skewedPosition", () => {
   it("advances by the sample age while playing", () => {
-    // The sample is a beat old by the time it renders; without this the bar
-    // starts behind and snaps forward on the first frame.
     expect(skewedPosition(10, 100, true, 500)).toBeCloseTo(10.5);
   });
 
@@ -54,8 +47,6 @@ describe("skewedPosition", () => {
   });
 
   it("ignores a negative sample age rather than rewinding", () => {
-    // A clock that went backwards, or a zero/absent timestamp. Rewinding the
-    // playhead is worse than not correcting it.
     expect(skewedPosition(10, 100, true, -500)).toBe(10);
   });
 
@@ -79,8 +70,6 @@ describe("progressFraction", () => {
   });
 
   it("is zero when the duration is unknown", () => {
-    // Dividing by zero here produces NaN, and `scaleX(NaN)` silently drops
-    // the fill to no scale at all — a live stream would show no bar.
     expect(progressFraction(50, 0)).toBe(0);
     expect(progressFraction(50, -1)).toBe(0);
     expect(progressFraction(50, NaN)).toBe(0);
@@ -103,7 +92,6 @@ describe("positionFromFraction", () => {
   });
 
   it("clamps a pointer that reports past either edge", () => {
-    // A drag that leaves the bar still has to resolve to a valid position.
     expect(positionFromFraction(1.4, 200)).toBe(200);
     expect(positionFromFraction(-0.2, 200)).toBe(0);
   });
@@ -119,8 +107,6 @@ describe("sampleAgreesWithSeek", () => {
   });
 
   it("rejects a sample still carrying the pre-seek position", () => {
-    // The bug: seeking to 120 while the player still reports 30 would pull the
-    // anchor back, so a held arrow key stutters instead of running.
     expect(sampleAgreesWithSeek(30, 120, 400)).toBe(false);
   });
 
@@ -130,14 +116,10 @@ describe("sampleAgreesWithSeek", () => {
   });
 
   it("tolerates a sample a beat away from the seek", () => {
-    // SMTC samples at about 1 Hz and playback continues, so an exact match is
-    // not something to wait for.
     expect(sampleAgreesWithSeek(121, 120, 400)).toBe(true);
   });
 
   it("stops shielding the seek once it has had time to settle", () => {
-    // A seek the player refused must snap the bar back to the truth rather
-    // than leave it showing a position that never happened.
     expect(sampleAgreesWithSeek(30, 120, SEEK_SETTLE_MS)).toBe(true);
     expect(sampleAgreesWithSeek(30, 120, SEEK_SETTLE_MS + 5000)).toBe(true);
   });
@@ -153,14 +135,10 @@ describe("totalTimeLabel", () => {
   });
 
   it("floors the countdown exactly as the total floors", () => {
-    // Both sides of the row run through one formatter: a countdown that
-    // rounded up would disagree with the bar's frame-by-frame position.
     expect(totalTimeLabel(100, 40.9, true)).toBe("-0:59");
   });
 
   it("reads 0:00 rather than a negative countdown at or past the end", () => {
-    // A stream can report a position beyond its own duration; "-0:04" would
-    // read as a bug for a track that has already ended.
     expect(totalTimeLabel(100, 100, true)).toBe("0:00");
     expect(totalTimeLabel(100, 104, true)).toBe("0:00");
   });
@@ -174,8 +152,6 @@ describe("seekTipPercent", () => {
   });
 
   it("clamps a pointer resting past either end", () => {
-    // The bar's hit area extends past its painted ends; the bubble must stay
-    // over the bar it describes rather than drifting onto the volume row.
     expect(seekTipPercent(-0.25)).toBe(0);
     expect(seekTipPercent(1.3)).toBe(100);
     expect(seekTipPercent(NaN)).toBe(0);

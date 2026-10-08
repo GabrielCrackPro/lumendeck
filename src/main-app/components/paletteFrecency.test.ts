@@ -42,7 +42,6 @@ describe("bumpFrecency", () => {
   it("decays the old strength before adding, so ancient use stops counting", () => {
     const first = bumpFrecency({}, "cmd", 0);
     const later = bumpFrecency(first, "cmd", WEEK);
-    // One old use decayed to a half, plus the new one.
     expect(later["cmd"]!.s).toBeCloseTo(1.5, 10);
     expect(later["cmd"]!.t).toBe(WEEK);
   });
@@ -55,7 +54,6 @@ describe("bumpFrecency", () => {
 
 describe("pruneFrecency", () => {
   it("drops entries whose strength has faded below the floor", () => {
-    // One use, sixty days old: 0.5 ** (60/7) is far under 0.01.
     const store: FrecencyStore = { old: { s: 1, t: 0 } };
     expect(pruneFrecency(store, 60 * 24 * 60 * 60 * 1000)).toEqual({});
   });
@@ -68,7 +66,6 @@ describe("pruneFrecency", () => {
   it("caps the store at sixty entries, keeping the strongest", () => {
     let store: FrecencyStore = {};
     for (let i = 0; i < 70; i++) store[`c${i}`] = { s: 1, t: 0 };
-    // One id far stronger than the rest must survive the cut.
     store["strong"] = { s: 9, t: 0 };
     const pruned = pruneFrecency(store, 0);
     expect(Object.keys(pruned).length).toBe(60);
@@ -87,7 +84,6 @@ describe("rankFrecency", () => {
   });
 
   it("lets a fresh single use outrank stale heavy use", () => {
-    // Ten runs four weeks ago (10 * 0.5^4 = 0.625) vs one run just now (1).
     const store: FrecencyStore = {
       stale: { s: 10, t: 0 },
       fresh: { s: 1, t: 4 * WEEK },
@@ -96,7 +92,6 @@ describe("rankFrecency", () => {
   });
 
   it("hides what has faded below the floor", () => {
-    // `old` is sixty days stale; `fresh` was used at `now` itself.
     const now = 60 * 24 * 60 * 60 * 1000;
     const store: FrecencyStore = { old: { s: 1, t: 0 }, fresh: { s: 1, t: now } };
     expect(rankFrecency(store, now)).toEqual(["fresh"]);

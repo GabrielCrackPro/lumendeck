@@ -18,24 +18,12 @@ import { t } from "../i18n";
 import { Tooltip } from "./Tooltip";
 import { useAnchoredPopover } from "./usePopover";
 
-/**
- * The app mark — the one place the logo is drawn.
- *
- * Four call sites used to render /app-icon.png with four different radii
- * (5px, 8px, 12px, 22px), two different border opacities and two different
- * animations, so the same artwork read as four different logos depending on
- * where you met it. Corner radius is now a fixed fraction of the size (a
- * squircle that scales) and the accent ring is one value everywhere, so a
- * 16px title-bar chip and an 80px splash are visibly the same object.
- */
 export function AppMark({
   size = 28,
   pulse,
   className = "",
 }: {
-  /** Edge length in px. Every size derives its radius from this. */
   size?: number;
-  /** Slow accent breath — for splash screens, not for chrome. */
   pulse?: boolean;
   className?: string;
 }) {
@@ -56,26 +44,6 @@ export function AppMark({
   );
 }
 
-/**
- * Release-only identity guard: renders nothing in a shipped build, and an
- * amber chip in a dev build. It lives beside the title-bar wordmark rather
- * than in the sidebar, because the rail collapses and the header is the one
- * strip that is always on screen — a dev build should never be mistakable for
- * the release one, whatever state the window is in.
- *
- * The chip carries the version, not the commit. A commit is what a bug report
- * needs, but this is a glanceable strip: the question it answers is "which
- * build am I looking at, and is it a real one", and a hash is a worse answer to
- * that than a version number. It was also the longer of the two, and the badge
- * sits in a title bar that has to survive a narrow window.
- *
- * The commit does not go away, it moves to the tooltip, which is read
- * deliberately rather than incidentally — and it stays there because the dirty
- * suffix is the part that changes what the version means.
- *
- * The slow pulse is deliberately dim — visible across the room, ignorable when
- * working.
- */
 export function DevBadge() {
   if (__APP_BUILD_MODE__ !== "dev") return null;
   return (
@@ -96,17 +64,10 @@ export function DevBadge() {
   );
 }
 
-/**
- * The wordmark, in the same three sizes the mark appears at. Same type, same
- * tracking, same casing everywhere the app names itself — the title bar used
- * to lowercase it while the splash shouted LUMEN DECK, which read as two
- * different products sharing an icon.
- */
 export function AppWordmark({
   size = 28,
   className = "",
 }: {
-  /** Use the mark's size so the lockup scales as one unit. */
   size?: number;
   className?: string;
 }) {
@@ -121,11 +82,6 @@ export function AppWordmark({
   );
 }
 
-/**
- * Collapsible sub-section inside a Card: a one-line toggle header that folds
- * a group of related controls away. Default-open when `defaultOpen`, or when
- * it contains the most recently touched control.
- */
 export function Section({
   title,
   children,
@@ -168,8 +124,6 @@ export function Section({
   );
 }
 
-/** Console panel: flat tile with a hairline header rule. Optional `icon`
- * renders before the title so Overview cards read as labeled modules. */
 export function Card({
   title,
   icon,
@@ -183,54 +137,20 @@ export function Card({
   icon?: ReactNode;
   children: ReactNode;
   right?: ReactNode;
-  /** Extra classes on the panel root, e.g. `xl:col-span-5` in a 12-col row. */
   className?: string;
-  /**
-   * Names this card as a navigation target, from `TAB_ANCHORS`.
-   *
-   * On the primitive rather than a wrapper div: a wrapper inside a grid or flex
-   * parent becomes a layout child of its own, and the card it wrapped stops
-   * spanning what the layout expects. The attribute is inert until something asks
-   * to navigate here.
-   */
   anchor?: string;
-  /**
-   * Drop the panel's drop shadow.
-   *
-   * For the one card whose surface is a full-bleed picture: a shadow ringing it
-   * reads as a second frame the artwork never asked for. Inline rather than a
-   * `shadow-none` class because `.glass` at rest and `.card-surface:hover` both
-   * reassert a box-shadow from the stylesheet, and an inline declaration is the
-   * only thing that beats both — at rest and on hover alike.
-   */
   noShadow?: boolean;
 }) {
   return (
-    /*
-     * `overflow-hidden` used to be here, to keep the header's sunken background
-     * inside the card's rounded corners. It also clipped every popover in the
-     * card: a `Dropdown` or `Select` panel is absolutely positioned, so it was
-     * cut off at the card's edge and the options below the fold simply did not
-     * exist — the sticker editor's "Fit" menu showed "Contain" and hid "Cover"
-     * and "Fill". No z-index fixes a clip; the panel was never painted.
-     *
-     * The corners are now the header's own job via `rounded-t-*`, matching
-     * `--radius-xl` on `.glass`, so nothing is clipped and the header still
-     * reads as the top of a rounded card.
-     */
-    /* `card-surface` is what the hover lift in index.css keys on. `glass` on its
-       own is also the app header, the loading skeletons, the onboarding panel and
-       the modal bodies, none of which should move when a mouse passes over
-       them -- so the lift is scoped here rather than put on `.glass`. */
     <section
       className={`glass card-surface ${className ?? ""}`}
       style={noShadow ? { boxShadow: "none" } : undefined}
       data-anchor={anchor}
     >
       <header className="flex min-h-[42px] items-center justify-between gap-3 rounded-t-[var(--radius-xl)] border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4">
-        {/* `min-w-0` + truncate: a long card title is a flex item like any
-            other, and without a minimum of zero its nowrap text widens the
-            header until the panel clips its own right edge. */}
+        {
+
+ }
         <h2 className="kicker flex min-w-0 items-center gap-2 truncate !text-[var(--text-dim)]">
           {icon && <span className="text-[rgb(var(--glow))] [&_svg]:h-3.5 [&_svg]:w-3.5">{icon}</span>}
           {title}
@@ -242,8 +162,6 @@ export function Card({
   );
 }
 
-/** Small status pill / chip. */
-/** One chip look per tone, shared by the label and the button below. */
 const CHIP_DOT: Record<ChipTone, string> = {
   ok: "bg-emerald-400",
   warn: "bg-amber-400",
@@ -283,16 +201,6 @@ export function Chip({
   );
 }
 
-/**
- * A chip you can press.
- *
- * The Overview attention strip found it had things to say that each had a fix
- * one click away, and a non-interactive span cannot carry a click. This is that
- * same chip as a button, sharing the tone maps above rather than restating
- * them: a status chip and a button that look identical but are built from two
- * copies of the same classes is exactly the drift the design system exists to
- * stop.
- */
 export function ChipButton({
   tone = "idle",
   children,
@@ -303,9 +211,7 @@ export function ChipButton({
   tone?: ChipTone;
   children: ReactNode;
   onClick: () => void;
-  /** Tooltip. The label says what is wrong; this says what pressing does. */
   title?: string;
-  /** Held while the write it would trigger is already in flight. */
   disabled?: boolean;
 }) {
   return (
@@ -322,23 +228,6 @@ export function ChipButton({
   );
 }
 
-/** Visual-only switch: the pill + knob + ripple, without any label row. */
-/**
- * The switch skin: track, ripple, knob. No behaviour of its own.
- *
- * Extracted because two controls need this exact drawing — a bare switch
- * beside something (`SwitchBtn`) and a whole labelled row (`SwitchRow`) —
- * and two copies of it is how those two drift apart, which is the reason the
- * shared primitives exist in the first place.
- *
- * `pointer-events-none` because in `SwitchRow` the whole row is the button;
- * a track that swallowed clicks would leave dead pixels inside the target.
- *
- * The `switch-btn` class belongs on the interactive element, not here: the
- * press animation is `.switch-btn:active .switch-ripple`, and a span that is
- * `pointer-events-none` can never be `:active`, so putting it here would
- * silently kill the faster ripple timing.
- */
 function SwitchTrack({
   checked,
   disabled,
@@ -349,12 +238,6 @@ function SwitchTrack({
   return (
     <span
       aria-hidden
-      // `block` is load-bearing, not decoration. This used to be the <button> itself,
-      // which is `inline-block`, so `w-[34px]` applied. Moved onto a <span> — which
-      // is `display: inline`, where width and height are ignored — the track
-      // collapsed to zero content width plus its 1px borders: a 2px sliver. The
-      // absolutely-positioned knob escaped it and painted outside the card, so
-      // the switch read as a thin line beside a floating white dot.
       className={`pointer-events-none relative block h-[20px] w-[34px] shrink-0 rounded-full border transition-[background-color,border-color] duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
         disabled
           ? checked
@@ -362,21 +245,13 @@ function SwitchTrack({
             : "border-[var(--line)] bg-[var(--panel-sunken)] opacity-60"
           : checked
             ? "border-transparent bg-[rgb(var(--glow))]"
-            : // `--panel-strong`, not `--panel-sunken`: the off state was a
-              // barely-darker-than-the-card wash, so an off switch read as an
-              // empty gap rather than a control you could aim at.
+            :
               "border-[var(--line-strong)] bg-[var(--panel-strong)]"
       }`}
     >
-      {/* ripple burst on toggle */}
+      { }
       <span key={String(checked)} className="switch-ripple absolute inset-0 rounded-full" />
       <span
-        // `--text` is the theme foreground: near-white in dark, near-black in
-        // light, so the knob inverts with the theme. Not `--accent-lift`,
-        // which is a JavaScript-only token and resolves to nothing in CSS —
-        // using it made this knob fully transparent and the switch vanished.
-        // The fallback keeps a future unresolved token from turning the
-        // control invisible, which is the worst way for this to fail.
         className={`absolute top-[2.5px] h-[14px] w-[14px] rounded-full bg-[var(--text)] shadow transition-[background-color,border-color,transform] duration-[var(--motion-base)] ease-[var(--ease-standard)] ${
           checked ? "left-[17px]" : "left-[2.5px]"
         } ${disabled ? "opacity-70" : ""}`}
@@ -393,15 +268,11 @@ export function SwitchBtn({
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
-  /** Also the accessible name: a bare switch has no other label. */
   title?: string;
-  /** A setting with nothing to act on should not invite the click. */
   disabled?: boolean;
 }) {
   const sw = (
     <button
-      // Without this the switch submits whatever form it happens to sit in,
-      // which is not a decision a control should make on its own.
       type="button"
       role="switch"
       aria-checked={checked}
@@ -416,20 +287,6 @@ export function SwitchBtn({
   return title ? <Tooltip label={title}>{sw}</Tooltip> : sw;
 }
 
-/**
- * A labelled switch whose entire row is the target.
- *
- * `Toggle` used to wrap a switch button in a `<label>` and rely on the label
- * to forward the click. It does not: a `<label>` activates an associated
- * *form control*, and `<button role="switch">` is not one — so the row was
- * drawn clickable (`cursor-pointer`) and silently was not. The whole row is
- * the button here instead, which also makes the target the label rather than
- * a 22px sliver, and makes it work from the keyboard for the same reason it
- * works from the mouse.
- *
- * `className` is for sizing, not for skin: it cannot restyle the track, so
- * this cannot drift into a second switch.
- */
 export function SwitchRow({
   checked,
   onChange,
@@ -444,9 +301,7 @@ export function SwitchRow({
   onChange: (v: boolean) => void;
   label: string;
   description?: string;
-  /** Tooltip for the compact header use, where there is no description. */
   title?: string;
-  /** Optional leading plate, for a control worth giving visual weight. */
   icon?: ReactNode;
   disabled?: boolean;
   className?: string;
@@ -461,10 +316,10 @@ export function SwitchRow({
       className={`switch-btn flex w-full min-w-0 items-center gap-3 rounded-[var(--radius-md)] py-1 text-left focus-glow disabled:cursor-not-allowed ${className}`}
     >
       {icon && <span className="shrink-0">{icon}</span>}
-      {/* `min-w-0` is what lets the text shrink instead of forcing the row
-          wider than its container. Without it a grid item's automatic minimum
-          size is its min-content width, and a long label silently widens the
-          whole column until the card clips its own right edge. */}
+      {
+
+
+ }
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-medium leading-tight text-[var(--text)]">
           {label}
@@ -492,11 +347,6 @@ export function Toggle({
   label: string;
   description?: string;
 }) {
-  // Was a `<label>` wrapping a `SwitchBtn`, which meant the row only *looked*
-  // clickable — a label activates a form control, and a button is not one.
-  // The row is the button now. Typography is left as it was: this renders at
-  // list scale, and the settings rows that use it should not all restyle
-  // because the master switch gained a row of its own.
   return (
     <button
       type="button"
@@ -535,10 +385,6 @@ export function Slider({
   format?: (v: number) => string;
   onChange: (v: number) => void;
 }) {
-  // Live local value so the thumb tracks the pointer 1:1, but the change is
-  // only committed on release (or key-up): dragging a slider used to fire a
-  // full config save per pixel-step — dozens of writes, broadcasts, and
-  // side-effect passes per gesture.
   const [live, setLive] = useState<number | null>(null);
   const shown = live ?? value;
   const pct = ((shown - min) / (max - min)) * 100;
@@ -598,7 +444,6 @@ export function Select<T extends string>({
   );
 }
 
-/** Custom dropdown matching the app's glass/ring language (no native select). */
 export function Dropdown<T extends string | number>({
   value,
   options,
@@ -615,40 +460,11 @@ export function Dropdown<T extends string | number>({
   options: { id: T; label: string }[];
   onChange: (v: T) => void;
   className?: string;
-  /** Toolbar sizing: the form-field default is far too tall for a top bar. */
   compact?: boolean;
-  /** The button shows the current value, so it needs a name of its own. */
   ariaLabel?: string;
-  /** Hover text. Carries the current value in icon mode, where the label
-   *  itself is no longer on screen. */
   title?: string;
-  /**
-   * Render the trigger as a square icon button instead of a labelled field.
-   *
-   * A toolbar of "Sort by ▾" / "Tile size ▾" spends a hundred pixels of width
-   * restating what the icon already says, and pushes the search box off a
-   * narrow window. In icon mode the current value moves into the tooltip: the
-   * sort order is visible in the tiles anyway.
-   */
   icon?: ReactNode;
-  /**
-   * Shape the trigger as one of the panel's filter pills rather than a form
-   * field.
-   *
-   * The resolution floor used to be an icon-mode `Dropdown`, which in a row of
-   * pills was a lone 32px square whose only statement about the current filter
-   * was a tooltip -- the one control in the panel you could not read at a
-   * glance, in the panel whose entire job is being readable at a glance.
-   */
   chip?: boolean;
-  /**
-   * Whether a `chip` trigger reads as pressed.
-   *
-   * Defaults to "the menu is open", which is right for a field that opens. It
-   * is wrong for a filter: picking a resolution floor and then reading the
-   * panel should still show it as applied, so callers pass the filter's own
-   * state rather than the popover's.
-   */
   chipActive?: boolean;
 }) {
   const pop = useAnchoredPopover();
@@ -742,24 +558,8 @@ export function Dropdown<T extends string | number>({
   );
 }
 
-/**
- * Chip height in the filter panel: a `py-1 text-xs` pill plus its 1px border.
- *
- * Stated as a token because three separate controls have to agree on it -- the
- * collection chip's action half, the "new collection" button and the
- * resolution dropdown all sit in the same row, and each used to be sized from
- * its own idea of what a pill is (26px, 24px and 32px respectively), which is
- * what made that row look like it had been assembled from three panels.
- */
 export const CHIP_H = "h-[26px]";
 
-/**
- * The option list a `Dropdown` opens.
- *
- * Shared by both trigger styles so the icon button gets the same anchoring,
- * keyboard handling and active-option tick as the labelled field -- the trigger
- * is the only thing that differs between them.
- */
 function DropdownPanel<T extends string | number>({
   shown,
   options,
@@ -781,22 +581,13 @@ function DropdownPanel<T extends string | number>({
   onPick: (id: T) => void;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
 }) {
-  // Portalled and measured, so no ancestor's overflow or stacking context can
-  // clip it. The hook owns the measurement so the gallery's two menus measure
-  // themselves the same way.
   const anchor = useAnchoredPanel(triggerRef, shown);
 
-  // The popover needs this node to tell an option click from an outside click,
-  // and the panel is portalled so it is not inside the popover's root. So the
-  // hook's ref is handed back up to `panelRef`, which is the one the popover
-  // already tests.
   useEffect(() => {
     panelRef.current = anchor.panelRef.current;
   });
 
   if (!shown) return null;
-  // Off-screen until measured, rather than at the viewport's top-left corner
-  // for a frame.
   return createPortal(
     <div
       ref={anchor.panelRef}
@@ -847,33 +638,9 @@ export function Btn({
   variant?: "default" | "primary" | "danger" | "ghost";
   size?: "md" | "sm";
   disabled?: boolean;
-  /** For the cases where the button has to fill or shrink to its container. */
   className?: string;
-  /** Defaults to "button", not HTML's implicit "submit". */
   type?: "button" | "submit";
-  /**
-   * The button is waiting on an IPC call. Shows a spinner *beside* the label
-   * rather than replacing it: the words are what tells the user what is
-   * happening, and "import" turning into a bare arc reads as an unknown
-   * control. Icon-only buttons swap their glyph for the arc instead, because
-   * there the glyph is the only thing in the box.
-   *
-   * Do not combine this with a leading icon of your own: the two sit side by
-   * side and read as two separate controls. A button with an icon should drop
-   * the icon while it pends, or not use this at all -- which is why every
-   * current caller of `pending` is a label-only button.
-   */
   pending?: boolean;
-  /**
-   * Hover text, shown as the app's own tooltip.
-   *
-   * The only way to explain a *disabled* button: it cannot take focus, so no
-   * on-click handler will ever fire to set one, and a tooltip driven by focus
-   * alone would never appear. Needed by the delete control, which is disabled
-   * with a single profile left and has to say why rather than simply going
-   * quiet. The pointer path is what covers it — a disabled button still emits
-   * pointer events in WebView2.
-   */
   title?: string;
 }) {
   const styles = {
@@ -884,9 +651,6 @@ export function Btn({
       "border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20",
     ghost: "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]",
   }[variant];
-  // Radii step *below* the cards, deliberately: a 36px button at the card
-  // radius (12px) is a lozenge, and buttons that round as much as the panels
-  // they sit on lose the hierarchy that says which one is the control.
   const sizing =
     size === "sm"
       ? "rounded-sm px-2.5 py-1.5 text-xs"
@@ -903,17 +667,10 @@ export function Btn({
       {children}
     </button>
   );
-  // The tooltip wraps rather than sets `title`, so the native bubble is gone
-  // while the prop — and every call site that passes one — is unchanged.
   return title ? <Tooltip label={title}>{button}</Tooltip> : button;
 }
 
-// ---------- Chip & Segmented (shared selection-button language) ----------
 
-/**
- * Visual language shared by every selectable chip / segmented control so the
- * app has one "selected" look instead of ad-hoc variants per screen.
- */
 const CHIP_BASE =
   "select-none border font-semibold transition-[color,background-color,border-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-standard)] focus-glow active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40";
 const CHIP_ON =
@@ -925,66 +682,23 @@ export function chipStyle(on: boolean): string {
   return `${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`;
 }
 
-/**
- * Canonical icon-button tokens, derived from the chip language: same accent
- * values as CHIP_ON/OFF, but square-ish (rounded-md, matching Btn at its
- * default size) and icon-sized. Contained like every other button in the app —
- * a quiet panel chip at rest, not a floating ghost. Exported for the Overview
- * player.
- */
 export const ICON_BTN =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-[color,background-color,border-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-standard)] select-none focus-glow active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100";
 export const ICON_BTN_IDLE =
   "border-[var(--line)] bg-[var(--panel)] text-[var(--text-dim)] hover:border-[var(--line-strong)] hover:text-[var(--text)]";
 export const ICON_BTN_ACTIVE = CHIP_ON;
-/** The one primary control in a row: filled accent, slightly larger. */
 export const ICON_BTN_PRIMARY =
   "h-9 w-9 border-transparent bg-[rgb(var(--glow))] text-black glow-fill hover:brightness-110";
 
-/**
- * Micro command button: the tiny uppercase mono label ("manage", "apply")
- * used inside card headers. One token so every header action matches.
- */
 export const MINI_BTN =
   "inline-flex select-none items-center gap-1 rounded-md border border-[var(--line)] px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] transition-[color,background-color,border-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-standard)] focus-glow hover-glow active:scale-95";
 
-/**
- * Icon button that sits on top of imagery (gallery thumbnails, collection
- * covers, previews): a dark scrim and blur instead of the panel palette, with a
- * white icon, so it stays legible over any wallpaper.
- *
- * This token used to exist in three near-identical copies -- in the gallery
- * card, in the collection card, and here -- which had drifted to two different
- * hit areas (24px and 28px), three different radii, and two different focus
- * treatments. One definition now, so a scrim button looks the same everywhere
- * it is drawn over a picture. Radius matches ICON_BTN but the hit area does
- * not: this one is 28px, not 32px, because it sits on top of a thumbnail where
- * a larger box would cover the artwork it is meant to annotate.
- *
- * The one primitive that keeps its own focus ring: a glow ring in the accent
- * colour disappears against a wallpaper, so this stays white. `focus-glow`
- * takes `--focus-offset` for a surface of another colour, but the ring itself
- * would need to change too, which is a different treatment rather than a
- * themed one.
- */
 export const OVERLAY_ICON_BTN =
   "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 bg-black/60 text-white/80 backdrop-blur-sm transition-colors hover:border-white/30 hover:bg-black/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 active:scale-95";
 
-/**
- * `OVERLAY_ICON_BTN` in the accent register: the same scrim, blur, hit area and
- * white focus ring, with the accent border and glyph instead of white.
- *
- * For controls drawn over the live wallpaper — the Now playing rail's pause and
- * change buttons — which read in the accent like the name beside them. The scrim
- * is the half that makes that survive a picture: `ICON_BTN_ACTIVE`'s 12% accent
- * tint is what keeps an accent control quiet on a panel, and over a bright frame
- * it is not a colour at all. The focus ring stays white for the reason documented
- * above — an accent ring disappears against a wallpaper.
- */
 export const OVERLAY_ICON_BTN_ACCENT =
   "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[rgb(var(--glow)/0.55)] bg-black/55 text-[rgb(var(--glow))] backdrop-blur-sm transition-colors hover:border-[rgb(var(--glow)/0.85)] hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 active:scale-95";
 
-/** Pill-shaped selectable chip (collections, devices, playlists, tags). */
 export function SelectChip({
   children,
   onClick,
@@ -1003,8 +717,6 @@ export function SelectChip({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      // The selected state is carried by color alone otherwise, which a
-      // screen reader (and a colorblind user) cannot see.
       aria-pressed={active}
       className={`rounded-full px-3 py-1 text-xs ${chipStyle(active)}`}
     >
@@ -1014,25 +726,6 @@ export function SelectChip({
   return title ? <Tooltip label={title}>{chip}</Tooltip> : chip;
 }
 
-/** Segmented control: a row of mutually exclusive options. */
-/**
- * A segmented control: one choice from a short, closely related set.
- *
- * Track plus sliding thumb rather than a row of separate chips — the shape
- * iOS, Notion's view switcher and Arc's sidebar all converged on. Two things
- * it buys over chips: the choice reads as *one* control moving rather than one
- * of N independent buttons lighting up, and mutual exclusivity is stated by
- * construction, where a row of chips can read as filters you may combine.
- *
- * The thumb rides `transform` (positioned by index, so it is composited rather
- * than laid out) with `--ease-emphasized` — the slight overshoot in the scale,
- * which is what makes a pill *settle* instead of stop. Labels cross at the fast
- * register; the wildcard in `index.css` collapses both for reduced motion.
- *
- * The thumb is hidden when nothing matches, which is a real state: the
- * Overview's mode groups pass "" when the running mode belongs to the other
- * group, and an empty track says so honestly.
- */
 export function Segmented<T extends string>({
   options,
   value,
@@ -1044,7 +737,6 @@ export function Segmented<T extends string>({
   value: T;
   onChange: (v: T) => void;
   className?: string;
-  /** Names the group; without it the buttons announce as bare options. */
   label?: string;
 }) {
   const index = options.findIndex((o) => o.id === value);
@@ -1059,9 +751,6 @@ export function Segmented<T extends string>({
           aria-hidden="true"
           className="pointer-events-none absolute inset-y-0.5 left-0.5 rounded-full bg-[rgb(var(--glow))] shadow-[0_2px_12px_-4px_rgb(var(--glow)/0.7)]"
           style={{
-            // Track padding is 2px a side, so the segments divide the content
-            // box; translateX percentages are of the thumb's own width, which
-            // makes index * 100% land exactly on segment N for any N.
             width: `calc((100% - 4px) / ${options.length})`,
             transform: `translateX(${index * 100}%)`,
             transition: "transform var(--motion-base) var(--ease-emphasized)",
@@ -1090,27 +779,7 @@ export function Segmented<T extends string>({
   );
 }
 
-// ---------- RGB <-> HSV ----------
-//
-// These used to be a second, private copy of the conversions that already live
-// in `rgbStrip.ts` — and the weaker of the two. The copy here did not wrap a
-// hue above 360 or clamp saturation and value, so a hue of 360 landed in the
-// final sector branch and returned a wrong colour, while the strip's version
-// handles it. Two implementations of the same maths is how they drift, so the
-// picker now uses the tested one.
 
-/**
- * Preset swatch labels, as catalog keys.
- *
- * Held as an explicit map rather than inline `t("common.sky")` calls because the
- * swatches are data: the tooltip reads `t(preset.labelKey)`, and the i18n check
- * can only see keys it finds literally. A map named `*_LABELS` is the one shape
- * its key scan does resolve, so this keeps the unused-key pass honest instead
- * of eight keys that look dead.
- *
- * The names used to be English words sitting in the same array, which is why a
- * Spanish build showed "magenta" and "sky" in English tooltips.
- */
 const PRESET_LABELS = {
   sky: "common.sky",
   violet: "common.violet",
@@ -1133,24 +802,6 @@ const PRESETS: { hex: string; labelKey: string }[] = [
   { hex: "#FFFFFF", labelKey: PRESET_LABELS.white },
 ];
 
-/**
- * Custom color picker: swatch trigger opening a popover with an HSV
- * saturation/value field, hue slider, preset swatches and a hex input.
- * Same API as the old native-input ColorInput.
- */
-/**
- * Copy a colour's hex from beside its swatch.
- *
- * Present whether or not the hex readout is shown. That is the whole point:
- * the readout is a label you read, this is an action you take, and hiding the
- * label is not a request to lose the ability to grab the value — someone
- * matching a colour with the eyedropper wants the hex to paste somewhere else,
- * and that is exactly the person who turned the text off.
- *
- * Hover- and focus-revealed, so a colour row carries no permanent extra
- * furniture. An always-visible button on every swatch is the kind of clutter
- * that makes people turn the feature off instead.
- */
 export function CopyHexButton({
   value,
   className = "",
@@ -1165,9 +816,6 @@ export function CopyHexButton({
       type="button"
       onClick={() => void copy(hex)}
       aria-label={t("common.copy-color-hex")}
-      // Focus reveals it too: a keyboard user tabbing past a hidden button
-      // cannot find it, and `opacity-0` alone would still let it take focus
-      // while being invisible.
       className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] opacity-0 transition-opacity hover:text-[rgb(var(--glow))] focus-visible:opacity-100 group-hover:opacity-100 ${className}`}
     >
       {justCopied ? (
@@ -1200,16 +848,11 @@ export function ColorInput({
   const rootRef = useRef<HTMLDivElement>(null);
   const svRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  // Read from the store rather than threaded in as a prop, so every colour
-  // input in the app honours the preference without each call site having to
-  // remember. The selector returns a primitive, so this does not re-render on
-  // unrelated config writes.
   const showHex = useStore((s) => s.cfg?.general.showColorHex ?? true);
   const { h, s, v } = rgbToHsv(value);
   const [hue, setHue] = useState(h);
   const [hexDraft, setHexDraft] = useState<string | null>(null);
 
-  // Track hue separately while dragging so the SV square's base color stays put.
   useEffect(() => {
     if (!open) setHue(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1223,9 +866,6 @@ export function ColorInput({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setOpen(false);
-        // Hand focus back where it came from. Closing on Escape and leaving the
-        // trigger unfocused means the next Tab starts from the top of the page,
-        // which is disorienting in a popover you opened with the keyboard.
         triggerRef.current?.focus();
       }
     };
@@ -1254,10 +894,6 @@ export function ColorInput({
       const [mx, my] = svPoint(ev);
       emit(hue, mx, 1 - my);
     };
-    // `pointercancel` and `blur` are not optional extras here. A drag that ends
-    // outside the window, or loses capture because a modal or the window manager
-    // took it, never delivers `pointerup` — and the old cleanup only listened
-    // for `pointerup`, so the thumb kept following the mouse forever.
     const stop = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
@@ -1270,7 +906,6 @@ export function ColorInput({
     window.addEventListener("blur", stop);
   };
 
-  /** Arrow keys nudge the SV point, so the square is not mouse-only. */
   const onSvKeyDown = (e: React.KeyboardEvent) => {
     const step = e.shiftKey ? 0.05 : 0.01;
     let ns: number | null = null;
@@ -1307,9 +942,6 @@ export function ColorInput({
         <button
           ref={triggerRef}
           onClick={() => setOpen((o) => !o)}
-          // `aria-*` rather than `title` alone: this is the only control in the
-          // row and a screen reader announces a title attribute as a fallback
-          // name, well after the role and state.
           aria-label={`${label} — ${t("common.edit-color")}`}
           aria-expanded={open}
           aria-haspopup="dialog"
@@ -1323,7 +955,7 @@ export function ColorInput({
 
       {open && (
         <div className="absolute right-0 top-full z-40 mt-2 w-64 rounded-xl border border-[var(--line)] bg-[var(--panel-strong)] p-3.5 shadow-[0_20px_50px_-12px_rgb(0_0_0/0.7)] backdrop-blur-xl page-enter-header">
-          {/* saturation / value square */}
+          { }
           <div
             ref={svRef}
             onPointerDown={startSvDrag}
@@ -1337,10 +969,10 @@ export function ColorInput({
               background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hueHex})`,
             }}
           >
-            {/* The point travels between the thumb's radius and the track minus
-                that radius, not between 0% and 100%. At s=0 a 16px thumb centred
-                on the left edge hung half outside the square, which read as a
-                clipped circle rather than "no saturation". */}
+            {
+
+
+ }
             <span
               className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgb(0_0_0/0.6),0_0_10px_rgb(0_0_0/0.5)]"
               style={{
@@ -1351,7 +983,7 @@ export function ColorInput({
             />
           </div>
 
-          {/* hue slider */}
+          { }
           <div className="relative mt-3 h-3.5 overflow-hidden rounded-full border border-[var(--line)]">
             <div
               className="absolute inset-0"
@@ -1378,7 +1010,7 @@ export function ColorInput({
             />
           </div>
 
-          {/* presets */}
+          { }
           <div className="mt-3 flex flex-wrap gap-1.5">
             {PRESETS.map((p) => (
               <button
@@ -1402,13 +1034,12 @@ export function ColorInput({
             ))}
           </div>
 
-          {/* eyedropper row + hex input */}
+          { }
           <div className="mt-3 flex items-center gap-2">
             <button
               data-tip={t("common.pick-a-color-from-the-screen")}
               onClick={async () => {
                 try {
-                  // EyeDropper API (Chromium / WebView2): full-screen pixel sampling.
                   const ED = (
                     window as unknown as {
                       EyeDropper?: { new (): { open: (o?: { signal?: AbortSignal }) => Promise<{ sRGBHex: string }> } };
@@ -1438,10 +1069,6 @@ export function ColorInput({
               }}
               spellCheck={false}
               autoComplete="off"
-              // Mid-typing, the field used to look exactly like a field that was
-              // fine. A draft that cannot become a colour is marked while it is
-              // still being written, so "nothing happened" has a visible cause
-              // before blur reverts it.
               aria-invalid={hexDraft !== null && !isParsableHex(hexDraft)}
               aria-label={t("common.hex-value")}
               className={`min-w-0 flex-1 rounded-lg border bg-[var(--panel)] px-3 py-1.5 font-mono text-xs uppercase tracking-wider text-[var(--text)] outline-none transition-colors ${
@@ -1513,7 +1140,6 @@ export function NumberField({
   );
 }
 
-/** Live telemetry statistic with a big display-font number. */
 export function StatTile({
   label,
   value,
@@ -1542,10 +1168,6 @@ export function StatTile({
   );
 }
 
-/**
- * Label/value row inside a Card: text left, control right, wrapping safely
- * on narrow windows. The workhorse of settings lists.
- */
 export function Row({
   label,
   hint,
@@ -1555,7 +1177,6 @@ export function Row({
   label: ReactNode;
   hint?: ReactNode;
   children?: ReactNode;
-  /** Stack label above the control instead of a two-column row. */
   stacked?: boolean;
 }) {
   if (stacked) {
@@ -1578,15 +1199,9 @@ export function Row({
   );
 }
 
-/**
- * Inline note: glow-tinted explanation used for mode hints, pointers to
- * other tabs, and non-error callouts. `tone="warn"` for cautions.
- */
 export function InfoNote({
   children,
   tone = "info",
-  // Last in the class list so a caller can override anything above. Spacing in
-  // particular belongs to the caller, who knows what the note sits between.
   className = "",
 }: {
   children: ReactNode;
@@ -1606,7 +1221,6 @@ export function InfoNote({
   );
 }
 
-/** Small inline stat: tiny uppercase label over a mono value. */
 export function Stat({
   label,
   value,
@@ -1630,15 +1244,6 @@ export function Stat({
   );
 }
 
-/** Empty-state panel with dashed border, icon, title, and optional action. */
-/**
- * The one empty state.
- *
- * The vault, the collections view and the stickers list each hand-rolled their
- * own, and they had drifted to two radii, a 44px and a 48px icon plate, one
- * with no plate at all, and icons at two sizes. All three now come through
- * here, so "nothing here yet" looks the same wherever it appears.
- */
 export function EmptyState({
   icon,
   title,
@@ -1652,7 +1257,7 @@ export function EmptyState({
 }) {
   return (
     <div className="page-enter flex flex-col items-center gap-3.5 rounded-xl border border-dashed border-[var(--line-strong)] px-8 py-14 text-center">
-      {/* Matches IconBox at `lg`: 48px plate, 24px glyph. */}
+      { }
       <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-faint)]">
         {icon}
       </div>
@@ -1669,7 +1274,6 @@ export function EmptyState({
   );
 }
 
-/** Icon in a rounded box — used for device icons, shortcut cards, etc. */
 export function IconBox({
   children,
   size = "md",
@@ -1686,8 +1290,6 @@ export function IconBox({
     md: "h-9 w-9",
     lg: "h-12 w-12",
   }[size];
-  // 16 / 20 / 24, matching the container scale above. This was 16 / 18 / 20, and
-  // the middle one was an arbitrary value with no step behind it.
   const iconSize = { sm: "h-4 w-4", md: "h-5 w-5", lg: "h-6 w-6" }[size];
   const border = {
     neutral: "border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-dim)]",
@@ -1703,7 +1305,6 @@ export function IconBox({
   );
 }
 
-// ---------- Settings sub-pages ----------
 
 export type SettingsSectionDef = {
   id: string;
@@ -1712,7 +1313,6 @@ export type SettingsSectionDef = {
   icon: Glyph;
 };
 
-// ---------- Theme picker ----------
 
 const THEME_OPTIONS: { id: ThemeMode; label: string }[] = [
   { id: "dark", label: "common.theme-dark" },
@@ -1720,17 +1320,6 @@ const THEME_OPTIONS: { id: ThemeMode; label: string }[] = [
   { id: "system", label: "common.theme-system" },
 ];
 
-/**
- * Theme as a segmented control, not a dropdown.
- *
- * The app already has one way of asking "pick one of these" — Segmented, used
- * for the minimize-button behaviour two cards down. A bespoke tile grid here
- * made the theme the only control on the page that looked like it came from
- * somewhere else, and it needed three hardcoded colours to draw previews that
- * could not be kept in step with index.css. This reuses the house control, so
- * the option list stays in one place for Settings and Onboarding to share and
- * the palette stays entirely in tokens.
- */
 export function ThemePicker({
   value,
   onChange,
@@ -1754,24 +1343,6 @@ export function ThemePicker({
   );
 }
 
-/**
- * Two-column frame for the settings page: a sticky section index beside one
- * continuous column of cards.
- *
- * The measure is the point. Settings used to be one column capped at 1120px,
- * which put a toggle's label at x=127 and its switch at x=1193 — over a
- * thousand pixels of eye travel per row, with descriptions running to 150
- * characters. At this cap a description lands near 80 characters and the
- * control sits a short glance from the thing it controls, which is what makes
- * a settings page scannable instead of a wall.
- *
- * Everything still lives on one screen, in reading order; the index is an
- * anchor list, not a router. `active` and `onSelect` are supplied by the
- * caller so the highlight can follow the scroll position.
- *
- * Below `lg` the index lies down and scrolls sideways, because a 190px rail
- * plus a readable column does not fit a half-width window.
- */
 export function SettingsLayout({
   sections,
   active,
@@ -1784,17 +1355,6 @@ export function SettingsLayout({
   children: ReactNode;
 }) {
   const [query, setQuery] = useState("");
-  // Filtering narrows the index only. The page below is not filtered, because a
-  // settings page you can search is a settings page you can still read in
-  // order — and the scroll-spy in the parent walks every section regardless, so
-  // the highlight keeps tracking what is on screen even when its row is hidden.
-  //
-  // Deliberately not memoised. The haystacks are built from `t()`, and `t` is
-  // not a dependency that `useMemo` can see: switching the app to Spanish
-  // re-renders this component with a new language and an unchanged `sections`
-  // array, and a memo would hand back English haystacks to match against. That
-  // is a filter that silently stops finding anything in the other catalog.
-  // Eight short strings per render is not worth that.
   const items = sections.map((s) => ({
     id: s.id,
     text: foldForSearch(`${t(s.label)} ${t(s.blurb)}`),
@@ -1827,7 +1387,6 @@ export function SettingsLayout({
       );
     });
 
-  /** Enter jumps to the first surviving row, so the box is a navigator. */
   const jumpToFirst = () => {
     const first = shown[0];
     if (first) onSelect(first.id);
@@ -1841,8 +1400,6 @@ export function SettingsLayout({
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") jumpToFirst();
-          // Escape clears rather than letting focus drift somewhere else: the
-          // box is a filter over a list you are reading, not a dialog.
           if (e.key === "Escape" && query) {
             e.stopPropagation();
             setQuery("");
@@ -1859,11 +1416,11 @@ export function SettingsLayout({
 
   return (
     <div className="mx-auto w-full max-w-[860px]">
-      {/* Narrow windows: the index lies down and scrolls sideways. It is
-          still sticky, or it would scroll away and take the only way back to
-          the top of a 3800px page with it. The band needs an opaque base:
-          --panel is a translucent token, so on its own a card header scrolls
-          visibly through the index. */}
+      {
+
+
+
+ }
       <div className="relative sticky top-0 z-10 -mx-5 mb-4 border-b border-[var(--line)] bg-[var(--bg)] lg:hidden">
         <span
           aria-hidden
@@ -1890,10 +1447,10 @@ export function SettingsLayout({
           aria-label={t("common.settings-sections")}
           className="sticky top-0 hidden w-[190px] shrink-0 space-y-0.5 lg:block"
         >
-          {/* The box is desktop-only. The narrow layout's index is a horizontal
-              chip strip that already scrolls sideways; adding a second row to
-              that sticky band costs height there for a rail with eight rows
-              visible at once anyway. */}
+          {
+
+
+ }
           {filterBox()}
           {shown.length === 0 ? (
             <p className="px-2.5 py-1.5 text-xs text-[var(--text-faint)]">
@@ -1911,10 +1468,6 @@ export function SettingsLayout({
   );
 }
 
-/**
- * One-line summary of a card's contents, for a card whose detail is rarely
- * needed. Click to expand the full body.
- */
 export function CollapsibleCard({
   title,
   icon,
@@ -1959,10 +1512,6 @@ export function CollapsibleCard({
   );
 }
 
-/**
- * Title line of a list item, card, or empty state: semibold primary text.
- * Optional `as` for inline use inside a flex row.
- */
 export function ItemTitle({
   children,
   as = "div",
@@ -1980,23 +1529,6 @@ export function ItemTitle({
   );
 }
 
-/**
- * A key cap: one token of a combo, drawn as a key on a keyboard.
- *
- * The only place a `<kbd>` is drawn. Five call sites used to restyle it
- * themselves -- the hotkey recorder's chips, the palette's row hints, the
- * sidebar's Ctrl+K hint and the shortcut lists -- at four different sizes and
- * radii, so the same combo read as a different object depending on which
- * panel you met it in. One shape now; a new shortcut display composes this
- * (or `ComboCaps`) rather than starting a fifth.
- *
- * `--radius-sm` is the smallest step on the scale and the right one here: a
- * cap is the smallest element in the app, and the next step up reads as a
- * rounded chip rather than a key.
- *
- * `shrink-0` so a crowded row gives way somewhere else, never by squeezing
- * the cap: a compressed key stops reading as a key and wraps its legend.
- */
 export function KeyCap({ children }: { children: ReactNode }) {
   return (
     <kbd className="shrink-0 rounded-[var(--radius-sm)] border border-[var(--line-strong)] bg-[var(--panel-strong)] px-1.5 py-0.5 font-mono text-[10px] leading-none text-[var(--text)]">
@@ -2005,7 +1537,6 @@ export function KeyCap({ children }: { children: ReactNode }) {
   );
 }
 
-/** A whole combo as key caps, in order. */
 export function ComboCaps({ keys }: { keys: readonly string[] }) {
   return (
     <span className="flex shrink-0 gap-1">
@@ -2016,7 +1547,6 @@ export function ComboCaps({ keys }: { keys: readonly string[] }) {
   );
 }
 
-/** Standardized refresh/retry button. */
 export function RefreshBtn({
   label = t("common.refresh"),
   variant = "ghost",
@@ -2024,8 +1554,6 @@ export function RefreshBtn({
   label?: string;
   variant?: "ghost" | "default";
 }) {
-  // Reuses Btn for one consistent shape (rounded-lg, same paddings) — this
-  // used to be a lone rounded-xl oddball next to normal buttons.
   return (
     <Btn
       variant={variant}
@@ -2040,15 +1568,6 @@ export function RefreshBtn({
   );
 }
 
-/**
- * Marks a name the user chose over the one the driver or Windows reported, and
- * doubles as the way back to it.
- *
- * Without this a renamed device is indistinguishable from one the hardware
- * happened to call "Desk", so an alias set once on something you rarely touch
- * is invisible right up until you go looking for it. Clicking reverts, which
- * saves hunting for the pencil to clear the box by hand.
- */
 export function AliasHint({ onReset }: { onReset: () => void }) {
   return (
     <button
@@ -2062,7 +1581,6 @@ export function AliasHint({ onReset }: { onReset: () => void }) {
   );
 }
 
-/** One monitor as the backend reports it. */
 export type MonitorEntry = {
   device: string;
   x: number;
@@ -2072,15 +1590,6 @@ export type MonitorEntry = {
   primary: boolean;
 };
 
-/**
- * What to call a display, in order of preference: the user's alias, the
- * Windows device name, then its position in the reported list.
- *
- * The device name is the only thing that identifies a display to Windows, but
- * it is not something a person would say out loud — the panel used to show
- * ".DISPLAY1". Shared so the wallpaper per-display picker and the panel cannot
- * disagree about what a screen is called.
- */
 export function displayName(
   m: Pick<MonitorEntry, "device">,
   index: number,
@@ -2091,7 +1600,6 @@ export function displayName(
   return m.device.replace(/\\/g, "") || t("common.display-{n}", { n: index + 1 });
 }
 
-/** Shared displays panel used across multiple tabs. */
 export function DisplaysCard({ compact }: { compact?: boolean }) {
   const [mons, setMons] = useState<MonitorEntry[]>([]);
   const { cfg, save } = useStore(
@@ -2111,8 +1619,6 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
         .catch(() => {});
     };
     load();
-    // Hotplug: keep the card in sync when displays connect/disconnect while
-    // the dashboard is open (the wallpaper windows already re-sync backend-side).
     import("@tauri-apps/api/event")
       .then(({ listen }) =>
         listen("display-changed", () => load()).then((un) => {
@@ -2129,8 +1635,6 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
   const globalSource = cfg?.wallpaper.source ?? "";
   const screenNames = cfg?.general.screenNames ?? {};
 
-  // Hotplug can remove the display being renamed mid-edit, so a commit for a
-  // display that is no longer present is dropped rather than written.
   function startRename(device: string) {
     setRenaming(device);
     setDraft(screenNames[device] ?? "");
@@ -2139,7 +1643,6 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
     setRenaming(null);
     if (!mons.some((m) => m.device === device)) return;
     const next = (value ?? draft).trim();
-    // Emptying the box forgets the alias rather than naming a screen "".
     if (next === (screenNames[device] ?? "").trim()) return;
     save((c) => {
       const names = { ...c.general.screenNames };
@@ -2156,7 +1659,6 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
     <Card title={t("common.displays")} icon={<IconMonitor />}>
       <div className={`grid gap-3 ${compact ? "sm:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
         {mons.map((m, i) => {
-          // Effective wallpaper for this monitor: override or global.
           const ovr = pm[m.device];
           const kind = ovr?.kind ?? globalKind;
           const source = ovr?.source ?? globalSource;
@@ -2170,7 +1672,7 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
                   : "border-[var(--line)] bg-[var(--panel-strong)]"
               }`}
             >
-              {/* live wallpaper thumb: video plays muted, images/shaders static */}
+              { }
               <div className="relative h-16 w-full overflow-hidden bg-black">
                 {kind === "video" && mediaUrl ? (
                   <video
@@ -2182,7 +1684,6 @@ export function DisplaysCard({ compact }: { compact?: boolean }) {
                     playsInline
                     preload="metadata"
                     className="h-full w-full object-cover"
-                    // Perf: stop decoding while the app is hidden/tray-minimized.
                     ref={(el) => {
                       if (!el) return;
                       if (document.hidden && !el.paused) el.pause();

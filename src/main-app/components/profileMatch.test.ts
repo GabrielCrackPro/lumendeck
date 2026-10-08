@@ -32,8 +32,6 @@ describe("profileMatches", () => {
   });
 
   it("does not match when the colour differs", () => {
-    // One channel is enough: the lighting is applied as a whole, so a partial
-    // match would call a config current while its colour is not on screen.
     expect(
       profileMatches(lighting({ staticColor: [255, 128, 1] }), target),
     ).toBe(false);
@@ -44,9 +42,6 @@ describe("profileMatches", () => {
   });
 
   it("survives a JSON round-trip that perturbs the speed", () => {
-    // The real case this exists for: 1.4 written to the config can read back
-    // as 1.4000000000000001. An exact comparison would report every saved
-    // config as inactive after a restart, which looks like data loss.
     const stored = JSON.parse(JSON.stringify(lighting({ animationSpeed: 1.4 })));
     expect(
       profileMatches(stored, { ...target, animationSpeed: 1.4 }),
@@ -54,8 +49,6 @@ describe("profileMatches", () => {
   });
 
   it("still rejects a speed genuinely above the tolerance after a round trip", () => {
-    // The tolerance must not become a blanket "close enough": 1.4 against 1.5
-    // is a real difference and calling that config current would be a lie.
     expect(
       profileMatches(
         JSON.parse(JSON.stringify(lighting({ animationSpeed: 1.4 }))),
@@ -64,12 +57,6 @@ describe("profileMatches", () => {
     ).toBe(false);
   });
 });
-// ===== whole-config matching =====
-//
-// A saved config captures the wallpaper, the lighting and the stickers, so
-// "which config is running" is the same question as the lighting one with two
-// more answers to get right. What a user notices when this is wrong is the chip
-// naming a config they are not in.
 
 const sticker = (over: Partial<StickerDef> = {}): StickerDef => ({
   id: "st1",
@@ -98,17 +85,6 @@ const sceneRgb = {
   animationSpeed: 1,
 } as SceneProfile["rgb"];
 
-/**
- * A scene fixture holding what the comparison reads, defaulted to the state
- * `applied` describes.
- *
- * The casts sit at the fixture boundary, never inside an assertion: spelling
- * out every field of `WallpaperConfig` and `RgbConfig` would bury four
- * assertions about kind, source, lighting and stickers in twenty lines of
- * fields none of them touch. They are also why the defaults above have to be
- * complete -- a partial fixture that omits `wallpaper` reads as undefined at
- * runtime and takes the comparison down with it.
- */
 const scene = (over: Partial<SceneProfile> = {}): SceneProfile =>
   ({
     id: "s1",
@@ -132,8 +108,6 @@ describe("sceneMatches", () => {
   });
 
   it("does not match when the wallpaper kind differs", () => {
-    // Same file, different kind: an image and a video of the same path are not
-    // the same desktop, so the config is not the one being run.
     expect(
       sceneMatches(
         scene({
@@ -156,8 +130,6 @@ describe("sceneMatches", () => {
   });
 
   it("does not match when the lighting differs", () => {
-    // The config is whole: matching wallpaper and stickers with the lights on
-    // something else is still not this config.
     expect(
       sceneMatches(
         scene({
@@ -175,8 +147,6 @@ describe("sceneMatches", () => {
   });
 
   it("does not match when a sticker was added to the desk", () => {
-    // The length check is what catches this, and it has to run before the
-    // element-wise compare or the extra sticker is simply never looked at.
     expect(
       sceneMatches(scene(), {
         ...applied,
@@ -186,9 +156,6 @@ describe("sceneMatches", () => {
   });
 
   it("matches a config saved before stickers were captured against a clear desk", () => {
-    // Every scene written before this feature has an empty sticker list, so
-    // this is the migration case: recalling it must not read as a mismatch
-    // against a desk the user has since cleared.
     expect(
       sceneMatches(scene({ stickers: [] }), { ...applied, stickers: [] }),
     ).toBe(true);
@@ -217,7 +184,6 @@ describe("activeConfigName", () => {
   });
 
   it("returns null when there are no configs at all", () => {
-    // A fresh install has none, and the chip must not name one.
     expect(activeConfigName([], applied)).toBeNull();
     expect(activeConfigName(undefined, applied)).toBeNull();
   });
@@ -241,9 +207,6 @@ describe("activeConfigId", () => {
   });
 
   it("picks the right one when two configs share a name", () => {
-    // The picker marks the current row by id. Marking by name would light up
-    // both, and clicking the wrong one is a silent switch to another setup --
-    // which is why the duplicate check exists and why this cannot rely on it.
     const lookalike = scene({
       id: "s2",
       name: evening.name,
@@ -253,8 +216,6 @@ describe("activeConfigId", () => {
   });
 
   it("agrees with the name lookup on the same state", () => {
-    // Two lookups, one comparison: a picker that disagrees with the chip above
-    // it about which config is running is worse than either being absent.
     const pair = [scene({ id: "s2", name: "Work" }), evening];
     const id = activeConfigId(pair, applied);
     expect(pair.find((s) => s.id === id)?.name).toBe(activeConfigName(pair, applied));

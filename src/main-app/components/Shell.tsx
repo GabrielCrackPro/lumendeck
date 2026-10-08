@@ -22,7 +22,6 @@ import { useConfigPicker } from "./useConfigPicker";
 import { isLiveStatus } from "./liveStatus";
 import { installDelegatedTooltips } from "./Tooltip";
 
-/** Read the --glow triplet currently on :root, or null when unparsable. */
 function currentGlow(): [number, number, number] | null {
   const raw = document.documentElement.style.getPropertyValue("--glow").trim();
   const parts = raw.split(/\s+/).map(Number);
@@ -31,27 +30,16 @@ function currentGlow(): [number, number, number] | null {
 }
 const CommandPalette = lazy(() => import("./CommandPalette"));
 
-// Tab code is split so the initial bundle only carries the Overview; other
-// tabs stream in on first visit (Tauri serves chunks locally, so it's fast).
 const OverviewTab = lazy(() => import("./tabs/OverviewTab"));
 const RgbTab = lazy(() => import("./tabs/RgbTab"));
 const WallpaperTab = lazy(() => import("./tabs/WallpaperTab"));
 const StickersTab = lazy(() => import("./tabs/StickersTab"));
 const GeneralTab = lazy(() => import("./tabs/GeneralTab"));
 
-/**
- * The colour the `--glow` variable is painted with.
- *
- * The decision behind it — which source wins, and therefore what the Overview's
- * provenance chip should say — lives in `useAccent`, shared with the tab that
- * names the source. This wrapper stays so the call site keeps reading as "the
- * glow", which is all Shell does with it.
- */
 function useGlow() {
   return useAccent().rgb;
 }
 
-/** Full-window boot splash shown until the backend hands us the config. */
 function BootSplash() {
   return (
     <div className="relative z-10 flex h-full w-full flex-col items-center justify-center gap-5">
@@ -72,13 +60,8 @@ function BootSplash() {
   );
 }
 
-/** Bottom-right transient notifications. */
 const MAX_TOASTS = 4;
 
-/**
- * One look per tone. The panel stays neutral so the icon chip and the
- * title carry the meaning — a fully tinted card shouted over the glass.
- */
 const TONE = {
   ok: {
     icon: IconCheck,
@@ -107,8 +90,6 @@ function Toasts() {
   useEffect(() => {
     if (toasts.length === 0) return;
     const timers = toasts.map((t) =>
-      // An actionable toast needs room to actually be read and clicked;
-      // a sticky one (an update waiting) does not go on its own at all.
       t.sticky
         ? undefined
         : setTimeout(
@@ -120,8 +101,6 @@ function Toasts() {
   }, [toasts, dismissToast]);
 
   if (toasts.length === 0) return null;
-  // Oldest first, capped: a burst of device connect/disconnect notices
-  // should never wallpaper the dashboard.
   const shown = toasts.slice(-MAX_TOASTS);
   const hidden = toasts.length - shown.length;
   return (
@@ -188,9 +167,9 @@ function Toasts() {
                     {t.action.label}
                   </button>
                 )}
-                {/* The reading link, under the action: two intentions, two
-                    weights. A toast has no room for two equal buttons, and
-                    installing is the one that should look like the default. */}
+                {
+
+ }
                 {t.link && (
                   <button
                     onClick={(e) => {
@@ -224,14 +203,6 @@ function Toasts() {
   );
 }
 
-/**
- * The config avatar, and the only place configs are switched from.
- *
- * It lives in the header rather than on a tab because it describes the machine
- * rather than the screen: the previous version sat beside the greeting and
- * therefore disappeared the moment you opened the Lighting tab, which is
- * exactly when you might want to leave a setup.
- */
 function HeaderConfigAvatar() {
   const picker = useConfigPicker();
   const rgbConnected = useStore((s) => s.rgb.connected);
@@ -244,8 +215,6 @@ function HeaderConfigAvatar() {
       <ConfigAvatar
         scene={picker.activeScene}
         onClick={picker.openBrowse}
-        // A caret over the face on hover: the one cue that this mark opens a
-        // switcher rather than being the profile's portrait.
         overlay={<IconChevronDown className="h-4 w-4" />}
         live={isLiveStatus({
           rgbConnected,
@@ -274,7 +243,6 @@ function HeaderConfigAvatar() {
 }
 
 
-/** "?" overlay: the keyboard map, since the hints only show on hover. */
 function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -324,11 +292,6 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
-/**
- * Skeleton matching a tab's card rhythm while a lazy chunk streams in.
- * Mimics the Overview grid (hero band + two-column cards) so the swap from
- * skeleton to content moves the least amount of pixels possible.
- */
 function TabSkeleton() {
   return (
     <div className="stagger space-y-5">
@@ -352,30 +315,14 @@ function TabSkeleton() {
 }
 
 export default function Shell() {
-  // One delegated listener covers every `data-tip` in the tree, which is how
-  // the long tail of controls that used to set a native `title` now get the
-  // app's own tooltip without each one being wrapped.
   useEffect(() => installDelegatedTooltips(), []);
   const [tab, setTab] = useState<TabId>("overview");
-  // Navigation requested from outside the dashboard — the update toast sends
-  // the user to the changelog this way. The tab lives here rather than in the
-  // store because it is the one piece of navigation state no store consumer
-  // needs, which leaves a module-level toast unable to change it. The request
-  // is cleared as it is applied so it cannot re-fire on a later render.
-  //
-  // Checked rather than cast, because the store holds a plain string: a request
-  // naming a tab that does not exist would set the pane to an id nothing
-  // renders, leaving the dashboard blank with no error.
   const navRequest = useStore((s) => s.navRequest);
   const clearNavRequest = useStore((s) => s.clearNavRequest);
   const paneRef = useRef<HTMLDivElement>(null);
   const [pendingAnchor, setPendingAnchor] = useState<string | null>(null);
   useEffect(() => {
     if (!navRequest) return;
-    // Split in two on purpose. `setTab` commits a render in which the pane may
-    // still be suspended, so the anchor is looked for on the next frame rather
-    // than in this one, and dropped if the tab has no such anchor -- landing on
-    // the right screen is worth doing even when the spot does not exist.
     if (isTabId(navRequest.tab)) {
       setTab(navRequest.tab);
       const anchor = navRequest.anchor;
@@ -386,13 +333,6 @@ export default function Shell() {
     clearNavRequest();
   }, [navRequest, clearNavRequest]);
 
-  // Scroll the anchor into view once the pane has actually rendered.
-  //
-  // Retried across frames because every tab is `lazy()`: the first frame after a
-  // switch is the Suspense skeleton, and an anchor found -- or given up on --
-  // there would be a decision made about markup that did not exist yet. The
-  // budget is bounded so a genuinely absent anchor cannot leave a frame loop
-  // running for the life of the window.
   useEffect(() => {
     if (!pendingAnchor) return;
     let tries = 0;
@@ -421,15 +361,11 @@ export default function Shell() {
     }
   });
 
-  // Other tabs can open the overlay without owning its state (e.g. the
-  // Overview shortcut card).
   useEffect(() => {
     const onOpen = () => setShortcutsOpen(true);
     window.addEventListener("lumendeck:open-shortcuts", onOpen);
     return () => window.removeEventListener("lumendeck:open-shortcuts", onOpen);
   }, []);
-  // Scoped so the shell does not re-render on every RGB frame — only the
-  // children that actually read device colors need that rate.
   const { wallpaperPaused, cfg, loaded, saving } = useStore(
     useShallow((s) => ({
       wallpaperPaused: s.wallpaperPaused,
@@ -446,12 +382,6 @@ export default function Shell() {
     } catch {}
   }, [collapsed]);
 
-  // Ease the accent instead of snapping. --glow changes its source constantly
-  // (OS accent at boot, then the wallpaper's dominant color, then live drift
-  // as the wallpaper plays). Snapping between sources reads as a hard flash;
-  // a short exponential chase keeps the theme continuous. Done in JS because
-  // CSS transitions can't interpolate a space-triplet custom property, and
-  // the rAF cost is one string write per frame while converging.
   const glowRef = useRef(glow);
   useEffect(() => {
     glowRef.current = glow;
@@ -476,18 +406,13 @@ export default function Shell() {
       if (!settled) raf = requestAnimationFrame(tick);
       else root.style.setProperty("--glow", target.join(" "));
     };
-    // Start from wherever the property actually is (survives HMR/reparent).
     root.style.setProperty("--glow", cur.join(" "));
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [glow]);
 
-  // Keyboard navigation: Ctrl+1..5 jump between tabs. The dashboard is used
-  // alongside games/media where the mouse is busy — instant tab switching
-  // makes the tray-open flow feel native.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // "?" lists the shortcuts — no modifier, and not while typing.
       if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey) {
         const el = e.target as HTMLElement | null;
         const typing =
@@ -510,8 +435,6 @@ export default function Shell() {
         setPaletteOpen((v) => !v);
         return;
       }
-      // Ctrl+B folds the rail away — the sidebar eats ~216px of a laptop
-      // screen, and folding it is a two-finger keypress away.
       if (e.key.toLowerCase() === "b") {
         e.preventDefault();
         setCollapsed((v) => !v);
@@ -531,11 +454,11 @@ export default function Shell() {
   return (
     <div className="grain relative flex h-screen flex-col overflow-hidden">
       <div className="aura" />
-      {/* custom frame: drag region + window controls (window is frameless) */}
+      { }
       <TitleBar />
       <div className="flex min-h-0 flex-1 p-2 pt-0">
 
-      {/* config-save in flight: hairline progress under the header */}
+      { }
       {saving && (
         <div className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden">
           <div className="saving-bar h-full w-1/3 bg-[rgb(var(--glow))] shadow-[0_0_10px_rgb(var(--glow))]" />
@@ -543,7 +466,7 @@ export default function Shell() {
       )}
 
       <div className="relative z-10 flex min-h-0 w-full flex-1 gap-2">
-        {/* ---------- floating glass rail ---------- */}
+        { }
         <Sidebar
           tab={tab}
           onNavigate={setTab}
@@ -553,7 +476,7 @@ export default function Shell() {
           onShortcuts={() => setShortcutsOpen(true)}
         />
 
-        {/* ---------- workspace ---------- */}
+        { }
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-[color-mix(in_srgb,var(--bg)_60%,var(--panel))] shadow-[var(--shadow)] backdrop-blur-xl">
           {!loaded ? (
             <BootSplash />
@@ -573,10 +496,10 @@ export default function Shell() {
           </header>
 
           <div className="flex-1 overflow-y-auto px-5 py-4">
-            {/* Fluid, not a fixed 1400px island: on a maximized 1440p/4K
-                window a hard cap left a dead gutter wider than the sidebar
-                beside it. The cap still stops an ultrawide from stretching a
-                single column across three feet of glass. */}
+            {
+
+
+ }
             <div
               key={tab}
               ref={paneRef}
@@ -601,7 +524,7 @@ export default function Shell() {
       </div>
       </div>
 
-      {/* Command palette (Ctrl+K): quick navigation, wallpaper, scenes. */}
+      { }
       <Suspense fallback={null}>
         <CommandPalette
           open={paletteOpen}
@@ -616,7 +539,7 @@ export default function Shell() {
 
       <Toasts />
 
-      {/* Pause pill when the engine is idle but enabled */}
+      { }
       {cfg?.general.wallpaperEnabled && wallpaperPaused && (
         <div className="pointer-events-none fixed bottom-5 left-1/2 z-20 -translate-x-1/2">
           <div className="flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-2 font-mono text-[11px] tracking-wide text-amber-200 shadow-[0_12px_30px_-10px_rgba(245,158,11,0.4)] backdrop-blur">

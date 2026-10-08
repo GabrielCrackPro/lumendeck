@@ -30,7 +30,6 @@ const frame = (over: Partial<Parameters<typeof stripFrame>[0]> = {}) =>
 
 describe("hsvToRgb", () => {
   it("matches the engine's primaries at full saturation", () => {
-    // The same six sectors palette::hsv_to_rgb builds.
     expect(hsvToRgb(0, 1, 1)).toEqual([255, 0, 0]);
     expect(hsvToRgb(60, 1, 1)).toEqual([255, 255, 0]);
     expect(hsvToRgb(120, 1, 1)).toEqual([0, 255, 0]);
@@ -53,11 +52,7 @@ describe("hsvToRgb", () => {
   });
 
   it("clamps out-of-range saturation and value rather than wrapping them", () => {
-    // Clamping both to 1 gives a fully saturated colour at that hue, which is
-    // why this is red and not white.
     expect(hsvToRgb(0, 5, 5)).toEqual([255, 0, 0]);
-    // Negative saturation clamps to 0, which is mid-gray at half value, not
-    // black: in HSV it is value that carries lightness.
     expect(hsvToRgb(0, -3, 0.5)).toEqual([128, 128, 128]);
     expect(hsvToRgb(0, 1, -1)).toEqual([0, 0, 0]);
   });
@@ -131,10 +126,6 @@ describe("stripFrame", () => {
   });
 
   it("leaves the last LED one step short of the gradient end", () => {
-    // The bug this replaced: position was i/(n-1), which put the last LED at
-    // the very end of the sweep instead of stopping short like the engine.
-    // With a 360 spread over 24 LEDs the step is 15 degrees, so the last LED
-    // must sit at 345, not 360 (which would be 0 again).
     const leds = frame({ mode: "cycle", cycleSpread: 360, time: 0 });
     expect(rgbToHsv(leds[0]!).h).toBeCloseTo(0, 0);
     expect(rgbToHsv(leds.at(-1)!).h).toBeCloseTo(345, 0);
@@ -157,14 +148,9 @@ describe("stripFrame", () => {
   });
 
   it("reverses travel when the direction flips", () => {
-    // Not a spatial mirror: flipping the sign reverses which way the pattern
-    // moves, it does not reflect the gradient. So the check is that the two
-    // frames differ, and that running the reversed one further along equals
-    // running the forward one backwards in time.
     const right = frame({ mode: "wave", time: 1, waveDirection: 1 });
     const left = frame({ mode: "wave", time: 1, waveDirection: -1 });
     expect(right).not.toEqual(left);
-    // At t=0 both directions agree, since there is nothing to travel yet.
     expect(frame({ mode: "wave", time: 0, waveDirection: 1 })).toEqual(
       frame({ mode: "wave", time: 0, waveDirection: -1 }),
     );
@@ -180,7 +166,6 @@ describe("stripFrame", () => {
       saturation: 1, brightness: 1, liveColor: null, staticColor: STATIC,
     })[0]!;
     expect(luma(bright)).toBeGreaterThan(luma(dim));
-    // The floor is 15% of the source, never zero.
     expect(luma(dim)).toBeGreaterThan(luma(STATIC) * 0.1);
   });
 
@@ -199,7 +184,6 @@ describe("stripFrame", () => {
   });
 
   it("never drops below 35% in pulse mode", () => {
-    // A near-black wallpaper: the floor is what keeps the strip visibly alive.
     const dark = frame({ mode: "pulse", liveColor: [4, 4, 4], brightness: 1, saturation: 1 });
     expect(luma(dark[0]!)).toBeGreaterThan(0);
     const bright = frame({ mode: "pulse", liveColor: [255, 255, 255], brightness: 1, saturation: 1 });
@@ -208,12 +192,10 @@ describe("stripFrame", () => {
 
   it("steps down in three bands for zone mode", () => {
     const leds = frame({ mode: "zone", liveColor: [200, 200, 200], brightness: 1, saturation: 1 });
-    // 24 LEDs at i/n, so the first band ends at index 7 and the second at 15.
     const shift = [1, 0.72, 0.45];
     expect(luma(leds[0]!)).toBeGreaterThan(luma(leds.at(-1)!));
     expect(Math.abs(luma(leds[7]!) - luma(leds[8]!))).toBeGreaterThan(0);
     expect(Math.abs(luma(leds[15]!) - luma(leds[16]!))).toBeGreaterThan(0);
-    // Within a band nothing changes.
     expect(luma(leds[3]!)).toBe(luma(leds[4]!));
     expect(shift[0]! > shift[1]!).toBe(true);
   });
@@ -221,7 +203,6 @@ describe("stripFrame", () => {
   it("floors quiet audio rather than going dark", () => {
     const silent = frame({ mode: "audioReactive", audioVolume: 0, brightness: 1, saturation: 1 });
     expect(luma(silent[0]!)).toBeGreaterThan(0);
-    // The floor is the documented constant.
     expect(AUDIO_FLOOR).toBe(0.3);
   });
 
@@ -243,8 +224,6 @@ describe("stripFrame", () => {
   });
 
   it("desaturates toward gray as saturation drops", () => {
-    // The preview used to apply saturation to finished sRGB, which greys the
-    // colour instead of pulling the hue's own saturation down.
     const vivid = frame({ mode: "cycle", saturation: 1 })[0]!;
     const muted = frame({ mode: "cycle", saturation: 0.2 })[0]!;
     const spread = (c: Rgb) => Math.max(...c) - Math.min(...c);
@@ -267,7 +246,6 @@ describe("stripFrame", () => {
     const modes = ["static", "ambient", "pulse", "zone", "cycle", "wave", "breathe", "audioReactive"] as const;
     for (const mode of modes) {
       expect(frame({ mode })).toHaveLength(STRIP_LEDS);
-      // Also with no live colour yet, which is the pre-first-sample state.
       expect(frame({ mode, liveColor: null })).toHaveLength(STRIP_LEDS);
     }
   });

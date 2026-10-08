@@ -18,21 +18,6 @@ type StoreState = ReturnType<typeof useStore.getState>;
 
 const selectDeviceColors = (s: StoreState) => s.deviceColors;
 
-/**
- * Mirror a frame-rate store slice into component state at a human rate.
- *
- * Subscribing this tab directly to `deviceColors` re-renders the whole tree
- * ~35x/second to move one colour bar. The consumer only needs a slow-moving
- * representative value, so changes are latched by identity and copied into
- * state on a 2Hz timer — and the timer only exists once a change has arrived,
- * so a tray-only session burns no interval at all.
- *
- * `deviceColors` is the only slice through here now. The audio level used to
- * be mirrored too, until it turned out the meter and the mode tiles need the
- * temporal detail the mirror throws away — both read the store directly in
- * their own components instead, which is cheap because those subtrees are
- * small and this tab is not.
- */
 function useThrottledStoreSlice<T>(select: (s: StoreState) => T, ms = 500): T {
   const [value, setValue] = useState(() => select(useStore.getState()));
   useEffect(() => {
@@ -56,18 +41,6 @@ function useThrottledStoreSlice<T>(select: (s: StoreState) => T, ms = 500): T {
   return value;
 }
 
-/**
- * The tab's three enumerable settings, as presets rather than tracks.
- *
- * All three were sliders, and a slider is the wrong promise for each: nobody
- * tunes an idle timeout or a frame interval by feel, the sane answers are a
- * handful of specific numbers, and a 30–3600s track is a blind drag in which a
- * pixel near the top is twelve seconds. A dropdown states the choices, takes
- * one click, and cannot land between them.
- *
- * The labels are unit strings, not catalog keys — the same words the sliders'
- * own readouts printed, and identical in both languages.
- */
 const IDLE_TIMEOUT_OPTIONS = [
   { id: "30", label: "30 s" },
   { id: "60", label: "1 min" },
@@ -97,13 +70,6 @@ const WRITE_INTERVAL_OPTIONS = [
   { id: "1000", label: "1000 ms" },
 ];
 
-/**
- * The presets, plus the stored value when it is off-list.
- *
- * A config written before these were presets can hold anything in range (45
- * minutes, say), and `Dropdown` falls back to printing the raw number for a
- * value it does not recognise — in seconds, a number nobody chose.
- */
 function presetOptions(
   presets: { id: string; label: string }[],
   current: string,
@@ -113,7 +79,6 @@ function presetOptions(
   return [...presets, { id: current, label: format(Number(current)) }];
 }
 
-/** The words the idle slider's readout printed: `30 s`, `10 min`, `1 min 30 s`. */
 function formatIdle(v: number): string {
   if (v < 60) return `${v} s`;
   const m = Math.floor(v / 60);
@@ -122,11 +87,6 @@ function formatIdle(v: number): string {
 }
 
 export default function RgbTab() {
-  // Perf: deviceColors updates at frame rate. Subscribing the whole tab to it
-  // re-renders ~35x/sec; the only consumer needs a slow-moving representative
-  // colour, so mirror it into state at 2Hz instead. The audio level is not
-  // mirrored — the meter and the mode tiles read it directly, in components
-  // small enough to take the full rate.
   const { cfg, rgb, save } = useStore(
     useShallow((s) => ({
       cfg: s.cfg,
@@ -134,17 +94,8 @@ export default function RgbTab() {
       save: s.save,
     })),
   );
-  // One IPC call can be refused twice as easily as fired twice: the retry
-  // button reads its own in-flight state like every other guarded control.
   const { pending: retryPending, run: runRetry } = usePending();
   const deviceColors = useThrottledStoreSlice(selectDeviceColors);
-  // Lighting-only profiles used to have a save/apply card at the foot of this
-  // tab. It is gone, and so is the data behind it: a snapshot that captures a
-  // mode and a colour is half a config, and the half that misses the wallpaper
-  // and the desk is the half people switch setups for. Whole-config recall
-  // lives in Overview and Settings instead, and the tray's config submenu and
-  // the nextProfile hotkey drive the same list.
-  // Hooks must run unconditionally — derive everything after they complete.
   if (!cfg) return null;
   const rgbCfg = cfg.rgb;
   const isAnimated = (ANIMATION_MODES as ReadonlySet<RgbMode>).has(rgbCfg.mode);
@@ -154,14 +105,11 @@ export default function RgbTab() {
   const activeLeds = counts.active;
   const mutedCount = counts.muted;
   const activeMode = RGB_MODES.find((m) => m.id === rgbCfg.mode);
-  // The preview samples the device the accent would — keyboard first, in the
-  // loop — not whatever the store map lists first, which could be a muted
-  // device whose colour the engine is not even writing.
   const liveWallpaperColor = previewLiveColor(deviceColors, rgb.devices, rgbCfg.excludedDevices);
 
   return (
     <div className="stagger space-y-5">
-      {/* ---- stage: state, what is driving it, and the master switch ---- */}
+      { }
       <LiveStage
         enabled={rgbCfg.enabled}
         connected={rgb.connected}
@@ -191,10 +139,10 @@ export default function RgbTab() {
         onToggleAccentLive={(v) => save((c) => (c.general.accentLive = v))}
       />
 
-      {/* `@container`: the columns below sit in a layout whose width has
-          nothing to do with the viewport, so viewport breakpoints squeezed
-          them once the window was maximized. Left: what the lights run ON and
-          WHEN. Right: how they look. */}
+      {
+
+
+ }
       <div className="@container grid items-start gap-5 lg:grid-cols-[1fr_1.15fr]">
         <div className="space-y-5">
           <Card
@@ -212,10 +160,10 @@ export default function RgbTab() {
               ) : undefined
             }
           >
-            {/* Connected with nothing enumerated yet: without this branch the
-                card renders as a blank panel, which reads as a bug rather than
-                as hardware the SDK has not reported. The same copy the
-                Overview's engine card uses, so the two cannot drift. */}
+            {
+
+
+ }
             {rgb.connected && rgb.devices.length === 0 && (
               <EmptyState
                 icon={<IconBulb className="h-6 w-6" />}
@@ -277,16 +225,12 @@ export default function RgbTab() {
                   </div>
                 </div>
                 <Btn
-                  // The only action in this state, so it takes the accent. It
-                  // pends rather than greys out: "disabled with no explanation"
-                  // is precisely what a connection retry feels like, and the
-                  // spinner is the app saying it is trying.
                   variant="primary"
                   pending={retryPending.has("retry")}
                   onClick={() => runRetry("retry", () => useStore.getState().load())}
                 >
-                  {/* Dropped while pending — Btn draws its own spinner beside
-                      the label, and arc-plus-icon reads as two controls. */}
+                  {
+ }
                   {!retryPending.has("retry") && (
                     <IconRefresh className="h-4 w-4" />
                   )}
@@ -294,8 +238,8 @@ export default function RgbTab() {
                 </Btn>
               </div>
             )}
-            {/* Muted devices stay listed — the engine simply stops writing to
-                them, so the count is worth stating plainly. */}
+            {
+ }
             {rgb.connected && mutedCount > 0 && (
               <p className="mt-2.5 text-xs leading-relaxed text-[var(--text-faint)]">
                 {t("common.{n}-devices-are-muted-muted-hardware-keeps-its-l", { n: mutedCount })}
@@ -303,11 +247,11 @@ export default function RgbTab() {
             )}
           </Card>
 
-          {/* Automation used to live inside the Devices card, which made one
-              panel answer "what is plugged in" and "when does it run" at once.
-              They are different questions with different urgency — a lighting
-              rule you cannot find is worse than a device you cannot name — so
-              they get their own card. */}
+          {
+
+
+
+ }
           <Card anchor="automation" title={t("common.automation")}>
             <Toggle
               label={t("common.turn-off-lights-when-idle")}
@@ -426,10 +370,6 @@ export default function RgbTab() {
             anchor="lighting-mode"
             title={t("common.lighting-mode")}
             right={
-              /* Brightness and speed already read as two large figures on the
-                 stage above, so repeating them here in small type was noise.
-                 What is worth carrying at this depth is which kind of mode is
-                 running — that is the thing you scroll back up to check. */
               <span className="inline-flex items-center gap-2.5">
                 <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--text-faint)]">
                   {t(
@@ -454,10 +394,10 @@ export default function RgbTab() {
               onPick={(m) => save((c) => (c.rgb.mode = m))}
             />
 
-            {/* ---- mode-specific options + mixer ----
-                The mode story reads top-down: pick a mode, tune it, then shape
-                the output. Profiles used to sit between the picker and the
-                options, which split the story in half. */}
+            {
+
+
+ }
             <div className="mt-5 space-y-1 border-t border-[var(--line)] pt-4">
               <Section
                 title={
@@ -613,12 +553,12 @@ export default function RgbTab() {
                   format={(v) => v.toFixed(2)}
                   onChange={(v) => save((c) => (c.rgb.mixer.gamma = v))}
                 />
-                {/* This is how often frames are written to the devices -- the
-                    OpenRGB client's own rate, not anything about the app
-                    checking for updates. It was labelled "Min update interval",
-                    which is what `rgb.minUpdateMs` is still called, and that
-                    collision is how the update watcher nearly got wired to it.
-                    The label now names the LEDs. */}
+                {
+
+
+
+
+ }
                 {!isAnimated && (
                   <Select
                     label={t("common.led-write-interval")}

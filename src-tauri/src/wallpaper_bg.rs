@@ -64,14 +64,8 @@ pub fn bg_path() -> PathBuf {
         .join("wallpaper-bg.jpg")
 }
 
-/// Registry value under HKCU\Control Panel\Desktop where we stash the user's
-/// original wallpaper path before LumenDeck sets its own for the first time.
 const ORIG_WALLPAPER_VALUE: &str = "LumenDeckOriginalWallpaper";
 
-/// Remember the user's pre-LumenDeck desktop wallpaper (once). Called before
-/// the first LumenDeck background install; a no-op when the backup already
-/// exists, so a wallpaper the user picked *while* LumenDeck runs is never
-/// mistaken for the original.
 pub fn remember_original_wallpaper() {
     use windows::core::HSTRING;
     use windows::Win32::System::Registry::{
@@ -87,7 +81,6 @@ pub fn remember_original_wallpaper() {
         }
         let value_name = HSTRING::from(ORIG_WALLPAPER_VALUE);
 
-        // Already backed up? Never overwrite — the current wallpaper is ours.
         let mut buf = [0u16; 1024];
         let mut len = (buf.len() as u32) * 2;
         let mut kind = REG_VALUE_TYPE::default();
@@ -105,7 +98,6 @@ pub fn remember_original_wallpaper() {
             return;
         }
 
-        // Read the current wallpaper path (the OS keeps it in "Wallpaper").
         let mut cur = [0u16; 1024];
         let mut cur_len = (cur.len() as u32) * 2;
         let cur_name = HSTRING::from("Wallpaper");
@@ -137,8 +129,6 @@ pub fn remember_original_wallpaper() {
     }
 }
 
-/// Put the user's original desktop wallpaper back (tray quick-control).
-/// No-op when no backup exists (LumenDeck never changed the background).
 pub fn restore_original_wallpaper() -> bool {
     use windows::core::HSTRING;
     use windows::Win32::System::Registry::{
@@ -177,8 +167,6 @@ pub fn restore_original_wallpaper() -> bool {
         }
         let ok = set_desktop_wallpaper(&path);
         if ok {
-            // The backup has served its purpose; remove it so a future first
-            // install picks up whatever the user chooses next.
             let mut hkey2 = HKEY::default();
             if RegOpenKeyExW(HKEY_CURRENT_USER, &key_name, Some(0), KEY_SET_VALUE, &mut hkey2).is_ok() {
                 let _ = RegDeleteValueW(hkey2, &value_name);
@@ -203,9 +191,6 @@ pub fn install_live_frame(jpeg: &[u8], source: &str) -> bool {
     if jpeg.len() < 4_096 || jpeg[0] != 0xFF || jpeg[1] != 0xD8 {
         return false;
     }
-    // Reject near-black frames: a canvas whose video is stuck/erroring still
-    // blits black pixels, and an all-black capture would overwrite the good
-    // shell-extracted poster — leaving a black desktop on pause/exit.
     if is_near_black(jpeg) {
         log::debug!("wallpaper-bg: live frame rejected (near-black), keeping previous");
         return false;
@@ -244,12 +229,6 @@ pub fn install_live_frame(jpeg: &[u8], source: &str) -> bool {
     true
 }
 
-/// Drop every 4th byte from a 32-bpp buffer, giving the 3-bytes-per-pixel
-/// layout `RgbImage` requires.
-///
-/// `GetDIBits` at 32bpp hands back BGRA; the caller swaps B and R in place
-/// first, so by the time the buffer gets here it is RGBA and only the alpha
-/// channel has to go. Length is the whole point: see the call site.
 fn drop_alpha_bytes(pixels: &[u8]) -> Vec<u8> {
     pixels
         .chunks_exact(4)
@@ -257,10 +236,6 @@ fn drop_alpha_bytes(pixels: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-/// Cheap luminance check: decode the JPEG and sample a sparse grid. A frame
-/// is "near-black" when >98% of samples are below RGB 12 (compression noise
-/// around pure black). Returns false on decode failure (don't punish a
-/// valid-but-unparseable frame for a sampling bug).
 fn is_near_black(jpeg: &[u8]) -> bool {
     let Ok(img) = image::load_from_memory_with_format(jpeg, image::ImageFormat::Jpeg) else {
         return false;
@@ -317,11 +292,6 @@ fn wallpaper_key(kind: WallpaperKind, source: &str, slideshow_folder: &str) -> S
     format!("{kind:?}:{source}:{slideshow_folder}")
 }
 
-/// Best-effort: make sure the static desktop background reflects the current
-/// wallpaper right before the app exits. Closing LumenDeck removes its
-/// wallpaper windows, so the OS background must show the same scene —
-/// otherwise the desktop turns black the instant the app quits. Cheap when
-/// the background is already current (`apply_bg` dedups by source key).
 pub fn ensure_installed_before_exit() {
     let cfg = crate::config_store::get();
     if cfg.general.wallpaper_enabled {
@@ -362,36 +332,20 @@ pub fn apply_bg(cfg: &WallpaperConfig) {
     }
 }
 
-/// Should the Windows lock screen follow wallpaper changes? (General tab
-/// toggle; default off — some users keep a personal lock image.)
 fn lock_screen_follows() -> bool {
     crate::config_store::get().general.lock_screen_follows_wallpaper
 }
 
-/// Put the user's original lock screen back. Called when the toggle goes off,
-/// because a setting the user turned off has to actually stop applying.
 pub fn restore_original_lock_screen() -> bool {
     crate::lock_screen_reg::release()
 }
 
-/// Push the current background to the lock screen right now.
-///
-/// `apply_bg` dedupes on the source key, so enabling the toggle for a wallpaper
-/// that is already showing would return early and the lock screen would keep
-/// whatever it had — which reads to the user as a broken toggle. Called
-/// directly on the enable transition so it happens exactly once, at the moment
-/// the user asked for it.
 pub fn force_lock_screen_sync() {
     if !lock_screen_follows() {
         return;
     }
     let out = bg_path();
     if !out.is_file() {
-        // Nothing to point at yet — this runs on the enable transition, so it
-        // is one line saying the toggle has not landed *yet*, and the next
-        // frame the wallpaper installs picks it up. Info rather than debug:
-        // the user has just asked for something, and the default level would
-        // hide the only line that explains why nothing has happened.
         log::info!("lock-screen: no background file yet, will follow the next frame");
         return;
     }
@@ -500,11 +454,6 @@ fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), St
         let factory: IShellItemImageFactory =
             item.cast().map_err(|e| format!("cast: {e}"))?;
 
-        // RESIZETOFIT first: it drives the full shell pipeline (decoding the
-        // video if needed) and populates the thumbnail cache. THUMBNAILONLY
-        // alone fails when no cached thumbnail exists yet — the common case
-        // right after a video is imported or Windows' cache is cleared —
-        // which left the desktop background black on pause/exit.
         let hbitmap: HBITMAP = factory
             .GetImage(
                 SIZE { cx: 1920, cy: 1080 },
@@ -518,9 +467,6 @@ fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), St
             })
             .map_err(|e| format!("GetImage: {e}"))?;
 
-        // Dimensions come from GetObjectW — the null-buffer GetDIBits query
-        // is unreliable for shell-provided bitmaps (returns zero-sized headers
-        // and the "invalid bitmap dimensions" failure).
         let mut bm = BITMAP::default();
         if GetObjectW(
             HGDIOBJ(hbitmap.0),
@@ -538,7 +484,7 @@ fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), St
         let mut bmi = BITMAPINFO::default();
         bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
         bmi.bmiHeader.biWidth = w;
-        bmi.bmiHeader.biHeight = -(h as i32); // top-down rows
+        bmi.bmiHeader.biHeight = -(h as i32);
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = DIB_RGB_COLORS.0 as u32;
@@ -562,12 +508,6 @@ fn extract_video_frame(source: &std::path::Path, out: &PathBuf) -> Result<(), St
         for px in pixels.chunks_exact_mut(4) {
             px.swap(0, 2);
         }
-        // Must be a real 3-channel buffer, not the 4-channel one GetDIBits
-        // filled: `RgbImage::from_raw` only checks the buffer is *at least*
-        // w*h*3 long, so passing 32bpp data succeeds and then trips an
-        // assertion inside the JPEG encoder. That assert fires inside a
-        // window procedure, where a panic cannot unwind, so it aborts the
-        // whole process rather than returning an error.
         let rgb = drop_alpha_bytes(&pixels);
         let img = image::RgbImage::from_raw(w as u32, h, rgb)
             .ok_or("bitmap buffer mismatch")?;
@@ -606,8 +546,6 @@ pub(crate) fn set_desktop_wallpaper(path: &PathBuf) -> bool {
 }
 
 fn set_lock_screen_wallpaper(path: &PathBuf) {
-    // The decision (does this write at all, and what is stashed first) lives in
-    // lock_screen.rs; this only carries it out.
     crate::lock_screen_reg::adopt(path);
 }
 
@@ -667,10 +605,6 @@ mod tests {
 
     #[test]
     fn dropping_alpha_yields_exactly_the_length_the_encoder_demands() {
-        // The crash this guards: `RgbImage::from_raw` accepts a buffer that is
-        // merely *at least* w*h*3, so the 32bpp vector slipped through and the
-        // JPEG encoder asserted 1920x1080*3 against 1920x1080*4. The converted
-        // buffer has to be exactly w*h*3, not more.
         let (w, h) = (4usize, 3usize);
         let bgra: Vec<u8> = (0..(w * h * 4) as u8).collect();
         let rgb = drop_alpha_bytes(&bgra);
@@ -685,8 +619,6 @@ mod tests {
 
     #[test]
     fn the_converted_buffer_is_exactly_what_a_1920x1080_frame_needs() {
-        // The dimensions the shell thumbnail factory actually requests, so the
-        // regression is pinned to the real frame size rather than a toy one.
         let (w, h) = (1920usize, 1080usize);
         let bgra = vec![0u8; w * h * 4];
         let rgb = drop_alpha_bytes(&bgra);

@@ -2,9 +2,6 @@ import { describe, expect, it } from "vitest";
 import { matchRanges, matchTerm, parseQuery, scoreCommand, withPinnedRecents } from "./paletteScore";
 
 describe("matchTerm tiers", () => {
-  // The contract: exact > prefix > word start > substring > subsequence, and
-  // nothing done inside a tier may cross into another. These five strings all
-  // contain "wave"; only the way they contain it differs.
   it("ranks where a match sits, not just that it sits", () => {
     const exact = matchTerm("wave", "wave").score;
     const prefix = matchTerm("wave", "waveform").score;
@@ -52,7 +49,6 @@ describe("matchRanges", () => {
   });
 
   it("merges overlapping and touching ranges so no letter is drawn twice", () => {
-    // "wall" [0,4) and "llp" [2,5) share two letters; one range comes out.
     expect(matchRanges("wall llp", "wallpaper")).toEqual([[0, 5]]);
     expect(matchRanges("wall paper", "wallpaper")).toEqual([[0, 9]]);
   });
@@ -84,7 +80,7 @@ describe("scoreCommand", () => {
     const onLabel = scoreCommand("wave", { label: "Wave stuff" });
     const onKeywords = scoreCommand("wave", { label: "Zzz", keywords: "wave stuff" });
     expect(onLabel).toBeGreaterThan(onKeywords);
-    expect(onKeywords).toBeGreaterThan(0); // still findable, just not first
+    expect(onKeywords).toBeGreaterThan(0);
   });
 
   it("ranks the label above the same hit on the section", () => {
@@ -95,8 +91,6 @@ describe("scoreCommand", () => {
   });
 
   it("lets naming a section outright beat a mere label prefix", () => {
-    // Typing "app" is how someone asks for the App section; "Apply profile…"
-    // only contains the letters.
     const section = scoreCommand("app", { label: "Wipe app data…", group: "App" });
     const contains = scoreCommand("app", { label: "Apply profile…", group: "Navigate" });
     expect(section).toBeGreaterThan(contains);

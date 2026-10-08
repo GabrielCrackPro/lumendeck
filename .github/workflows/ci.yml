@@ -1,9 +1,5 @@
 name: CI
 
-# One workflow, three jobs: `frontend` and `backend` run in parallel on every
-# push and pull request; `release` needs both and only fires for pushes to
-# main (or a manual dispatch). The needs: edges do what "wait for CI to
-# succeed" used to do by hand back when this was two workflow files.
 
 on:
   push:
@@ -15,9 +11,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Per-ref: pushes to main (checks + release together) queue so two rapid
-  # pushes cannot race to publish; the stale-commit guard skips the queued
-  # loser in seconds. PR branches cancel their own superseded runs instead.
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -27,8 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # The changelog generator reads the tag list to find the previous
-          # release; a shallow clone would silently regenerate from one commit.
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
@@ -43,9 +34,6 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate app versions
-        # `--tag-drift` compares the repository version against the newest
-        # published release, which needs `gh`. Off by default so the local
-        # pre-commit hook stays offline; this is where being wrong is expensive.
         run: pnpm check:versions --tag-drift
         env:
           GH_TOKEN: ${{ github.token }}
@@ -75,8 +63,6 @@ jobs:
 
   release:
     needs: [frontend, backend]
-    # Runs only where a release makes sense: after checks pass for a push to
-    # main, or a manual dispatch against main. Pull requests skip in seconds.
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
@@ -134,19 +120,6 @@ jobs:
           }
           $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
           $appVersion = [version]$config.version
-          # Two kinds of commit must never produce a release, and neither is
-          # obvious if it slips through.
-          #
-          # `chore(release)` is what this job writes back to main after every
-          # publish. Releasing it would find a fresh untagged commit, decide
-          # 0.2.30 <= 0.2.30, and publish 0.2.31 — an empty release every few
-          # minutes. The commit is pushed with GITHUB_TOKEN, which raises no run
-          # at all; this is the belt to that pair of braces.
-          #
-          # `[skip release]` is the escape hatch for work that should not ship —
-          # documentation, a CI fix, a comment — while still running every check.
-          # GitHub's own `[skip ci]` would skip the checks too, which is the
-          # opposite of what you want for a commit you still need verified.
           $headSubject = (git log -1 --format=%s $env:CI_HEAD_SHA)
           $headMessage = (git log -1 --format=%B $env:CI_HEAD_SHA)
           $lastMessageLine = $headMessage -split '\r?\n' |
@@ -156,12 +129,6 @@ jobs:
           if ($headSubject -match '^chore\(release\)') {
             $skipReason = "it only records a released version"
           } elseif ($lastMessageLine -and $lastMessageLine.Trim() -ceq '[skip release]') {
-            # Require a final trailer, not merely a matching line. Otherwise
-            # documenting this marker inside a fenced example would suppress
-            # the release for the commit that explains the rule.
-            # Being strict errs towards publishing, and the note below turns the
-            # case where someone meant to skip into a line in the log rather than
-            # a mystery.
             $skipReason = "the commit is marked [skip release]"
           }
           if ($skipReason) {
@@ -199,11 +166,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Could not prepare release version $releaseVersion."
           }
-          # The tag this release is replacing. The changelog for a version is
-          # "everything since the previous tag", and by the time the commit-back
-          # step runs, this release's own tag exists and that range is empty.
-          # Passing the previous tag explicitly is what keeps the section from
-          # regenerating empty.
           if ($latest) {
             "since_tag=$($latest.tagName)" >> $env:GITHUB_OUTPUT
           }
@@ -211,8 +173,6 @@ jobs:
           "should_release=true" >> $env:GITHUB_OUTPUT
           Write-Host "Preparing release v$releaseVersion from $env:CI_HEAD_SHA."
 
-      # Cache the pnpm store via its own dir; setup-node's cache: pnpm fails
-      # on a fresh checkout because `pnpm store path` errors before install.
       - name: Get pnpm store directory
         id: pnpm-cache
         if: steps.version.outputs.should_release == 'true'
@@ -242,9 +202,6 @@ jobs:
         if: steps.version.outputs.should_release == 'true'
         run: pnpm install --frozen-lockfile
 
-      # Release notes come from the same generator that writes CHANGELOG.md,
-      # so the GitHub release and the in-app changelog cannot disagree. It
-      # runs after the version bump, so the section is the version shipping.
       - name: Build changelog
         if: steps.version.outputs.should_release == 'true'
         shell: bash
@@ -293,22 +250,7 @@ jobs:
           releaseBody: ${{ steps.changelog.outputs.notes }}
           releaseDraft: false
           prerelease: false
-          # bundle.targets is already ["nsis"] in tauri.conf.json; no args needed.
-          # The action uploads src-tauri/target/release/bundle/nsis/*.exe to the release.
 
-      # Written after the publish, not before. The repository version should
-      # name a release that exists; a bump that lands first and then fails to
-      # publish leaves it claiming a version nobody can install.
-      #
-      # Started from origin/main rather than the checked-out SHA, because the
-      # build takes minutes and main may have moved underneath. That makes this
-      # a fast-forward push in the normal case, and it is the reason a superseded
-      # release cannot collide here.
-      #
-      # The push uses the default GITHUB_TOKEN, and GitHub does not start a
-      # workflow run for events a GITHUB_TOKEN raises. Without that, this commit
-      # would trigger the release job and republish on a loop; the `chore(release)`
-      # guard in the version step is the second line of defence.
       - name: Record the released version in the repository
         if: steps.version.outputs.should_release == 'true'
         shell: bash

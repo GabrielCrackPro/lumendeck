@@ -1,4 +1,3 @@
-//! LumenDeck backend library: wallpaper-driven RGB, live wallpapers, stickers.
 
 pub mod notify;
 pub mod panic;
@@ -14,12 +13,6 @@ pub mod hotkeys;
 pub mod idle;
 pub mod ipc;
 pub mod account;
-// The translation catalog is shared with the dashboard: `locales/*.json` at
-// the repo root is read here by rust-i18n and in the window by i18next, so
-// there is one set of strings rather than two that can drift.
-//
-// It must be invoked at the crate root: `rust_i18n::t!` expands to
-// `crate::_rust_i18n_t!`, and that macro only exists where `i18n!` ran.
 rust_i18n::i18n!("../locales");
 
 pub mod i18n;
@@ -59,37 +52,21 @@ pub mod workerw;
 #[cfg(not(windows))]
 compile_error!("LumenDeck currently targets Windows only.");
 
-/// Argument appended to the autostart registration. A boot launch should
-/// light up the wallpaper and lighting and then get out of the way: the tray
-/// icon is the only window the user needs to see, so setup() builds the
-/// dashboard but leaves it hidden until they ask for it.
 pub(crate) const START_HIDDEN_ARG: &str = "--minimized";
 
-/// True when this process was started by Windows at logon rather than by a
-/// double-click. Existing installs were registered without the flag, so
-/// setup() re-writes the Run key with it on the next launch.
 fn launched_at_autostart() -> bool {
     std::env::args().any(|a| a == START_HIDDEN_ARG)
 }
 
-/// Whether this launch should come up in the tray instead of showing the
-/// dashboard. A login start is quiet unless the user asked otherwise; a
-/// manual start always shows the window, however the setting is configured.
 fn start_hidden(general: &crate::config::GeneralConfig, at_login: bool) -> bool {
     at_login && !general.show_dashboard_on_login
 }
 
-/// The first time LumenDeck comes up silently, say so. Without this, a tray
-/// icon and a changed wallpaper are easy to miss on a fresh boot, and the
-/// obvious question — where did the window go? — has no answer. Shown once,
-/// ever; clicking it opens the dashboard.
 fn first_hidden_start_hint(app: &tauri::AppHandle) {
     let mut cfg = config_store::get();
     if cfg.general.startup_hint_shown {
         return;
     }
-    // Mark it before showing, not after: if the shell refuses the balloon,
-    // nagging on every single boot is worse than never saying anything.
     cfg.general.startup_hint_shown = true;
     let body = startup_hint_body(&cfg, crate::wallpaper::is_paused());
     if let Err(e) = config_store::set(cfg) {
@@ -100,13 +77,6 @@ fn first_hidden_start_hint(app: &tauri::AppHandle) {
     crate::notify::notify(&app, &title, &body);
 }
 
-/// The balloon's body line, as a catalog key. Pure, so the wording can be
-/// asserted without depending on the machine's locale.
-///
-/// It promises what is actually live rather than a fixed sentence: "your
-/// wallpaper and lights are live" is a lie on a machine with the lighting
-/// switched off, and a notification that is confidently wrong is worse than
-/// no notification at all.
 fn startup_hint_key(cfg: &crate::config::Config, paused: bool) -> &'static str {
     if paused {
         return "tray.balloon-paused";
@@ -119,7 +89,6 @@ fn startup_hint_key(cfg: &crate::config::Config, paused: bool) -> &'static str {
     }
 }
 
-/// [startup_hint_key] in the user's language.
 fn startup_hint_body(cfg: &crate::config::Config, paused: bool) -> String {
     crate::i18n::t(startup_hint_key(cfg, paused))
 }
@@ -132,20 +101,6 @@ use tauri::{
 };
 use tauri_plugin_window_state::AppHandleExt;
 
-/// What is persisted about the dashboard window, for both the plugin's own
-/// save-on-exit and the debounced save on move/resize. One function so the two
-/// cannot drift: a window saved with flags the restore does not honour is the
-/// kind of bug that only shows up after a restart.
-///
-/// A `const fn` rather than a `const` because bitflags 2's `|` operator is not
-/// const -- `union` is.
-///
-/// VISIBLE is excluded on purpose. Restore calls `show()` and `set_focus()` on
-/// a window whose saved state was visible, and an autostart launch is meant to
-/// come up in the tray with nothing on screen -- with it set, the dashboard
-/// would appear on every login. DECORATIONS and FULLSCREEN are excluded for
-/// the same kind of reason: the dashboard is frameless and draws its own
-/// titlebar, so a stale value there is a bug waiting to happen.
 const fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
     use tauri_plugin_window_state::StateFlags;
     StateFlags::SIZE.union(StateFlags::POSITION).union(StateFlags::MAXIMIZED)
@@ -153,15 +108,10 @@ const fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
 
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 
-/// Applies the WebView2 flags needed for video layers composited with stickers
-/// and uninterrupted animation behind desktop icons. See
-/// `skills/rust-startup-logging/SKILL.md` for the platform constraints.
 fn disable_video_overlays() {
     let mut extra = "--disable-direct-composition-video-overlays \
 --disable-features=CalculateNativeWinOcclusion"
         .to_string();
-    // Optional low-end fallback: software decode is light on GPU but burns
-    // CPU and destabilizes 4K pipelines — off by default (General tab).
     if let Ok(cfg) = std::fs::read_to_string(config_store::config_path()) {
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&cfg) {
             if parsed["general"]["softwareVideoDecode"].as_bool() == Some(true) {
@@ -182,9 +132,6 @@ fn disable_video_overlays() {
     }
 }
 
-/// Shared file and stderr logging for Rust and webview diagnostics. The path,
-/// retention policy, and line format are support-facing; see
-/// `skills/rust-startup-logging/SKILL.md`.
 fn init_logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_log::{Target, TargetKind};
 
@@ -193,7 +140,6 @@ fn init_logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 
     tauri_plugin_log::Builder::new()
         .targets([
-            // stderr keeps `tauri dev` useful.
             Target::new(TargetKind::Stdout),
             Target::new(TargetKind::Folder {
                 path: dir,
@@ -221,16 +167,11 @@ fn init_logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .build()
 }
 
-/// The dashboard title includes the version only in development builds.
 fn main_window_title() -> String {
     window_title(cfg!(debug_assertions), env!("CARGO_PKG_VERSION"))
 }
 
-/// The formatting, separated from the compile-time facts so it can be tested
-/// against both branches without needing two builds.
 fn window_title(is_dev: bool, version: &str) -> String {
-    // An empty version would leave a dangling separator in the taskbar, which
-    // reads as a truncated string rather than as missing information.
     if is_dev && !version.is_empty() {
         format!("LumenDeck \u{2014} {version}")
     } else {
@@ -238,7 +179,6 @@ fn window_title(is_dev: bool, version: &str) -> String {
     }
 }
 
-/// Effective logger level, also exposed by the Developer diagnostics panel.
 pub fn log_level() -> log::LevelFilter {
     std::env::var("RUST_LOG")
         .ok()
@@ -246,8 +186,6 @@ pub fn log_level() -> log::LevelFilter {
         .unwrap_or(log::LevelFilter::Info)
 }
 
-/// Max log size before rotating. Shared by the plugin's size check and by the
-/// support instructions a user is pointed at; keep the two in step.
 pub const MAX_LOG_BYTES: u128 = 5 * 1024 * 1024;
 
 fn now_millis() -> u128 {
@@ -257,7 +195,6 @@ fn now_millis() -> u128 {
         .unwrap_or_default()
 }
 
-/// Local wall-clock timestamp with millisecond precision for log ordering.
 fn local_timestamp() -> String {
     use windows::Win32::Foundation::SYSTEMTIME;
     use windows::Win32::System::SystemInformation::GetLocalTime;
@@ -281,13 +218,9 @@ pub fn app_handle() -> Option<tauri::AppHandle> {
 pub fn run() {
     let boot = std::time::Instant::now();
     let logger = init_logging();
-    // After the logger, or a panic before it exists has nowhere to be written.
     crate::panic::install();
     let _ = config_store::init();
-    // Must run before any WebView2 environment is created (and after config
-    // init so the software-decode preference can be read from disk).
     disable_video_overlays();
-    // Gallery entries and sticker sources must stay servable across restarts.
     crate::media::allow_thumbs_dir();
     for g in &config_store::get().gallery {
         match g.kind {
@@ -298,20 +231,12 @@ pub fn run() {
     for s in &config_store::get().stickers {
         crate::media::allow_media_ref(&s.url);
     }
-    // Generate transparent variants for stickers placed before background
-    // removal existed (no-op when everything is already processed). Runs on a
-    // background thread — never blocks the first webview paint.
     crate::stickers::spawn_bg_removal_pass();
     log::info!("startup: pre-tauri init done in {:?}", boot.elapsed());
 
     tauri::Builder::default()
-        // Installed before every other plugin so their startup logs land in the
-        // file rather than only on stderr. Takes the Logger by value, which is
-        // what captures the webview's console output as well.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(main) = app.get_webview_window("main") {
-                // The first instance may be sitting in the tray (autostart,
-                // or a minimize-to-tray hide), so restore it properly.
                 let _ = main.unminimize();
                 let _ = main.show();
                 let _ = main.set_focus();
@@ -320,45 +245,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        // Installed before every other plugin so their startup logs land in the
-        // file rather than only on stderr. Takes the Logger by value, which is
-        // what captures the webview's console output as well.
         .plugin(logger)
-        // Startup notifications, via WinRT toasts. Replaces a hand-written
-        // Shell_NotifyIcon balloon that had to mint its own hidden tray icon,
-        // hidden window and message-pump thread on every call — see `notify`.
         .plugin(tauri_plugin_notification::init())
-        // Revealing a wallpaper in Explorer. The old implementation spawned
-        // `explorer /select,` by hand, which is a subprocess for something the
-        // platform already does properly.
         .plugin(tauri_plugin_opener::init())
-        // Read-on-demand clipboard, for the "paste link" button. The window
-        // paste listener needs none of this: it is driven by the user pressing
-        // Ctrl+V, so the text arrives with the event.
         .plugin(tauri_plugin_clipboard_manager::init())
-        // System-wide hotkeys. No shortcuts are registered by the plugin
-        // itself; `hotkeys::sync` applies the user's bindings once the
-        // dashboard and tray exist.
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        // Remember the dashboard's size, position and maximized state between
-        // launches, so reopening the app lands it where the user left it
-        // instead of centred at the default 1100x760 every single time.
-        //
-        // Scoped to one window on purpose. The sticker, placement and wallpaper
-        // windows are positioned from config on every launch, and restoring a
-        // previous run's geometry over the top would fight the code that owns
-        // it -- a sticker placed at (400, 300) would reopen at wherever it
-        // happened to be last night.
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_filter(|label| label == "main")
-                // Flags live in WINDOW_STATE_FLAGS, which also drives the
-                // debounced save below; the rationale is documented there.
                 .with_state_flags(window_state_flags())
                 .build(),
         )
-        // Serve local media to webviews over http://media.localhost (WebView2
-        // treats custom schemes this way, which enables range requests).
         .register_uri_scheme_protocol("media", |_ctx, request| {
             use std::borrow::Cow;
             let resp = media::handle(request);
@@ -459,34 +356,15 @@ pub fn run() {
             let setup_at = std::time::Instant::now();
             let _ = APP.set(app.handle().clone());
 
-            // Watch the OS accent so the dashboard rethemes live when the
-            // user changes it (Settings > Personalization, or an external app).
             crate::sys_theme::spawn_accent_watcher(app.handle().clone());
             crate::volume::spawn_watcher(app.handle().clone());
 
-            // CPU/RAM for the header strip. Started here rather than when the
-            // dashboard window first asks for it, so the strip has a reading by
-            // the time it is painted. Idempotent, so a window recreated after a
-            // display change does not start a second sampler.
             crate::perf::start();
 
-            // Repair the lock screen on startup. A build whose release never
-            // completed — a failure, or a quit between the two halves — leaves
-            // Windows still showing our frame with the feature off, so the
-            // user's lock screen silently shows our wallpaper and nothing they
-            // set. Only acts when Windows reports the image as ours, so a
-            // user's own picture is never touched. It also clears the
-            // `LockScreenImageType` residue the old registry recipe left behind.
             if !config_store::get().general.lock_screen_follows_wallpaper {
                 crate::lock_screen_reg::release();
             }
 
-            // Re-apply the autostart preference. This is also the repair for
-            // the setting's original bug: an entry written by an older build
-            // names whatever exe registered it, so boot ran a debug binary —
-            // console window, dashboard pointed at a Vite server that is not
-            // running. Re-applying on every launch rewrites the entry to the
-            // installed app, and the next boot starts that one.
             if let Err(e) = crate::autostart::apply(
                 app.handle(),
                 config_store::get().general.autostart,
@@ -494,15 +372,12 @@ pub fn run() {
                 log::warn!("autostart: could not apply preference: {e}");
             }
 
-            // Tray icon.
             let dashboard =
                 MenuItem::with_id(app, "dashboard", "Open LumenDeck", true, None::<&str>)?;
             let edit = MenuItem::with_id(app, "edit", "Edit stickers", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit LumenDeck", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&dashboard, &edit, &quit])?;
             let tray_builder = TrayIconBuilder::with_id("lumendeck-tray")
-                // refresh() below keeps this in step with the app state; this
-                // is only what shows in the sliver of time before it runs.
                 .tooltip(crate::tray::current_tooltip())
                 .menu(&menu);
             let tray_builder = if let Some(icon) = app.default_window_icon() {
@@ -513,20 +388,15 @@ pub fn run() {
             tray_builder
                 .on_menu_event(|app, ev| match ev.id.as_ref() {
                     "quit" => {
-                        // Leave the OS desktop showing the current scene.
                         crate::wallpaper_bg::ensure_installed_before_exit();
                         crate::mouse_hook::disarm();
                         app.cleanup_before_exit();
                         app.exit(0);
                     }
                     "edit" => {
-                        // No edit mode without sticker windows; arrangement is
-                        // numeric in the dashboard.
                     }
                     "dashboard" => {
                         if let Some(w) = app.get_webview_window("main") {
-                            // unminimize + show: the window may be hidden
-                            // (closed-to-tray) or minimized when reopened.
                             let _ = w.unminimize();
                             let _ = w.show();
                             let _ = w.set_focus();
@@ -534,24 +404,16 @@ pub fn run() {
                     }
                     other => crate::tray::on_menu_event(app, other),
                 })
-                // Left-click on the tray icon toggles the dashboard (the
-                // standard expectation; the context menu stays on right-click).
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, button_state: tauri::tray::MouseButtonState::Up, .. } = event {
-                        // Left-click toggles the dashboard (the standard
-                        // expectation; the context menu stays on right-click).
-                        // Same code path as the tray menu and the hotkey.
                         crate::tray::toggle_dashboard(tray.app_handle());
                     }
                 })
                 .build(app)?;
             crate::tray::refresh(app.handle());
-            // Bind the user's system-wide hotkeys. Nothing is bound until they
-            // opt in from Settings > Global hotkeys.
             let hotkeys_cfg = &config_store::get().general;
             crate::hotkeys::sync(app.handle(), hotkeys_cfg.hotkeys_enabled, &hotkeys_cfg.hotkeys);
 
-            // First-run: create dashboard + wallpaper.
             let cfg = config_store::get();
             if cfg.general.wallpaper_enabled {
                 if let Err(e) = wallpaper::ensure(app.handle()) {
@@ -570,9 +432,6 @@ pub fn run() {
             #[cfg(debug_assertions)]
             dev_watchdog::spawn(app.handle().clone());
 
-            // Main dashboard window — frameless: the UI draws its own
-            // titlebar (drag region + window controls) matching the glass
-            // design. Resizing stays native via WM_NCHITTEST handled by tao.
             let mut main_window_builder = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -590,30 +449,16 @@ pub fn run() {
             .resizable(true)
             .decorations(false)
             .visible(false)
-            // Stated rather than inherited: see `devtools_allowed` for why the
-            // keys have to be stopped here rather than in the page.
             .devtools(crate::window_utils::devtools_allowed());
             if let Some(icon) = app.default_window_icon() {
                 main_window_builder = main_window_builder.icon(icon.clone())?;
             }
             let main_window = main_window_builder.build()?;
 
-            // Saved geometry is already on the window here: the window-state
-            // plugin restored it in `on_window_ready`, before this setup
-            // hook ran. A size saved before the minimum rose -- or onto a
-            // monitor that has since changed DPI -- comes back below what
-            // the UI can lay out, and `WM_GETMINMAXINFO` only constrains
-            // user drags, never programmatic `set_size`. So the restored
-            // rect is re-checked against the same policy the builder
-            // stated, and everything this app sets afterwards is clamped by
-            // the resize arm below.
             fn apply_constraints(win: &tauri::WebviewWindow) -> tauri::Result<()> {
                 use window_constraints::RestoredSize;
                 let scale = win.scale_factor().unwrap_or(1.0);
                 let monitor = win.current_monitor()?.or_else(|| {
-                    // Not on any monitor yet (early startup): measure
-                    // against the primary rather than skipping the check.
-                    // Windows puts the primary monitor's origin at (0,0).
                     win.available_monitors().ok().and_then(|ms| {
                         ms.into_iter()
                             .find(|m| m.position().x == 0 && m.position().y == 0)
@@ -629,9 +474,6 @@ pub fn run() {
                             area.size.height,
                         )
                     })
-                    // No monitor reported (headless, CI): assume the
-                    // position is fine so a saved size is clamped but not
-                    // discarded for lack of a monitor to judge it by.
                     .unwrap_or((i32::MIN, i32::MIN, u32::MAX, u32::MAX));
                 let pos = win.outer_position().ok().map(|p| (p.x, p.y));
                 let size = win.inner_size().ok().map(|s| (s.width, s.height));
@@ -639,10 +481,6 @@ pub fn run() {
                     RestoredSize::Clamp(w, h) => {
                         win.set_size(tauri::LogicalSize::new(w, h))?;
                     }
-                    // Invisible on every monitor: do not guess which one
-                    // the user meant. Windows will place the window on a
-                    // display that exists, and the resize arm below keeps
-                    // the size legal from there.
                     RestoredSize::Defaults => {
                         log::info!("startup: saved window geometry unusable; using defaults");
                     }
@@ -653,17 +491,10 @@ pub fn run() {
                 log::debug!("window constraints not applied at startup: {e}");
             }
 
-            // Frameless windows lose the rounded corners Windows gives
-            // decorated ones for free; ask DWM for them back. Non-fatal.
             crate::window_chrome::apply(&main_window);
             if let Err(e) = taskbar_thumbnail::attach(&main_window) {
                 log::warn!("taskbar thumbnail buttons unavailable: {e}");
             }
-            // Autostart launches come up in the tray only — the window is
-            // built (so the webview warms up and the taskbar thumbnail is
-            // ready) but never shown. The tray icon is built above, so the
-            // app is always one left-click away. Users who want the window
-            // at login opt back in from General.
             let hidden_at_start = start_hidden(
                 &config_store::get().general,
                 launched_at_autostart(),
@@ -675,29 +506,11 @@ pub fn run() {
                 main_window.show()?;
             }
 
-            // Close-to-tray: the dashboard X hides the window (wallpapers and
-            // RGB keep running); the tray's "Quit LumenDeck" is the real exit.
-            // This matches wallpaper/lighting apps, where quitting via X would
-            // otherwise leave the tray-only app undiscoverable or kill the
-            // wallpaper the user expects to keep.
             if let Some(win) = app.get_webview_window("main") {
                 let win_handle = win.clone();
 
-                // Persist the window state shortly after the user stops moving
-                // or resizing, instead of only when the process exits cleanly.
-                //
-                // The plugin saves on `RunEvent::Exit`, and a tray app rarely
-                // gets one: it is killed at logoff, stopped from a terminal,
-                // or ended from Task Manager, none of which run the exit event.
-                // Observed exactly that -- the state file was never written at
-                // all, and the dashboard came back un-maximised.
-                //
-                // Debounced because a drag fires this continuously; the flag
-                // collapses a burst of events into one write.
                 fn save_now(handle: &tauri::AppHandle) {
                     if let Err(e) = handle.save_window_state(window_state_flags()) {
-                        // Debug, not a warning: the file lives in the app
-                        // config dir and a failure here is never fatal.
                         log::debug!("window state not saved: {e}");
                     }
                 }
@@ -715,12 +528,6 @@ pub fn run() {
                         save_now(&handle);
                     });
                 };
-                // The debounced save is the wrong tool for the moment the window
-                // goes away: maximize then immediately quit lands inside the
-                // 800ms window, the sleeping thread dies with the process, and
-                // the state is lost -- which is exactly the report this started
-                // from. Closing is rare and already a deliberate act, so it
-                // saves synchronously.
                 let close_handle = app.handle().clone();
 
                 win.on_window_event(move |ev| match ev {
@@ -729,14 +536,6 @@ pub fn run() {
                         api.prevent_close();
                         let _ = win_handle.hide();
                     }
-                    // The titlebar's minimize button routes through the
-                    // `minimize_window` command, but Windows can minimize us
-                    // on its own (taskbar button, Win+D, snap layouts). Catch
-                    // those here so "minimize to tray" means what it says.
-                    // The resize event is the reliable signal; the reported
-                    // size is the *restored* rect, not 0x0, so ask the window
-                    // whether it is actually minimized. A hidden window is
-                    // never "minimized", which keeps this from re-firing.
                     tauri::WindowEvent::Resized(_)
                         if win_handle.is_minimized().unwrap_or(false)
                             && config_store::get().general.minimize_to_tray =>
@@ -744,16 +543,7 @@ pub fn run() {
                         save_now(&close_handle);
                         let _ = win_handle.hide();
                     }
-                    // After the minimize arm above, so a minimize-to-tray does
-                    // not record the icon-sized rect Windows reports mid-restore.
                     tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
-                        // A user dragging the edge cannot produce a size
-                        // under the minimum -- `WM_GETMINMAXINFO` stops that
-                        // -- so one arriving here came from a programmatic
-                        // set_size or a DPI change resizing the window under
-                        // us. It is brought back to the floor against the
-                        // same policy as everywhere else; legal sizes are
-                        // left untouched and cost one comparison.
                         if let (Ok(size), Ok(scale)) =
                             (win_handle.inner_size(), win_handle.scale_factor())
                         {
@@ -832,9 +622,6 @@ mod tests {
         assert!(body.contains("paused"), "{body}");
     }
 
-    /// The localised hint must be exactly the English sentence or its
-    /// translation — never an empty balloon, and never a sentence that skips
-    /// the "click to open" half.
     #[test]
     fn the_localised_hint_comes_from_the_catalog() {
         let cfg = crate::config::Config::default();
@@ -848,9 +635,6 @@ mod tests {
         );
     }
 
-    /// Every state the hint can be in must resolve, in every shipped locale.
-    /// A missing key here would ship a blank notification balloon, which is the
-    /// one failure a user cannot work around.
     #[test]
     fn every_startup_hint_state_resolves() {
         let _guard = crate::i18n::test_locale_lock();
@@ -877,9 +661,6 @@ mod tests {
 
     #[test]
     fn release_window_title_carries_no_version() {
-        // A shipped installer whose taskbar tooltip says "0.2.7" reads as
-        // unpolished to anyone who has not seen the source, and the About card
-        // already says it in full.
         assert_eq!(window_title(false, "0.2.7"), "LumenDeck");
     }
 
@@ -892,9 +673,6 @@ mod tests {
 
     #[test]
     fn dev_window_title_omits_an_empty_version() {
-        // No dangling separator. The taskbar would otherwise show "LumenDeck —"
-        // for a build whose version somehow failed to compile in, which reads as
-        // a truncation rather than as an absent value.
         assert_eq!(window_title(true, ""), "LumenDeck");
     }
 }

@@ -1,14 +1,3 @@
-/**
- * Snap-to-grid + smart alignment guides for the sticker editor.
- *
- * Pure functions over virtual-screen physical px so they're unit-testable.
- * `applySnap` quantizes a sticker rect against:
- *  1. other stickers' left/center/right and top/middle/bottom edges,
- *  2. monitor edges and centers,
- *  3. the grid (when enabled) — only where no alignment line matched.
- * Each axis snaps independently. Returned guides are the *matched* lines so
- * the editor can draw them while dragging.
- */
 
 export interface Rect {
   x: number;
@@ -18,9 +7,7 @@ export interface Rect {
 }
 
 export interface Guide {
-  /** "v" = vertical line (x), "h" = horizontal line (y). */
   axis: "v" | "h";
-  /** Physical px position of the line on the virtual screen. */
   pos: number;
 }
 
@@ -28,11 +15,8 @@ export interface SnapOptions {
   snapToGrid: boolean;
   snapToShapes: boolean;
   gridSize: number;
-  /** Snap threshold in physical px. */
   threshold: number;
-  /** Other rects to align against (visible stickers). */
   others: Rect[];
-  /** Monitor bounds (virtual-screen coords). */
   monitors: Rect[];
 }
 
@@ -45,7 +29,6 @@ const EMPTY: SnapOptions = {
   monitors: [],
 };
 
-/** Candidate x-lines for vertical-edge snapping. */
 function vLines(o: SnapOptions): number[] {
   const out: number[] = [];
   if (!o.snapToShapes) return out;
@@ -54,7 +37,6 @@ function vLines(o: SnapOptions): number[] {
   return out;
 }
 
-/** Candidate y-lines for horizontal-edge snapping. */
 function hLines(o: SnapOptions): number[] {
   const out: number[] = [];
   if (!o.snapToShapes) return out;
@@ -68,7 +50,6 @@ interface AxisSnap {
   guides: number[];
 }
 
-/** Closest line within threshold of any edge; guides win over grid. */
 function snapAxis(edges: number[], lines: number[], o: SnapOptions): AxisSnap {
   let best: { delta: number; guide: number } | null = null;
 
@@ -97,7 +78,6 @@ function snapAxis(edges: number[], lines: number[], o: SnapOptions): AxisSnap {
   return best ? { delta: best.delta, guides: [best.guide] } : { delta: 0, guides: [] };
 }
 
-/** Apply grid + alignment snapping to a full rect (move gestures). */
 export function applySnap(
   r: Rect,
   o: Partial<SnapOptions> = {},
@@ -115,15 +95,8 @@ export function applySnap(
   };
 }
 
-/**
- * Snap a resize gesture on one axis: only the moving edge snaps; the
- * opposite edge stays put. Enforces a minimum size. Returns the snapped
- * moving-edge coordinate (and matched guide line, if any).
- */
 export function snapResizeAxis(
-  /** Moving edge position (x when horizontal, y otherwise). */
   edge: number,
-  /** Opposite (fixed) edge position on the same axis. */
   fixedEdge: number,
   horizontal: boolean,
   minSize: number,

@@ -43,8 +43,6 @@ function query(patch: Partial<GalleryQuery> = {}): GalleryQuery {
 
 const list = (q: GalleryQuery): ActiveFilter[] => activeFilters(q, COLLECTIONS, LABELS);
 
-/** The single filter a query produces. Asserts the count, which is half the
- *  contract: a query that grows a second filter should fail here first. */
 function only(q: GalleryQuery): ActiveFilter {
   const f = list(q);
   expect(f).toHaveLength(1);
@@ -59,10 +57,6 @@ describe("activeFilters", () => {
   });
 
   it("counts the resolution floor, which the old hand-written list omitted", () => {
-    // The reason this module exists: the badge counted five dimensions and the
-    // chips listed six, so a width floor applied and the Filters button still
-    // read 0, with no "clear filters" affordance appearing for a filter that
-    // was visibly on.
     expect(keys(query({ minWidth: 1920 }))).toEqual(["minWidth"]);
     expect(filterBadgeCount(list(query({ minWidth: 1920 })))).toBe(1);
   });
@@ -77,7 +71,6 @@ describe("activeFilters", () => {
       minWidth: 3840,
     });
     expect(keys(all)).toEqual(["search", "kind", "picks", "collection", "display", "minWidth"]);
-    // Search is the one the badge leaves out, so five of six.
     expect(filterBadgeCount(list(all))).toBe(5);
   });
 
@@ -115,7 +108,6 @@ describe("activeFilters", () => {
   it("falls back rather than printing an id for a deleted collection", () => {
     const f = only(query({ collection: "gone" }));
     expect(f.labelKey).toBe("gallery.view-collections");
-    // Still clearable: the chip is a control, not a notice.
     expect(f.clear).toEqual({ kind: "collection", id: "all" });
   });
 
@@ -163,9 +155,6 @@ describe("activeFilters", () => {
   });
 
   it("clears a collection through its own setter, not a query patch", () => {
-    // `selectGallery` has a separate branch for collection membership, and the
-    // query object has no field for it -- a patch here would typecheck as a
-    // partial and silently do nothing.
     expect(only(query({ collection: "c1" })).clear).toEqual({
       kind: "collection",
       id: "all",

@@ -7,13 +7,8 @@ import {
   parseAccelerator,
 } from "./eq";
 
-/** One animation frame at a fixed 60Hz. */
 const FRAME = 1000 / 60;
 
-/**
- * Run the engine over a scripted level stream at 60fps, the way the rAF loop
- * does: a sample, then frames. Returns the peak height of each bar.
- */
 function play(
   samples: { volume: number; pulse: number }[],
   framesPerSample = 1,
@@ -59,12 +54,9 @@ describe("EqEngine", () => {
   });
 
   it("does not treat a held level as a beat", () => {
-    // The bug this replaces: a rAF loop that re-read the same level every
-    // frame manufactured a fresh beat each time. Only new samples may onset.
     const engine = new EqEngine();
     engine.sample(0.4, 0, 100);
     engine.frame(116, FRAME);
-    // Same sample value again, no pulse, many frames later.
     engine.sample(0.4, 0, 132);
     expect(engine.beat).toBe(0);
   });
@@ -85,8 +77,6 @@ describe("EqEngine", () => {
   });
 
   it("kicks the bass harder than the top", () => {
-    // A drum attack is mostly low-mid; if every bar peaked equally the
-    // equalizer would read as a single block again.
     const { peaks } = play([
       ...Array.from({ length: 20 }, () => ({ volume: 0.02, pulse: 0 })),
       { volume: 0.6, pulse: 1 },
@@ -107,24 +97,18 @@ describe("EqEngine", () => {
     }
     now += FRAME;
     engine.sample(0.6, 1, now);
-    // One frame in: the first bar has been kicked, the last has not yet
-    // reached its slot. Sampling at exactly one frame is what makes this a
-    // stagger test rather than a release test.
     now += FRAME;
     const h = engine.frame(now, FRAME);
     expect(h[0]).toBeGreaterThan(h[BAR_COUNT - 1] ?? 0);
   });
 
   it("is frame-rate independent", () => {
-    // The same wall-clock span at 30fps and at 240fps must land in the same
-    // place. The old per-frame decay constant could not do this.
     const settle = (frameMs: number) => {
       const engine = new EqEngine();
       let now = 0;
       now += frameMs;
       engine.sample(0.8, 1, now);
       const kick = engine.frame(now, frameMs);
-      // Advance 300ms with no further signal.
       const steps = Math.round(300 / frameMs);
       let last = kick;
       for (let i = 0; i < steps; i++) {
@@ -143,7 +127,6 @@ describe("EqEngine", () => {
     const engine = new EqEngine();
     engine.sample(0.5, 0.8, 100);
     engine.frame(116, FRAME);
-    // A 30s gap: the dt clamp must stop the release from overshooting.
     const h = engine.frame(30_116, 30_000);
     for (const v of h) {
       expect(v).toBeGreaterThanOrEqual(0);
@@ -176,7 +159,6 @@ describe("EqEngine", () => {
       engine.frame(now, FRAME);
     }
     const peak = Math.max(...engine.frame(now, FRAME));
-    // Level drops to near-silence; the bars must follow it down.
     now += FRAME;
     engine.sample(0, 0, now);
     let h = engine.frame(now, FRAME);
@@ -189,8 +171,6 @@ describe("EqEngine", () => {
   });
 
   it("ignores the very first sample, which is only a baseline", () => {
-    // A single reading has nothing to be a rise *from*, so mounting the card
-    // mid-song must not fire a phantom beat.
     const engine = new EqEngine();
     engine.sample(0.9, 1, 100);
     engine.frame(116, FRAME);
@@ -199,7 +179,6 @@ describe("EqEngine", () => {
 
   it("decays the beat flash on elapsed time", () => {
     const engine = new EqEngine();
-    // Prime the baseline, then hit.
     engine.sample(0.2, 0, 100);
     engine.frame(116, FRAME);
     engine.sample(0.6, 1, 132);
@@ -215,12 +194,9 @@ describe("EqEngine", () => {
   });
 
   it("does not onset again immediately after a long silent gap", () => {
-    // The backend re-bases its own threshold after silence, so a pulse
-    // arriving on the first sample of a new passage is not a transient.
     const engine = new EqEngine();
     engine.sample(0.3, 0, 100);
     engine.frame(116, FRAME);
-    // 5 seconds later the music restarts with a loud transient.
     expect(engine.beat).toBe(0);
     engine.sample(0.7, 1, 5000);
     engine.frame(5016, FRAME);
@@ -257,8 +233,6 @@ describe("acceleratorFromEvent", () => {
   });
 
   it("orders modifiers consistently regardless of press order", () => {
-    // Duplicate detection compares strings, so "Ctrl+Shift" and "Shift+Ctrl"
-    // must not be two different bindings.
     expect(ev({ ctrlKey: true, shiftKey: true })).toBe("Ctrl+Shift+KeyM");
     expect(ev({ metaKey: true, altKey: true, ctrlKey: true })).toBe(
       "Ctrl+Alt+Super+KeyM",

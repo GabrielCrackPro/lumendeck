@@ -1,11 +1,3 @@
-// The mode picker: eight ways for the lights to behave, each showing itself
-// running rather than describing itself.
-//
-// The tiles are animated canvases, not icons — a mode you can watch is the
-// fastest way to understand it, and the alternative (a name and a hint) made
-// every mode a guessing game. That only works if the maths is trustworthy, so
-// the colour comes from `rgbStrip`, which is a port of the Rust engine's own
-// and is tested against it.
 
 import { ModePreview } from "../ModePreview";
 import {
@@ -25,12 +17,6 @@ import { t } from "../../i18n";
 import type { Rgb } from "../rgbStrip";
 import type { RgbMode } from "@shared/types";
 
-/**
- * Per-mode icon, from the app's icon set — the glyphs live in `icons.tsx` with
- * everything else so they get the same hover animation and reduced-motion
- * handling as the rest, which is exactly what the private hand-drawn set they
- * replaced never had.
- */
 const MODE_ICONS: Record<RgbMode, Glyph> = {
   ambient: IconModeAmbient,
   zone: IconGrid,
@@ -75,9 +61,9 @@ export function ModePicker(props: ModePickerProps) {
     <div className="space-y-4">
       {groups.map((group) => (
         <section key={group.id}>
-          {/* The group heading carries its own explanation, so the two halves
-              sit on one baseline rather than the hint drifting to the far edge
-              of a wide card. */}
+          {
+
+ }
           <header className="mb-2 flex items-baseline gap-3">
             <h3 className="kicker shrink-0">{t(group.title)}</h3>
             <span
@@ -105,8 +91,8 @@ export function ModePicker(props: ModePickerProps) {
                       : "border-[var(--line)] hover:border-[var(--line-strong)] hover:shadow-[0_4px_16px_-8px_rgb(var(--glow)/0.35)]"
                   }`}
                 >
-                  {/* In normal flow, not absolutely positioned: the text below
-                      must never be able to overlap the preview. */}
+                  {
+ }
                   <span className="relative block h-14 w-full shrink-0">
                     <ModePreview
                       mode={id}
@@ -120,9 +106,9 @@ export function ModePicker(props: ModePickerProps) {
                       waveDirection={props.waveDirection}
                     />
                     <span className="pointer-events-none absolute inset-0 rounded-t-xl ring-1 ring-inset ring-[rgb(255_255_255/0.06)]" />
-                    {/* A check rather than an "ON" pill: it needs no word in
-                        any language, and it cannot fight the preview for
-                        attention the way a filled badge did. */}
+                    {
+
+ }
                     {active && (
                       <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[rgb(var(--glow))] text-black/85 shadow-[0_2px_8px_rgb(var(--glow)/0.5)]">
                         <IconCheck className="h-3 w-3" />

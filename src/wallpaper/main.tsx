@@ -1,5 +1,3 @@
-// Wallpaper runtime (one instance per monitor): renders the configured source
-// sized to its display and streams zone color samples to the RGB engine.
 import { createRoot } from "react-dom/client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -12,8 +10,6 @@ import { SHADER_SOURCES, compileShaderProgram, shaderCanvasSize } from "./shader
 import { applySnap, snapResizeAxis, type Guide, type Rect } from "./snap";
 import "../runtime.css";
 
-// A property of the webview rather than of a component: WebView2's own menu
-// (Back, Reload, Inspect) over a wallpaper that cannot do any of those.
 installContextMenuSuppression();
 
 interface MonitorInfo {
@@ -27,36 +23,26 @@ interface MonitorInfo {
 
 interface WallpaperInfo {
   monitor: MonitorInfo;
-  /** Physical px per logical px (authoritative, from the backend window). */
   scale: number;
   source: string;
-  /** Static snapshot (poster frame) shown under video sources on failure. */
   fallbackSource: string;
-  /** Crossfade seconds for playlist-driven source changes (0 = instant). */
   crossfadeSec: number;
   config: Config["wallpaper"];
   paused: boolean;
   stickers: StickerDef[];
-  /** Every connected monitor (virtual-screen px) — alignment-guide targets. */
   monitors: { device: string; x: number; y: number; w: number; h: number; primary: boolean }[];
-  /** Snap behavior for the sticker editor. */
   snap: Config["stickerSnap"];
-  /** Mirror wallpaper-layer stickers on every monitor. */
   stickerAllMonitors: boolean;
 }
 
 type VideoFit = "cover" | "contain" | "fill" | "auto";
 
-/** Send a diagnostics line to the Rust log. Level maps to the file's
- * severity (info/warn/error/debug) so grepping for ERROR finds real problems.
- * "debug" lines are hidden at the default log level. */
 function logLine(msg: string, level: "info" | "warn" | "error" | "debug" = "info") {
   invoke("log_frontend", { level, msg }).catch(() => {});
 }
 
 let pausedGlobal = false;
 
-/** Pick the effective object-fit for a video on this display. */
 export function effectiveVideoFit(fit: VideoFit, videoW: number, videoH: number, screenW: number, screenH: number): "cover" | "contain" | "fill" {
   switch (fit) {
     case "cover":
@@ -68,9 +54,6 @@ export function effectiveVideoFit(fit: VideoFit, videoW: number, videoH: number,
       const videoAspect = videoW / videoH;
       const screenAspect = screenW / screenH;
       const ratio = videoAspect / screenAspect;
-      // Match Lively/Wallpaper-Engine convention: fill (crop a little) unless
-      // the shapes are wildly different (e.g. portrait video on a landscape
-      // screen), where cropping would lose most of the frame — letterbox then.
       return ratio > 0.8 && ratio < 1.25 ? "cover" : "contain";
     }
   }
@@ -98,10 +81,6 @@ function WallpaperRoot() {
               }
             : prev,
         );
-        // The effective source/fallback/crossfade are resolved server-side
-        // (per-monitor overrides, media URLs, playlist fade). Never guess the
-        // source client-side: a per-monitor window would flash the GLOBAL
-        // wallpaper until the self-heal poll corrected it up to 2s later.
         invoke<WallpaperInfo>("get_wallpaper_info")
           .then((fresh) => setInfo((prev) => (prev ? { ...prev, ...fresh } : fresh)))
           .catch(() => {});
@@ -109,8 +88,6 @@ function WallpaperRoot() {
       listen<boolean>(EVENTS.WALLPAUSE, (e) => {
         pausedGlobal = e.payload;
       }),
-      // Displays changed: re-fetch this window's monitor geometry immediately
-      // (the backend has already resized/repositioned the window).
       listen<MonitorInfo[]>(EVENTS.DISPLAY_CHANGED, () => {
         invoke<WallpaperInfo>("get_wallpaper_info")
           .then(setInfo)
@@ -123,9 +100,6 @@ function WallpaperRoot() {
       })
       .catch(() => {});
 
-    // Belt-and-braces: re-fetch periodically so a missed event
-    // (e.g. webview reloaded mid-broadcast) self-corrects. Compare config AND
-    // stickers: sticker placement/edit storms don't touch the wallpaper config.
     const poll = setInterval(() => {
       invoke<WallpaperInfo>("get_wallpaper_info")
         .then((fresh) => {
@@ -136,8 +110,6 @@ function WallpaperRoot() {
               JSON.stringify(prev.stickers) === JSON.stringify(fresh.stickers) &&
               JSON.stringify(prev.snap) === JSON.stringify(fresh.snap) &&
               prev.scale === fresh.scale &&
-              // Monitor reassignment (display reorder/unplug) must repaint:
-              // the label→monitor mapping shifts behind our back.
               prev.monitor.device === fresh.monitor.device &&
               prev.monitor.x === fresh.monitor.x &&
               prev.monitor.y === fresh.monitor.y &&
@@ -186,12 +158,6 @@ function WallpaperRoot() {
 
 type Handle = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se" | "move" | null;
 
-/**
- * On-wallpaper sticker editor. The wallpaper webview receives no OS mouse
- * input (it's behind the icons layer), so the backend streams global mouse
- * events over EDITOR_MOUSE while editor mode is on. Hit-testing, drag, and
- * resize all run here; results persist via update_sticker.
- */
 function StickerEditor({ info }: { info: WallpaperInfo }) {
   const [on, setOn] = useState(false);
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -220,7 +186,6 @@ function StickerEditor({ info }: { info: WallpaperInfo }) {
   useEffect(() => {
     if (!on) return;
     const dpr = info.scale && info.scale > 0 ? info.scale : 1;
-    // Reset transient state when the editor opens on this window.
     st.current = { mode: null, id: null, startX: 0, startY: 0, orig: null, hoverMode: null };
     setOverrideMap({});
     setFocusId(null);
@@ -230,7 +195,7 @@ function StickerEditor({ info }: { info: WallpaperInfo }) {
       snapToGrid: info.snap?.grid ?? true,
       snapToShapes: info.snap?.guides ?? true,
       gridSize: info.snap?.gridSize ?? 32,
-      threshold: 8 * dpr, // 8 logical px, in physical px
+      threshold: 8 * dpr,
       others: infoRef.current.stickers
         .filter((k) => k.visible)
         .map((k): Rect => ({ x: k.x, y: k.y, w: k.w, h: k.h })),
@@ -244,7 +209,6 @@ function StickerEditor({ info }: { info: WallpaperInfo }) {
       const stickers = infoRef.current.stickers.filter((s) => s.visible);
       const s = st.current;
 
-      // Hit-test rects in physical screen px.
       const rects = stickers.map((sk) => ({
         sk,
         l: sk.x,
@@ -252,7 +216,7 @@ function StickerEditor({ info }: { info: WallpaperInfo }) {
         r: sk.x + sk.w,
         b: sk.y + sk.h,
       }));
-      const HW = 12 * dpr; // handle grab zone, physical px
+      const HW = 12 * dpr;
 
       if (!s.mode) {
         let found: { id: string; mode: Handle } | null = null;
@@ -291,7 +255,6 @@ function StickerEditor({ info }: { info: WallpaperInfo }) {
         return;
       }
 
-      // Active drag/resize (physical px deltas).
       const dx = px - s.startX;
       const dy = py - s.startY;
       const o = s.orig!;
@@ -301,7 +264,7 @@ function StickerEditor({ info }: { info: WallpaperInfo }) {
         return;
       }
       let next = { x: o.x, y: o.y, w: o.w, h: o.h };
-      const MIN = 24; // physical px
+      const MIN = 24;
       const opts = snapOpts();
       const foundGuides: Guide[] = [];
       if (s.mode === "move") {
@@ -312,7 +275,6 @@ function StickerEditor({ info }: { info: WallpaperInfo }) {
         foundGuides.push(...snapped.guides);
       } else {
         const m = s.mode;
-        // Horizontal axis: the moving edge snaps; the opposite edge stays.
         if (m.includes("w")) {
           const r = snapResizeAxis(o.x + dx, o.x + o.w, true, MIN, opts);
           next.x = r.edge;
@@ -340,7 +302,6 @@ function StickerEditor({ info }: { info: WallpaperInfo }) {
       next.y = Math.round(next.y);
       next.w = Math.round(next.w);
       next.h = Math.round(next.h);
-      // Zero-lag local override while dragging.
       setOverrideMap((prev) => ({ ...prev, [s.id!]: next }));
       setGuides((prev) => {
         const a = foundGuides;
@@ -349,7 +310,6 @@ function StickerEditor({ info }: { info: WallpaperInfo }) {
           ? prev
           : foundGuides;
       });
-      // Commit throttled during drag; final commit on release.
       if (!ldown || performance.now() - lastCommit.current > 150) {
         lastCommit.current = performance.now();
         invoke("update_sticker", { sticker: { ...cur, ...next } }).catch(console.error);
@@ -368,7 +328,6 @@ function StickerEditor({ info }: { info: WallpaperInfo }) {
 
   if (!on) return null;
 
-  // Guides: virtual-screen physical px → this monitor's local logical px.
   const dpr = info.scale && info.scale > 0 ? info.scale : 1;
   const vw = info.monitor.w / dpr;
   const vh = info.monitor.h / dpr;
@@ -410,7 +369,6 @@ function StickerEditor({ info }: { info: WallpaperInfo }) {
   );
 }
 
-/** Focus ring + handle visualization over the focused sticker. */
 function FocusOverlay({ mode }: { mode: Handle }) {
   const handles: { pos: React.CSSProperties; h: Handle }[] = [
     { pos: { left: -4, top: -4 }, h: "nw" },
@@ -436,11 +394,6 @@ function FocusOverlay({ mode }: { mode: Handle }) {
   );
 }
 
-/**
- * Stickers rendered inside the wallpaper window itself — no per-sticker OS
- * windows. Each sticker's virtual-screen coords are translated into this
- * monitor's local space; stickers on other monitors fall outside and clip.
- */
 function StickerLayer({
   stickers,
   monitor,
@@ -468,11 +421,6 @@ function StickerLayer({
       {visible.flatMap((s0) => {
         const ov = overrides?.[s0.id];
         const s = ov ? { ...s0, ...ov } : s0;
-        // Mirror mode: replicate the sticker at its position relative to the
-        // anchor monitor on EVERY monitor. The anchor is whichever monitor
-        // contains the sticker's placed position; other displays get a copy
-        // at the same relative offset (clamped into their bounds). With the
-        // flag off, only the intersection with the anchor monitor renders.
         const anchor =
           monitors.find(
             (m) => s.x + s.w > m.x && s.y + s.h > m.y && s.x < m.x + m.w && s.y < m.y + m.h,
@@ -494,14 +442,10 @@ function StickerLayer({
           key,
         }));
       }).map(({ s, mon, key }) => {
-        // Config coords are PHYSICAL screen pixels (mouse hook, config files);
-        // CSS layout needs logical pixels: divide by the window's scale
-        // factor from the backend (authoritative DPI).
         const left = (s.x - mon.x) / dpr;
         const top = (s.y - mon.y) / dpr;
         const width = s.w / dpr;
         const height = s.h / dpr;
-        // Skip copies entirely outside this monitor (physical compare).
         if (
           s.x + s.w <= mon.x ||
           s.y + s.h <= mon.y ||
@@ -564,11 +508,6 @@ function StickerLayer({
   );
 }
 
-/**
- * Subtle pill shown in the corner whenever playback is paused (battery,
- * fullscreen app, or manual pause). Desktops sit under icons, so it uses a
- * solid dark chip with a slow-breathing dot — visible but not distracting.
- */
 function PausedBadge() {
   const [paused, setPaused] = useState(false);
 
@@ -591,7 +530,6 @@ function PausedBadge() {
   );
 }
 
-/** Brief pill shown when the config was reloaded from an external edit. */
 function ReloadToast() {
   const [visible, setVisible] = useState(false);
   const timer = useRef<number | null>(null);
@@ -622,22 +560,13 @@ function ReloadToast() {
 
 type MediaIdentity = { kind: WallpaperKind; source: string };
 
-/** The media element currently on screen (tagged layer), for RGB sampling. */
 function sampleSource(): CanvasImageSource | null {
   const host = document.querySelector("[data-sample]");
   if (!host) return null;
-  // Prefer the visible presentation canvas over a hidden source video.
   const el = host.querySelector("canvas, img") ?? host.querySelector("video");
   return (el as CanvasImageSource | null) ?? null;
 }
 
-/**
- * Blits a hidden <video> element's frames onto a canvas every animation
- * frame. Canvas pixels composite in the normal DOM tree, so layers above
- * (stickers) always render — unlike direct <video> presentation, which
- * WebView2 can lift onto DirectComposition overlay planes that paint above
- * all other DOM content.
- */
 function VideoCanvas({
   videoRef,
   fit,
@@ -649,22 +578,14 @@ function VideoCanvas({
   fit: CSSProperties["objectFit"];
   fx?: { speed: number; brightness: number; saturation: number; hue: number };
   onReady: () => void;
-  /** Only the primary monitor's window captures the OS-background frame;
-   * secondary windows render the same source and would push near-identical
-   * (but not byte-identical) JPEGs that defeat the backend's hash dedup. */
   framePush?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fitRef = useRef(fit);
   fitRef.current = fit;
   const readyRef = useRef(false);
-  // onReady may be a new function identity each parent render (it's an inline
-  // arrow); keeping it in a ref lets the blit effect avoid depending on it.
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
-  // Live-frame throttle state lives OUTSIDE the blit effect on purpose: the
-  // effect re-runs (and would otherwise reset these) whenever a parent render
-  // hands us a new onReady identity, which happens on every info poll.
   const pushStateRef = useRef({ pushedForSource: "", lastFramePush: 0 });
   const framePushRef = useRef(framePush);
   framePushRef.current = framePush;
@@ -678,24 +599,12 @@ function VideoCanvas({
     let running = true;
     const drewRef = { current: false };
     const pushState = pushStateRef.current;
-    // Last media time blitted: when it hasn't advanced (same frame decoded,
-    // or a duplicate rAF tick), skip the fill+draw — repeating an identical
-    // 4K blit costs real GPU time and can drop frames on integrated GPUs.
     let lastT = -1;
     let lastW = 0;
     let lastH = 0;
-    // Native-fps estimate: the smallest currentTime advance between decoded
-    // frames is one source frame (1/fps). rAF fires at display rate (60–144
-    // Hz); for a 24fps source that's 2–6 redundant full-canvas blits per
-    // frame. Skipping ticks closer together than one source frame (~85% of
-    // the measured interval, to absorb timing jitter) roughly halves the blit
-    // cost for typical anime loops and cuts it ~6x for 24fps on 144Hz panels.
-    let minFrameDelta = 0; // 0 = unknown: blit every tick until measured
+    let minFrameDelta = 0;
     const frameDeltas: number[] = [];
     let lastBlitWall = 0;
-    // Dev-only cadence counters: every 10s, log rAF ticks, ticks where media
-    // time advanced (= what an unthrottled loop would blit), and actual blits
-    // (= what this loop blits). The gap between the last two is the savings.
     let ticks = 0;
     let advanced = 0;
     let blits = 0;
@@ -710,17 +619,11 @@ function VideoCanvas({
         )
       : 0;
 
-    // Cached geometry: reading getBoundingClientRect every frame forces
-    // style/layout recalc and is a classic rAF jank source. Recompute only
-    // when the canvas actually resizes (window/monitor changes).
     let pw = 0;
     let ph = 0;
-    let coversAll = false; // blit fills the whole canvas (no letterbox)
+    let coversAll = false;
     const syncGeometry = () => {
       const rect = canvas.getBoundingClientRect();
-      // Cap the backing resolution at 1080p-height equivalent when the
-      // display is very dense: a 4K blit at 60fps costs real GPU time and
-      // the visual difference behind desktop icons is imperceptible.
       const dpr = Math.min(window.devicePixelRatio || 1, Math.max(1, 2160 / Math.max(1, rect.height)));
       pw = Math.max(1, Math.round(rect.width * dpr));
       ph = Math.max(1, Math.round(rect.height * dpr));
@@ -734,21 +637,13 @@ function VideoCanvas({
     syncGeometry();
 
     const blit = () => {
-      // Re-read on every tick: the <video> element can be remounted under us
-      // (decode-error retry recreates it via videoEpoch) — a video captured
-      // once at effect start would leave the canvas frozen on a dead element.
       const video = videoRef.current;
       if (!video) return;
       const t = video.currentTime;
-      // Native-fps throttle: media-time deltas between consecutive renders
-      // are noisy, so we estimate the frame interval as the median of recent
-      // deltas (clamped to 8–240fps plausibility) rather than the minimum.
       const nowWall = performance.now();
       const tAdvanced = t !== lastT;
       if (tAdvanced) advanced++;
       ticks++;
-      // Record the media-time delta between consecutive rendered frames to
-      // refine the interval estimate (clamped to 8–240fps plausibility).
       if (t !== lastT && lastT >= 0 && t > lastT) {
         const d = t - lastT;
         if (d >= 1 / 240 && d <= 1 / 8) {
@@ -771,11 +666,8 @@ function VideoCanvas({
         video.readyState >= 2 &&
         !video.seeking
       ) {
-        return; // frame unchanged: canvas keeps showing the last blit
+        return;
       }
-      // Native-fps throttle: this tick's media time advanced, but if the last
-      // blit was less than one source frame ago the presentation would either
-      // duplicate the same decoded frame or tear. Wait for the next tick.
       if (tAdvanced && minFrameDelta > 0 && nowWall - lastBlitWall < minFrameDelta * 0.85) {
         return;
       }
@@ -793,14 +685,11 @@ function VideoCanvas({
       const isFill = fitRef.current === "fill";
       const scale = isFill || isCover
         ? Math.max(pw / vw, ph / vh)
-        : Math.min(pw / vw, ph / vh); // contain (letterbox)
+        : Math.min(pw / vw, ph / vh);
       const dw = isFill ? pw : vw * scale;
       const dh = isFill ? ph : vh * scale;
       const dx = (pw - dw) / 2;
       const dy = (ph - dh) / 2;
-      // Skip the clear when the frame fully covers the canvas (cover/fill at
-      // or beyond canvas size): a full clear + full redraw is one extra
-      // fill pass over 8M+ pixels per frame for zero visual change.
       coversAll = dx <= 0.5 && dy <= 0.5 && dw >= pw - 1 && dh >= ph - 1;
       if (!coversAll) {
         ctx.fillStyle = "#000";
@@ -808,10 +697,6 @@ function VideoCanvas({
       }
       ctx.drawImage(video, dx, dy, dw, dh);
 
-      // Push a real captured frame to the backend as the Windows desktop /
-      // lock-screen background and decode-failure fallback — once per
-      // source change (after a short settle delay so it's a mid-loop frame,
-      // not the first), plus at most every 30 minutes for the same source.
       if (!framePushRef.current) return;
       const now = Date.now();
       const src = video.src;
@@ -820,9 +705,6 @@ function VideoCanvas({
       const settleWait =
         pushState.lastFramePush !== 0 && now < pushState.lastFramePush + 4_000;
       if ((sourceChanged && !settleWait) || dueForRefresh) {
-        // Skip the push when the frame is essentially black: a video stuck in
-        // a decode-error loop still "blits" fine but carries no imagery, and
-        // a black capture would overwrite the good shell-extracted poster.
         const sample = ctx.getImageData(0, 0, Math.min(pw, 64), Math.min(ph, 36));
         let dark = 0;
         const total = sample.data.length / 4;
@@ -833,7 +715,7 @@ function VideoCanvas({
           if (Math.max(r, g, b) < 12) dark++;
         }
         if (dark / total > 0.9) {
-          pushState.lastFramePush = 0; // retry on a later, hopefully-rendered frame
+          pushState.lastFramePush = 0;
           return;
         }
         pushState.pushedForSource = src;
@@ -857,17 +739,8 @@ function VideoCanvas({
       }
     };
 
-    // Frame-cadence: rAF loop. (requestVideoFrameCallback was tried here,
-    // but its handle is bound to the <video> element — when decode-retry
-    // remounts the element the chain dies and the canvas freezes.) The
-    // duplicate-frame skip below makes redundant rAF ticks nearly free.
     const onFrame = () => {
       if (!running) return;
-      // While paused, freeze on the last drawn frame instead of skipping
-      // entirely: a canvas that was never blitted (pause active at startup,
-      // e.g. on-battery auto-pause) shows as transparent black — an all-black
-      // desktop. Keep blitting until the first successful draw, then stop
-      // redrawing (canvas content persists) to save GPU while paused.
       if (!(pausedGlobal && !document.hasFocus() && drewRef.current)) {
         blit();
       }
@@ -880,12 +753,8 @@ function VideoCanvas({
       ro.disconnect();
       if (measure) window.clearInterval(measure);
     };
-    // onReady intentionally excluded: read through a ref (see above) so the
-    // effect isn't torn down on every parent re-render — restarting it reset
-    // the live-frame throttle and caused a push per poll cycle.
   }, []);
 
-  // Playback-rate control (live config updates included).
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !fx) return;
@@ -908,12 +777,6 @@ function VideoCanvas({
   );
 }
 
-/**
- * One self-contained media surface (video/image/shader/web/slideshow).
- * Reports readiness via `onReady` so MediaStage can keep the previous
- * wallpaper visible while the new one loads, then crossfade instead of
- * flashing black.
- */
 function MediaSurface({
   kind,
   source,
@@ -943,9 +806,6 @@ function MediaSurface({
   const [shaderOk, setShaderOk] = useState(true);
   const [videoFitStyle, setVideoFitStyle] = useState<CSSProperties["objectFit"]>("cover");
   const [videoFailed, setVideoFailed] = useState(false);
-  // Bumped to force React to recreate the <video> element after a decode
-  // pipeline error (PIPELINE_ERROR_DISCONNECTED fires mid-playback when the
-  // software decoder stalls; a remount rebuilds the pipeline).
   const [videoEpoch, setVideoEpoch] = useState(0);
   const videoRetries = useRef(0);
   const [slideFiles, setSlideFiles] = useState<string[]>([]);
@@ -959,14 +819,11 @@ function MediaSurface({
     onReady?.();
   };
 
-  // A new source gets a clean failure slate (the error state is per-source).
   useEffect(() => {
     setVideoFailed(false);
     videoRetries.current = 0;
   }, [source]);
 
-  // Resolution-aware video fit once the video metadata is known. Inline style
-  // (not a class) so the value never depends on Tailwind's static-class scan.
   useEffect(() => {
     if (kind !== "video") return;
     const v = videoRef.current;
@@ -978,7 +835,6 @@ function MediaSurface({
     return () => v.removeEventListener("loadedmetadata", apply);
   }, [kind, fit, screen.w, screen.h, source]);
 
-  // Slideshow file list.
   useEffect(() => {
     if (kind !== "slideshow") return;
     invoke<string[]>("list_images", { folder: slideshow.folder ?? "" })
@@ -993,7 +849,6 @@ function MediaSurface({
       });
   }, [kind, slideshow.folder]);
 
-  // Slideshow ticker + crossfade.
   useEffect(() => {
     if (kind !== "slideshow" || slideFiles.length < 2) return;
     const interval = (slideshow.intervalSec ?? 30) * 1000;
@@ -1005,7 +860,6 @@ function MediaSurface({
     return () => clearInterval(iv);
   }, [kind, slideFiles.length, slideshow.intervalSec]);
 
-  // Shader setup (ready immediately — the canvas paints on schedule).
   useEffect(() => {
     if (kind !== "shader") return;
     const canvas = canvasRef.current;
@@ -1031,8 +885,6 @@ function MediaSurface({
     const uRes = gl.getUniformLocation(prog, "uRes");
     const uTime = gl.getUniformLocation(prog, "uTime");
     let raf = 0;
-    // Render at the monitor's native resolution (4K-capped for GPU safety)
-    // and re-fit if the display geometry changes.
     const resize = () => {
       const { width, height } = shaderCanvasSize(screen.w, screen.h);
       canvas.width = width;
@@ -1079,19 +931,15 @@ function MediaSurface({
   }
 
   if (kind === "video") {
-    // Canvas presentation: the hidden <video> drives playback, decoding, and
-    // zone sampling; VideoCanvas blits frames into the normal compositor tree
-    // so sticker layers above the wallpaper always render (direct <video>
-    // can be promoted to overlay planes that paint over all DOM content).
     return (
       <div
         className="flex h-full w-full items-center justify-center overflow-hidden bg-black"
         style={style}
       >
-        {/* Fallback: the backend's poster-frame snapshot of this source. When
-            the video 404s or the codec is unsupported, the desktop shows the
-            still image instead of a black void. Rendered underneath, so it
-            also shows through during decode startup. */}
+        {
+
+
+ }
         {fallback && (
           <img
             src={fallback}
@@ -1107,32 +955,24 @@ function MediaSurface({
           src={source}
           autoPlay
           loop
-          // Required so the sampling canvas stays untainted (media is served
-          // cross-origin from media.localhost with ACAO: *).
           crossOrigin="anonymous"
           preload="auto"
           muted={volume === 0}
           playsInline
           style={{ display: "none" }}
           onWaiting={() => {
-            // Buffer underrun mid-loop: nudge playback as soon as data
-            // returns so the loop resumes without a long freeze.
             videoRef.current?.play().catch(() => {});
           }}
           onStalled={() => videoRef.current?.play().catch(() => {})}
           onLoadedData={() => {
             videoRetries.current = 0;
             logLine(`video loaded-data ok src=${source} ${videoRef.current?.videoWidth}x${videoRef.current?.videoHeight}`, "debug");
-            // Occluded/background webviews may refuse autoplay: retry once.
             videoRef.current?.play().catch(() => {});
             fireReady();
           }}
           onError={() => {
             const err = videoRef.current?.error;
             logLine(`video ERROR src=${source} code=${err?.code} msg=${err?.message}`, "error");
-            // A decode-pipeline collapse (DISCONNECTED/DECODE) is often
-            // transient: rebuild the element with backoff instead of
-            // permanently dropping to the poster frame.
             if (videoRetries.current < 3) {
               const delay = 1000 * 2 ** videoRetries.current;
               videoRetries.current += 1;
@@ -1141,8 +981,6 @@ function MediaSurface({
               return;
             }
             setVideoFailed(true);
-            // A failed source must not wedge the crossfade: release the
-            // stage so the layer timeout / prune logic can take over.
             fireReady();
           }}
         />
@@ -1195,24 +1033,14 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
   const kind = info?.config.kind;
   const source = info?.source ?? "";
   const target: MediaIdentity | null = kind && info ? { kind, source } : null;
-  // Latest info for the sampling loop (monitor device/primary tags) without
-  // re-subscribing the interval on every geometry update.
   const infoRef = useRef(info);
   infoRef.current = info;
 
-  // Stack of layered identities, bottom = oldest, top = newest. Older layers
-  // stay fully visible until the newest one reports ready, then the top fades
-  // in while the rest fade out; the stack is pruned back to a single layer so
-  // the on-screen media element is never remounted (no rebuffer black frame).
   const [shown, setShown] = useState<MediaIdentity[]>([]);
   const [topReady, setTopReady] = useState(true);
 
-  // Derived so the very first paint shows the target without an empty frame
-  // while the seed effect below fills `shown`.
   const layers = shown.length > 0 ? shown : target ? [target] : [];
 
-  // Seed on first payload, then stage a new layer whenever the wallpaper
-  // identity changes (kind or source).
   useEffect(() => {
     if (!target) return;
     if (shown.length === 0) {
@@ -1224,7 +1052,6 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
     if (top && top.kind === target.kind && top.source === target.source) return;
     const idx = shown.findIndex((x) => x.kind === target.kind && x.source === target.source);
     if (idx >= 0) {
-      // Already in the stack (user switched back mid-crossfade): jump there.
       setShown(shown.slice(idx));
       setTopReady(true);
       return;
@@ -1233,11 +1060,6 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
     setTopReady(false);
   }, [target?.kind, target?.source, target, shown]);
 
-  // Once the top layer is ready, crossfade then prune to it. The duration
-  // comes from the active playlist (playlist transitions get a slow, visible
-  // fade; manual/dashboard changes keep the quick 300ms default).
-  // Also treat an unmounting stage as fade completion: clearing `shown` (e.g.
-  // wallpaper disable) must not leave a stale layer stack behind.
   const fadeMs = Math.max(0, info?.crossfadeSec ?? 0) > 0
     ? Math.min(Math.max((info?.crossfadeSec ?? 0) * 1000, 300), 10_000)
     : 300;
@@ -1249,9 +1071,6 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
     return () => window.clearTimeout(t);
   }, [shown, topReady, fadeMs]);
 
-  // Safety net: if the top layer never reports ready (dead source, decode
-  // error, 404), force the crossfade after 8s so the stage never strands on a
-  // black layer with the old wallpaper stuck underneath at opacity 1.
   useEffect(() => {
     if (shown.length < 2 || topReady) return;
     const t = window.setTimeout(() => {
@@ -1261,7 +1080,6 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
     return () => window.clearTimeout(t);
   }, [shown, topReady]);
 
-  // Zone sampling loop (video/image/slideshow/shader).
   useEffect(() => {
     if (!kind || kind === "web") return;
     let stopped = false;
@@ -1289,8 +1107,6 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
       } catch {
         // Media not ready yet; retry on the next tick.
       }
-      // 100ms matches the engine's default reactive push interval; sampling
-      // faster than the engine consumes wastes getImageData calls.
       setTimeout(tick, 100);
     };
     tick();
@@ -1312,7 +1128,6 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
   };
   const slideshow = info.config.slideshow;
   const single = layers.length === 1;
-  // Show the pill on first load too, not only during crossfades.
   const loading = !topReady || (layers.length > 1 && !topReady);
 
   return (
@@ -1367,9 +1182,6 @@ function MediaStage({ info, zones }: { info: WallpaperInfo | null; zones: ZoneDe
 const root = createRoot(document.getElementById("root")!);
 root.render(<WallpaperRoot />);
 
-// Last-resort diagnostics: uncaught errors and rejected promises in the
-// wallpaper webview otherwise vanish (no devtools in normal runs). Rate
-// limiting lives on the backend side of log_frontend.
 window.addEventListener("error", (e) => {
   logLine(`uncaught: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`, "error");
 });

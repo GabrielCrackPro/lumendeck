@@ -1,19 +1,3 @@
-// Writing and reading the bundle itself: a zip around the JSON envelope.
-//
-// The decisions are in `transfer_archive.rs`; this is the part that touches the
-// disk, and it exists separately so the interesting half stays testable without
-// a filesystem. Three rules hold throughout:
-//
-// * **Nothing a zip says becomes a path.** Every member name read here is
-//   checked by `is_media_member` before it is compared against, and every
-//   destination is built from `local_name`. A zip is attacker-authored data —
-//   `../../Windows/System32` is a legal member name and the crate will hand it
-//   back without complaint.
-// * **Unpack to a temp file, then move into place.** A media file that fails
-//   halfway leaves a truncated file that looks like a valid one; the wallpaper
-//   loads it, shows a black frame, and the user blames the import.
-// * **A config import replaces, so the old vault's files are not deleted.** They
-//   were not ours to delete and the user may have exported them a moment ago.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -24,10 +8,6 @@ use super::transfer_archive::{
     self, BundlePlan, PlannedFile, CONFIG_ENTRY, MAX_MEDIA_BYTES,
 };
 
-/// Write a bundled export: the envelope plus every planned file.
-///
-/// The JSON goes in first so a reader that finds a truncated archive still gets
-/// a parse error rather than a file with no metadata in it.
 pub fn write_bundle(
     path: &Path,
     json: &str,
@@ -44,9 +24,6 @@ pub fn write_bundle(
     zip.write_all(json.as_bytes()).map_err(crate::error::err_str)?;
 
     for planned in files {
-        // Re-checked at write time, not only at plan time: the plan may have
-        // been made before the file was deleted, and a member promised but not
-        // written is an import that fails a day later on someone else's machine.
         match std::fs::metadata(&planned.source) {
             Ok(m) if m.is_file() && m.len() <= MAX_MEDIA_BYTES => {}
             Ok(_) => {
@@ -64,9 +41,6 @@ pub fn write_bundle(
     }
 
     if !missing.is_empty() {
-        // Recorded rather than dropped. An export that silently omits four
-        // files reads as a complete backup, and the omission is discovered on
-        // the other machine.
         zip.start_file("missing.txt", opts)
             .map_err(crate::error::err_str)?;
         for path in missing {
@@ -78,11 +52,6 @@ pub fn write_bundle(
     Ok(())
 }
 
-/// Read the envelope out of a bundle without unpacking anything.
-///
-/// What a preview needs: what kind of file this is and what it would do. It
-/// must not write to disk, so a user who is only looking at a summary does not
-/// leave a gigabyte of media behind.
 pub fn read_envelope(path: &Path) -> Result<String, String> {
     let file = std::fs::File::open(path).map_err(crate::error::err_str)?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("could not open the bundle: {e}"))?;
@@ -95,7 +64,6 @@ pub fn read_envelope(path: &Path) -> Result<String, String> {
     Ok(json)
 }
 
-/// How many media files a bundle carries, without unpacking.
 pub fn count_media(path: &Path) -> Result<usize, String> {
     let file = std::fs::File::open(path).map_err(crate::error::err_str)?;
     let archive = zip::ZipArchive::new(file).map_err(|e| format!("could not open the bundle: {e}"))?;
@@ -105,23 +73,13 @@ pub fn count_media(path: &Path) -> Result<usize, String> {
         .count())
 }
 
-/// What an unpack put on disk, and the map that reconnects the config to it.
 #[derive(Debug, Default)]
 pub struct Unpacked {
-    /// Exporting-machine path -> path on this machine.
     pub landed: BTreeMap<String, String>,
-    /// Members named in the archive but not in the plan, which is a malformed
-    /// bundle rather than a missing file.
     pub rejected: usize,
-    /// Bytes written, for the log line.
     pub bytes: u64,
 }
 
-/// Unpack every media member into `media_dir`, returning the path mapping.
-///
-/// Written before the config is replaced, because a config pointing at files
-/// that were never written is worse than a failed import: the vault looks whole
-/// and every tile is broken.
 pub fn unpack_media(
     bundle: &Path,
     media_dir: &Path,
@@ -145,14 +103,10 @@ pub fn unpack_media(
             continue;
         }
         if !transfer_archive::is_media_member(&name) {
-            // A member we did not write. Counted and skipped; never used as a
-            // path, which is the entire point of the check.
             out.rejected += 1;
             continue;
         }
         let Some(planned) = planned_by_member.get(name.as_str()) else {
-            // Ours by shape but not in the plan: the config will not reference
-            // it, so writing it would put a file on disk with no owner.
             out.rejected += 1;
             continue;
         };
@@ -171,8 +125,6 @@ pub fn unpack_media(
             media_dir.join(n).exists()
         }));
 
-        // Temp then move, so a failure cannot leave a truncated file wearing
-        // the name of a real one.
         let tmp = target.with_extension("part");
         let mut buf = Vec::with_capacity(size as usize);
         entry.read_to_end(&mut buf).map_err(crate::error::err_str)?;
@@ -188,13 +140,6 @@ pub fn unpack_media(
     Ok(out)
 }
 
-/// Unpack a bundle the way an import does, given the config it carries.
-///
-/// Exists so the command and the tests share one path. The step that matters —
-/// numbering the references *without* asking whether they exist here — is the
-/// one that silently emptied the plan when it was done wrong, and it was only
-/// ever exercised through the command's own copy of the logic, which no test
-/// reached.
 pub fn restore_bundle(
     bundle: &Path,
     media_dir: &Path,
@@ -206,7 +151,6 @@ pub fn restore_bundle(
     Ok(unpacked)
 }
 
-/// The files an archive says it did not carry, if it recorded any.
 pub fn read_missing(bundle: &Path) -> Vec<String> {
     let Ok(file) = std::fs::File::open(bundle) else {
         return Vec::new();
@@ -230,8 +174,6 @@ mod tests {
     use crate::config::{Config, GalleryEntry, WallpaperKind};
     use crate::transfer_archive::plan_bundle;
 
-    /// A throwaway directory that cleans itself up, so a failing test does not
-    /// leave media behind for the next one to trip over.
     struct TempDir(std::path::PathBuf);
 
     impl TempDir {
@@ -269,7 +211,6 @@ mod tests {
         }
     }
 
-    /// Build a bundle from real files on disk, returning the path and the plan.
     fn export_fixture(
         dir: &TempDir,
         cfg: &Config,
@@ -288,9 +229,6 @@ mod tests {
 
     #[test]
     fn a_bundled_media_file_survives_a_real_round_trip() {
-        // The whole point of the format, end to end: bytes out, bytes back, and
-        // the config pointing at the copy on this machine rather than at the
-        // exporting machine's path.
         let dir = TempDir::new("roundtrip");
         let clip = dir.join("source.mp4");
         std::fs::write(&clip, b"pretend this is a video").unwrap();
@@ -332,8 +270,6 @@ mod tests {
 
     #[test]
     fn a_bundle_with_no_media_is_still_a_valid_export() {
-        // Shader-only and web-only configs are ordinary. The format must not
-        // require a file to be exportable.
         let dir = TempDir::new("nomedia");
         let mut cfg = Config::default();
         cfg.wallpaper.kind = WallpaperKind::Shader;
@@ -342,15 +278,12 @@ mod tests {
         let (zip, plan) = export_fixture(&dir, &cfg);
         assert!(plan.files.is_empty());
         assert_eq!(count_media(&zip).unwrap(), 0);
-        // And it still parses as an export, which is all an import needs.
         let envelope = read_envelope(&zip).unwrap();
         assert!(crate::transfer::parse_export(&envelope).is_ok());
     }
 
     #[test]
     fn a_traversal_member_in_a_hostile_bundle_never_reaches_the_disk() {
-        // The attack this format has to survive: a zip is data a stranger can
-        // author, and the crate hands back whatever name is in it.
         let dir = TempDir::new("hostile");
         let zip = dir.join("evil.zip");
         {
@@ -381,7 +314,6 @@ mod tests {
         let out = TempDir::new("hostile-out");
         let unpacked = unpack_media(&zip, &out.0, &plan, &|_| "g1".into()).unwrap();
 
-        // Two of the three were refused, one was ours, nothing escaped.
         assert_eq!(unpacked.rejected, 2);
         assert_eq!(unpacked.landed.len(), 1);
         let landed = unpacked.landed.values().next().unwrap();
@@ -395,8 +327,6 @@ mod tests {
 
     #[test]
     fn an_unplanned_member_is_refused_rather_than_written_orphaned() {
-        // A member shaped like ours but not in the plan has no config entry
-        // pointing at it, and a file nothing can reference is worse than none.
         let dir = TempDir::new("orphan");
         let zip = dir.join("extra.zip");
         {
@@ -419,28 +349,16 @@ mod tests {
 
     #[test]
     fn a_bundle_restored_on_a_machine_that_has_none_of_the_files_still_works() {
-        // The real scenario, and the one every other test here missed: export on
-        // one machine, import on another where none of the exporting machine's
-        // paths resolve. If the import side asks whether those paths exist it
-        // concludes they do not, the plan comes back empty, every member is
-        // rejected as unplanned, and the vault is restored as a list of dead
-        // paths — silently, with no error anywhere.
         let export_dir = TempDir::new("xfer-src");
         let clip = export_dir.join("clip.mp4");
         std::fs::write(&clip, b"the bytes").unwrap();
 
-        // Pretend the config was authored on another computer, which is what the
-        // exported file will say once read back.
         let foreign = PathBuf::from(r"Z:\somebody-elses-laptop\clips\clip.mp4");
         let mut exported = Config::default();
         exported.gallery = vec![entry(WallpaperKind::Video, &foreign.to_string_lossy())];
         exported.wallpaper.kind = WallpaperKind::Video;
         exported.wallpaper.source = foreign.to_string_lossy().to_string();
 
-        // Export side. On the exporting machine its config references its own
-        // real path; the member name is decided by that reference, and the
-        // bytes come from that file. Simulated by taking the name from the
-        // foreign-path plan and the bytes from the local file.
         let export_plan = transfer_archive::plan_for_import(&exported);
         assert_eq!(export_plan.files[0].member, "media/0000.mp4");
         let write_plan = crate::transfer_archive::BundlePlan {
@@ -460,8 +378,6 @@ mod tests {
         write_bundle(&zip, &json, &write_plan.files, &write_plan.missing).unwrap();
         assert_eq!(count_media(&zip).unwrap(), 1, "one member travelled");
 
-        // Import side: reads the envelope back, so the config now carries the
-        // foreign path, and unpacks on a machine where it does not exist.
         let envelope = read_envelope(&zip).unwrap();
         let incoming_cfg = crate::transfer::parse_export(&envelope)
             .unwrap()
@@ -472,9 +388,6 @@ mod tests {
             "the imported path must not be a real file here, or the test proves nothing"
         );
 
-        // The command's own path, not a hand-assembled one. A test that rebuilt the
-        // plan itself would keep passing while the command stayed broken, which
-        // is precisely what happened the first time round.
         let out = TempDir::new("xfer-dst");
         let by_source: std::collections::HashMap<&str, &str> = incoming_cfg
             .gallery
@@ -505,9 +418,6 @@ mod tests {
 
     #[test]
     fn files_the_exporter_could_not_find_are_recorded_not_dropped() {
-        // An export that silently omits four files reads as a complete backup,
-        // and the omission is discovered on the other machine, one tile at a
-        // time. The bundle says so itself.
         let dir = TempDir::new("missing");
         let mut cfg = Config::default();
         cfg.gallery = vec![entry(WallpaperKind::Video, r"C:\gone\a.mp4")];
@@ -519,9 +429,6 @@ mod tests {
 
     #[test]
     fn two_entries_sharing_one_file_share_the_one_unpacked_copy() {
-        // The exporter bundles once, and the importer writes once. Two tiles
-        // for one clip is a legitimate vault state; two copies of the file is
-        // not, since deleting one would orphan the other.
         let dir = TempDir::new("shared");
         let clip = dir.join("shared.mp4");
         std::fs::write(&clip, b"bytes").unwrap();
@@ -551,7 +458,6 @@ mod tests {
         .unwrap();
         assert_eq!(unpacked.landed.len(), 1, "one file, one landing");
 
-        // Both entries resolve to it, which is correct: it is the same clip.
         let mut incoming = cfg.clone();
         assert_eq!(
             transfer_archive::rewrite_paths(&mut incoming, &unpacked.landed),

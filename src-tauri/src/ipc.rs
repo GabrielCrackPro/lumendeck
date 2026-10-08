@@ -1,4 +1,3 @@
-//! Typed IPC commands exposed to the frontends.
 
 use crate::config::{Config, StickerDef, WallpaperConfig};
 use crate::rgb::openrgb_client::RgbStatus;
@@ -7,48 +6,27 @@ use serde::Serialize;
 use tauri::{AppHandle, State};
 use std::sync::Mutex;
 
-/// Per-window wallpaper info: geometry of the monitor this webview covers.
 #[derive(Debug, Clone, Serialize)]
 pub struct WallpaperInfo {
     pub monitor: crate::win32::MonitorRect,
-    /// Authoritative scale factor: physical monitor px per logical webview px
-    /// (from the window itself, not a devicePixelRatio guess).
     pub scale: f64,
     pub source: String,
-    /// Servable URL of the static wallpaper snapshot (poster frame for videos,
-    /// copy for images). Shown under the video so a failed/dead source
-    /// degrades to a still image instead of a black screen. Empty when none.
     pub fallback_source: String,
-    /// Crossfade seconds for playlist/config-driven source changes (the
-    /// active playlist's setting; 0 = instant cut).
     pub crossfade_sec: f64,
     pub config: WallpaperConfig,
     pub paused: bool,
-    /// All stickers (virtual-screen coords); each window clips to its monitor.
     pub stickers: Vec<StickerDef>,
-    /// Every connected monitor (virtual-screen coords) — used for alignment
-    /// guides when dragging stickers.
     pub monitors: Vec<crate::win32::MonitorRect>,
-    /// Snap behavior for the sticker editor.
     pub snap: crate::config::StickerSnap,
-    /// Mirror wallpaper-layer stickers on every monitor.
     pub sticker_all_monitors: bool,
 }
 
-// ---------- Config ----------
 
 #[tauri::command]
 pub fn get_config() -> Config {
     crate::config_store::get()
 }
 
-/// CPU and memory pressure for the dashboard's header strip.
-///
-/// A read of the sampler's last published snapshot, never a fresh measurement:
-/// `sysinfo` reports CPU load as the difference between two refreshes, so
-/// measuring here would mean blocking the IPC call for the sampling interval
-/// and returning a number averaged over a window the caller did not ask for.
-/// Inherently cheap and infallible, so it has no `Result`.
 #[tauri::command]
 pub fn perf_snapshot() -> crate::perf::PerfSnapshot {
     crate::perf::latest()
@@ -56,10 +34,6 @@ pub fn perf_snapshot() -> crate::perf::PerfSnapshot {
 
 #[tauri::command]
 pub fn set_config(app: AppHandle, cfg: Config) -> Result<Config, String> {
-    // `stickers` and `gallery` are backend-managed collections (dedicated
-    // add/update/remove commands). The dashboard may hold a stale copy — e.g.
-    // a sticker placed moments ago that it has not rendered yet — so its full-
-    // config saves must never overwrite them. Take them from the live store.
     let mut cfg = cfg;
     let current = crate::config_store::get();
     if cfg.stickers != current.stickers {
@@ -73,8 +47,6 @@ pub fn set_config(app: AppHandle, cfg: Config) -> Result<Config, String> {
     if cfg.gallery != current.gallery {
         cfg.gallery = current.gallery;
     }
-    // Accent sync lifecycle: back up the original OS accent on first enable,
-    // restore it when sync is turned off.
     if cfg.general.accent_sync_enabled && !cfg.general.accent_sync_armed {
         crate::sys_theme::remember_original_accent();
         cfg.general.accent_sync_armed = true;
@@ -82,20 +54,9 @@ pub fn set_config(app: AppHandle, cfg: Config) -> Result<Config, String> {
         crate::sys_theme::restore_original_accent();
         cfg.general.accent_sync_armed = false;
     }
-    // Once sync is off we no longer own the accent, so the watcher must stop
-    // treating our last write as an echo — otherwise a user change that happens
-    // to match it would be silently dropped.
     if !cfg.general.accent_sync_enabled {
         crate::sys_theme::forget_last_write();
     }
-    // Lock screen lifecycle: back up the user's image on first enable, and
-    // put it back when the toggle goes off.
-    //
-    // Without the release half the toggle is one-way — the registry keeps
-    // pointing at wallpaper-bg.jpg forever after the user said no. The arming
-    // flag mirrors the accent sync above: it records that we took over, which
-    // is the only thing that distinguishes "never touched" from "took over and
-    // the user has since turned it off".
     let lock_screen_taking_over =
         cfg.general.lock_screen_follows_wallpaper && !cfg.general.lock_screen_armed;
     let lock_screen_releasing =
@@ -105,9 +66,6 @@ pub fn set_config(app: AppHandle, cfg: Config) -> Result<Config, String> {
     } else if lock_screen_releasing {
         cfg.general.lock_screen_armed = false;
     }
-    // Persist before touching the registry: the lock screen decision reads the
-    // config store to see whether the feature is on, so doing it first would
-    // plan against the *previous* toggle and do the opposite of what was asked.
     crate::config_store::set(cfg)?;
     if lock_screen_taking_over {
         crate::wallpaper_bg::force_lock_screen_sync();
@@ -119,15 +77,11 @@ pub fn set_config(app: AppHandle, cfg: Config) -> Result<Config, String> {
     Ok(fresh)
 }
 
-/// Apply config-dependent windows/RGB state. Shared by UI saves and external
-/// config reloads.
 pub fn apply_side_effects(app: &AppHandle, cfg: &Config) {
-    // Coalesce rapid-fire saves (slider gestures used to fire dozens): only
-    // the last call within 150ms actually runs the window-sync pass.
     static PENDING: std::sync::Mutex<Option<Config>> = std::sync::Mutex::new(None);
     if let Ok(mut slot) = PENDING.lock() {
         if slot.is_some() {
-            *slot = Some(cfg.clone()); // a sync is already scheduled
+            *slot = Some(cfg.clone());
             return;
         }
         *slot = Some(cfg.clone());
@@ -144,31 +98,19 @@ pub fn apply_side_effects(app: &AppHandle, cfg: &Config) {
         });
 }
 
-/// The actual side-effect pass (window ensure/remove, BG capture, sticker
-/// sync). Always runs on the dedicated worker thread.
 fn apply_side_effects_now(app: &AppHandle, cfg: &Config) {
     if cfg.general.wallpaper_enabled {
         if let Err(e) = crate::wallpaper::ensure(app) {
             log::warn!("wallpaper ensure failed: {e}");
         }
-        // Static snapshot for desktop/lock-screen BG: async, coalesced.
         crate::wallpaper_bg::request_bg(cfg.wallpaper.clone());
     } else if let Err(e) = crate::wallpaper::remove(app) {
         log::warn!("wallpaper remove failed: {e}");
     }
-    // Keep the OS autostart entry in sync with the preference. It is only
-    // written at boot and on a change, so toggling in the UI has to apply it
-    // here — otherwise the change waits for a restart. `autostart::apply`
-    // decides which exe the entry names; see that module for why it is not
-    // simply this build.
     if let Err(e) = crate::autostart::apply(app, cfg.general.autostart) {
         log::warn!("autostart sync failed: {e}");
     }
-    // Topmost sticker windows track their per-sticker onTop flag.
     crate::sticker_windows::sync(app);
-    // Re-bind system-wide hotkeys when the binding set or the master switch
-    // changed. Cheap no-op otherwise, so it is safe on every (heavily
-    // debounced) config save.
     crate::hotkeys::sync(
         app,
         cfg.general.hotkeys_enabled,
@@ -181,14 +123,11 @@ fn apply_side_effects_now(app: &AppHandle, cfg: &Config) {
     );
 }
 
-/// Force-reload the config from disk (manual edits are also picked up
-/// automatically by the watcher).
 #[tauri::command]
 pub fn reload_config(app: AppHandle) -> Result<Config, String> {
     use crate::config_store::ConfigReload;
     match crate::config_store::reload_if_changed() {
         ConfigReload::Unchanged | ConfigReload::Reloaded => {}
-        // Force path: retry briefly in case the save is still in flight.
         ConfigReload::Pending(_) => {
             std::thread::sleep(std::time::Duration::from_millis(300));
             let _ = crate::config_store::reload_if_changed();
@@ -199,10 +138,7 @@ pub fn reload_config(app: AppHandle) -> Result<Config, String> {
     Ok(cfg)
 }
 
-// ---------- Wallpaper ----------
 
-/// Everything one wallpaper webview needs: its monitor's geometry and the
-/// resolved source. Called by each wallpaper window at boot and on changes.
 #[tauri::command]
 pub fn get_wallpaper_info(webview_window: tauri::WebviewWindow) -> WallpaperInfo {
     let cfg = crate::config_store::get();
@@ -223,8 +159,6 @@ pub fn get_wallpaper_info(webview_window: tauri::WebviewWindow) -> WallpaperInfo
             h: 1080,
             primary: false,
         });
-    // Authoritative DPI: the webview's own scale factor for the monitor it
-    // covers. Falls back to 1 when the window is gone (shouldn't happen).
     let scale = webview_window.scale_factor().unwrap_or(1.0);
     for s in &cfg.stickers {
         log::debug!(
@@ -241,20 +175,11 @@ pub fn get_wallpaper_info(webview_window: tauri::WebviewWindow) -> WallpaperInfo
             mon.h
         );
     }
-    // Per-display wallpaper: when this monitor has an override, hand the
-    // webview an effective config carrying it (kind+source swapped in).
-    // resolve_for_monitor returns an already-resolved media URL — do NOT run
-    // resolve_source over it again (that would double-encode and break video).
     let (pm_kind, pm_source) =
         crate::wallpaper::resolve_for_monitor(&cfg.wallpaper, &mon.device);
     let mut effective = cfg.wallpaper.clone();
     effective.kind = pm_kind;
     effective.source = pm_source.clone();
-    // Per-entry playback overrides, layered on last. They are matched against
-    // the *raw* source, because the gallery stores the path it was given while
-    // the webview renders a resolved media:// URL, and those two are different
-    // strings. An entry with nothing set leaves the global config untouched, so
-    // the other four hundred clips in the vault are unaffected.
     let (raw_kind, raw_source) = crate::wallpaper::raw_for_monitor(&cfg.wallpaper, &mon.device);
     if let Some(opts) = cfg
         .gallery
@@ -284,8 +209,6 @@ pub fn get_wallpaper_info(webview_window: tauri::WebviewWindow) -> WallpaperInfo
     }
 }
 
-/// Enter sticker-editor mode: the wallpaper streams mouse activity over
-/// EDITOR_MOUSE and handles drag/resize hit-testing itself.
 #[tauri::command]
 pub fn begin_sticker_editor(app: AppHandle) -> Result<(), String> {
     log::info!("sticker editor: on");
@@ -295,7 +218,6 @@ pub fn begin_sticker_editor(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Exit sticker-editor mode.
 #[tauri::command]
 pub fn end_sticker_editor() -> Result<(), String> {
     log::info!("sticker editor: off");
@@ -312,9 +234,6 @@ fn spawn_editor_forwarder(app: AppHandle) {
         return;
     };
     tauri::async_runtime::spawn(async move {
-        // Auto-exit: an editor session left on blocks desktop clicks forever
-        // (the hook swallows button events while active). 5 minutes without
-        // any input ends the session safely; ESC exits immediately.
         const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
         let mut last_input = std::time::Instant::now();
         loop {
@@ -323,12 +242,8 @@ fn spawn_editor_forwarder(app: AppHandle) {
                 break;
             }
             if crate::mouse_hook::editor_mode_on() {
-                // any mouse activity resets the idle clock (LAST_INPUT_MS is
-                // touched by both hooks on every event)
                 last_input = std::time::Instant::now();
             }
-            // ESC ends the session (keyboard hook flags it) — same convention
-            // as Wallpaper Engine / Lively interactive flows.
             if crate::mouse_hook::ESC_PRESSED.swap(false, std::sync::atomic::Ordering::SeqCst) {
                 log::info!("sticker editor: exit (ESC)");
                 break;
@@ -337,12 +252,10 @@ fn spawn_editor_forwarder(app: AppHandle) {
                 Ok(Some((x, y, l, r))) => {
                     crate::events::emit_all(&app, crate::events::EDITOR_MOUSE, &(x, y, l, r));
                 }
-                Ok(None) => break, // stream closed
-                Err(_) => continue, // poll tick: re-check ESC
+                Ok(None) => break,
+                Err(_) => continue,
             }
         }
-        // Only end the session if this forwarder still owns it (a new
-        // session may have started after our timeout fired).
         if crate::mouse_hook::editor_mode_on() {
             log::info!("sticker editor: auto-exit after 5 min idle");
             let _ = end_sticker_editor();
@@ -350,57 +263,18 @@ fn spawn_editor_forwarder(app: AppHandle) {
     });
 }
 
-/// Frontend diagnostics channel: webview console messages don't reach the
-/// log file, so wallpaper/sticker pages forward important events here.
-///
-/// What a bug report needs to have in it, read from the process rather than
-/// guessed in the UI.
-///
-/// Everything here used to be assembled in React: the version came from a Vite
-/// define, the log level was hardcoded to "info", and the paths were not shown
-/// at all. Each of those is a way to be confidently wrong. The build mode is
-/// still a compile-time constant, because that is the only place it is true;
-/// everything else the backend already knows.
-///
-/// One command rather than five, so the panel cannot render a half-populated
-/// grid while the facts trickle in one invoke at a time.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DevInfo {
-    /// `Cargo.toml` version. The backend's own copy, so it cannot drift from
-    /// the binary the user is actually running.
     pub version: &'static str,
-    /// `true` for a `tauri dev` build.
     pub debug: bool,
-    /// The commit this binary was built from, with `-dirty` when the tree had
-    /// uncommitted changes. `unknown` outside a git checkout.
-    ///
-    /// This is what makes a bug report actionable. "0.2.7" alone cannot
-    /// distinguish a shipped installer from a build of a branch that happens to
-    /// sit at the same version, and with a long-running uncommitted working tree
-    /// it cannot even distinguish two local builds.
     pub build_id: &'static str,
-    /// Whether the tree was dirty when this binary was built.
     pub build_dirty: bool,
-    /// The level [crate::log_level] resolved to, as the logger will print it.
     pub log_level: String,
-    /// Absolute path of the config file, so a hand edit has a target.
     pub config_path: String,
-    /// Absolute path of the log file, the same one `reveal_log` opens.
     pub log_path: String,
-    /// The folder holding both, for "open the data dir".
     pub data_dir: String,
-    /// The most recent panic, if the process survived one.
-    ///
-    /// `None` until something panics. Present because a thread that panics can
-    /// be caught at a join point or simply be a background task, in which case
-    /// the app keeps running and the only trace is the log line nobody reads.
     pub last_panic: Option<String>,
-    /// The first line of a pasted bug report: version, build and log level.
-    ///
-    /// Composed in Rust rather than in the frontend so this header and the
-    /// panic line in the log cannot drift apart, and so the build identity the
-    /// user pastes is the one compiled into the binary they are running.
     pub report_header: String,
 }
 
@@ -420,24 +294,10 @@ pub fn dev_info() -> DevInfo {
     }
 }
 
-/// A path as the user would type it into Explorer.
-///
-/// `Path::display` on its own can emit a lossy or environment-dependent form,
-/// and this string is meant to be pasted into a bug report by a human. Windows
-/// paths here carry no secrets, so the full path is the useful thing.
 fn display_path(p: &std::path::Path) -> String {
     p.display().to_string()
 }
 
-/// Open the log folder in Explorer.
-///
-/// Every "attach your log to a bug report" instruction starts with a path the
-/// user then has to find on their own — `%APPDATA%` is hidden, and a wrong
-/// guess costs the report. The path is stable, but knowing it is not the same as
-/// being able to reach it, so the button does the reaching.
-///
-/// `select`, not just open: the log is one of a dozen files in the folder and
-/// the one they want is the one highlighted.
 #[tauri::command]
 pub fn reveal_log() -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
@@ -449,9 +309,6 @@ pub fn reveal_log() -> Result<(), String> {
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    // The file may not exist yet on a machine that has never hit an error;
-    // opening the folder is still the right answer, so fall back rather than
-    // failing the button over a log that is simply empty.
     if path.is_file() {
         app.opener()
             .reveal_item_in_dir(&path)
@@ -463,41 +320,16 @@ pub fn reveal_log() -> Result<(), String> {
     }
 }
 
-/// The last `limit` lines of the log, newest last.
-///
-/// Bounded on purpose: the file rotates at 5 MB and reading all of it into a
-/// webview to show 200 lines is the kind of thing that looks instant on a
-/// dev machine and hangs a laptop. The tail is read backwards in chunks so a
-/// 5 MB file costs about as much as the text actually returned.
 #[tauri::command]
 pub fn log_tail(limit: Option<usize>) -> Result<Vec<String>, String> {
     let path = crate::config_store::log_path();
     if !path.is_file() {
-        // No log yet is a normal state, not an error. An empty view with a
-        // "nothing logged yet" line beats a red toast on a fresh install.
         return Ok(Vec::new());
     }
     let want = limit.unwrap_or(200).clamp(1, 5_000);
     crate::logtail::tail(&path, want).map_err(|e| format!("log_tail: {e}"))
 }
 
-/// Last-modified time and size of every gallery entry's file, keyed by entry id.
-///
-/// This exists because the vault index is cached by source path, which is wrong
-/// the moment a file is replaced in place: the path is unchanged, so the cached
-/// resolution and duration survive a re-encode and the grid sorts and filters
-/// on numbers that no longer describe the file. "Rescan" could not fix it
-/// either, because it only ever checked that the file was still there.
-///
-/// The stamp is what makes staleness detectable without decoding anything. It
-/// is not a content hash — hashing every file in the vault would cost more than
-/// the probes this avoids — so it is a heuristic in one direction: a file edited
-/// without changing its size or mtime keeps a stale measurement. That is
-/// vanishingly rare next to the re-encode case, which changes both.
-///
-/// Only file-backed kinds are included; a web URL and a shader preset id have
-/// no file to stat, and reporting a zero stamp for them would make the frontend
-/// think they were cached when nothing was measured.
 #[tauri::command]
 pub fn vault_stamps() -> std::collections::HashMap<String, FileStamp> {
     use crate::config::WallpaperKind;
@@ -514,18 +346,13 @@ pub fn vault_stamps() -> std::collections::HashMap<String, FileStamp> {
     out
 }
 
-/// What the filesystem can tell us about a file without reading it.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct FileStamp {
-    /// Modification time in milliseconds since the Unix epoch.
     pub mtime_ms: u64,
-    /// Size in bytes.
     pub size: u64,
 }
 
-/// Read a file's stamp. `None` when the file is missing or unreadable, which
-/// the frontend treats the same as "no cached measurement to trust".
 fn file_stamp(path: &std::path::Path) -> Option<FileStamp> {
     let md = std::fs::metadata(path).ok()?;
     let mtime_ms = md
@@ -537,10 +364,6 @@ fn file_stamp(path: &std::path::Path) -> Option<FileStamp> {
     Some(FileStamp { mtime_ms, size: md.len() })
 }
 
-/// Accepts a level so webview errors surface as ERROR in the file (grep-able)
-/// instead of everything being INFO. Repetition storms (e.g. a decode error
-/// retry loop) are rate-limited: identical messages within the window log
-/// once plus a suppressed-count line.
 #[tauri::command]
 pub fn log_frontend(level: Option<String>, msg: String) {
     const WINDOW_MS: u128 = 2_000;
@@ -552,7 +375,6 @@ pub fn log_frontend(level: Option<String>, msg: String) {
         .map(|d| d.as_millis())
         .unwrap_or(0);
 
-    // Rate-limit identical messages.
     let mut guard = LAST.lock().expect("log_frontend mutex poisoned");
     match guard.as_mut() {
         Some((ts, last_msg, suppressed, _)) if *last_msg == msg && now - *ts < WINDOW_MS => {
@@ -567,8 +389,6 @@ pub fn log_frontend(level: Option<String>, msg: String) {
             let prev_level = last_level.clone();
             *guard = Some((now, msg.clone(), 0, level.clone()));
             drop(guard);
-            // Suppression notice inherits the original line's level so debug
-            // diagnostics don't resurface as warnings.
             match prev_level.as_deref() {
                 Some("error") => log::error!("[frontend] {prev} (suppressed {n} repeats)"),
                 Some("debug") => log::debug!("[frontend] {prev} (suppressed {n} repeats)"),
@@ -584,14 +404,11 @@ pub fn log_frontend(level: Option<String>, msg: String) {
     match level.as_deref() {
         Some("error") => log::error!("[frontend] {msg}"),
         Some("warn") => log::warn!("[frontend] {msg}"),
-        // Debug diagnostics (perf counters etc.) are hidden at the default
-        // log level; enable RUST_LOG=lumendeck=debug to see them.
         Some("debug") => log::debug!("[frontend] {msg}"),
         _ => log::info!("[frontend] {msg}"),
     }
 }
 
-/// (see log_frontend)
 #[tauri::command]
 pub fn log_sticker_render(
     id: String,
@@ -633,14 +450,11 @@ pub fn set_wallpaper_enabled(app: AppHandle, enabled: bool) -> Result<(), String
     Ok(())
 }
 
-// ---------- Dialogs / library ----------
 
-// ---------- Gallery ----------
 
 const GALLERY_VIDEO_EXT: &[&str] = &["mp4", "webm", "mov", "mkv"];
 const GALLERY_IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif"];
 
-/// Classify a file path as a gallery-importable wallpaper kind, or None.
 fn gallery_classify(path: &std::path::Path) -> Option<crate::config::WallpaperKind> {
     use crate::config::WallpaperKind;
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
@@ -653,8 +467,6 @@ fn gallery_classify(path: &std::path::Path) -> Option<crate::config::WallpaperKi
     }
 }
 
-/// Add a wallpaper to the gallery (idempotent by source+kind) and return that
-/// entry. Existing entries get their thumb updated when provided.
 #[tauri::command]
 pub fn gallery_add(
     name: String,
@@ -697,8 +509,6 @@ pub fn gallery_add(
         .ok_or_else(|| "gallery entry missing after add".to_string())
 }
 
-/// Import all videos (and images) in a folder as individual gallery entries.
-/// Idempotent per file; returns the full updated gallery sorted by recency.
 #[tauri::command]
 pub fn gallery_import_folder(folder: String) -> Result<Vec<crate::config::GalleryEntry>, String> {
     use crate::config::GalleryEntry;
@@ -707,7 +517,6 @@ pub fn gallery_import_folder(folder: String) -> Result<Vec<crate::config::Galler
     if !dir.is_dir() {
         return Err(format!("not a folder: {folder}"));
     }
-    // Make every file in this folder servable (now and after restarts).
     crate::media::allow_dir(&dir);
 
     let entries: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
@@ -753,21 +562,16 @@ pub fn gallery_import_folder(folder: String) -> Result<Vec<crate::config::Galler
     Ok(list)
 }
 
-/// Import files and/or folders (e.g. items dropped onto the gallery) as
-/// individual gallery entries. Folders are expanded one level, same as
-/// `gallery_import_folder`; every file is deduplicated by source+kind.
 #[tauri::command]
 pub fn gallery_import_paths(
     paths: Vec<String>,
 ) -> Result<Vec<crate::config::GalleryEntry>, String> {
     use crate::config::GalleryEntry;
 
-    // Expand: folders -> their files, files -> themselves.
     let mut files: Vec<std::path::PathBuf> = Vec::new();
     for raw in &paths {
         let p = std::path::PathBuf::from(raw);
         if p.is_dir() {
-            // Make every file in this folder servable (now and after restarts).
             crate::media::allow_dir(&p);
             match std::fs::read_dir(&p) {
                 Ok(rd) => {
@@ -824,14 +628,12 @@ pub fn gallery_import_paths(
     Ok(list)
 }
 
-/// Remove one gallery entry by id.
 #[tauri::command]
 pub fn gallery_remove(id: String) -> Result<Vec<crate::config::GalleryEntry>, String> {
     crate::config_store::update(|c| c.gallery.retain(|g| g.id != id))?;
     Ok(crate::config_store::get().gallery)
 }
 
-/// Apply a gallery entry as the active wallpaper.
 #[tauri::command]
 pub fn gallery_apply(app: AppHandle, id: String) -> Result<(), String> {
     let entry = crate::config_store::get()
@@ -842,10 +644,6 @@ pub fn gallery_apply(app: AppHandle, id: String) -> Result<(), String> {
     crate::config_store::update(|c| {
         c.wallpaper.kind = entry.kind;
         c.wallpaper.source = entry.source.clone();
-        // Stamped here rather than by the caller, so every path that puts a
-        // wallpaper on a screen records it. That is what the "recently used"
-        // sort reads, and it has to be the backend's job or a caller will
-        // forget.
         if let Some(g) = c.gallery.iter_mut().find(|g| g.id == id) {
             g.last_applied_ms = Some(now_ms());
         }
@@ -856,16 +654,12 @@ pub fn gallery_apply(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Apply a gallery entry to ONE display (per-monitor wallpaper). `monitor`
-/// is the device string (e.g. \\\\.\\DISPLAY1); `monitor: null` clears the
-/// override so the display falls back to the global wallpaper.
 #[tauri::command]
 pub fn gallery_apply_monitor(
     app: AppHandle,
     id: Option<String>,
     monitor: String,
 ) -> Result<(), String> {
-    // Validate the entry first so the update closure stays infallible.
     let entry = match &id {
         Some(id) => Some(
             crate::config_store::get()
@@ -880,8 +674,6 @@ pub fn gallery_apply_monitor(
     crate::config_store::update(|c| {
         match id {
             Some(_id) => {
-                // Same stamp as gallery_apply: a wallpaper shown on one display
-                // has been used, and the "recently used" sort should know it.
                 if let Some(g) = c.gallery.iter_mut().find(|g| g.id == _id) {
                     g.last_applied_ms = Some(now_ms());
                 }
@@ -900,34 +692,21 @@ pub fn gallery_apply_monitor(
             }
         }
     })?;
-    // Config watcher broadcasts CONFIG_CHANGED; webviews re-resolve from it.
     if crate::config_store::get().general.wallpaper_enabled {
         crate::wallpaper::ensure(&app)?;
     }
     Ok(())
 }
 
-/// What the setup step needs to know about the OpenRGB requirement, without
-/// downloading anything.
 #[derive(serde::Serialize)]
 pub struct OpenrgbStatus {
-    /// The server answered and reported at least one device.
     ready: bool,
-    /// The pinned version this app would fetch.
     version: String,
-    /// Size of the download, for the button's own copy. Zero when unknown.
     size_bytes: u64,
-    /// Where the human can check the claim.
     releases_page: String,
-    /// Path to the unpacked executable, set once the portable build is on
-    /// disk, so a second setup run offers "start it" rather than "download
-    /// it". The executable rather than the folder: `openrgb_launch` takes one,
-    /// and handing it the folder made the Start button fail on a working
-    /// install.
     installed_at: Option<String>,
 }
 
-/// Is OpenRGB already running and holding devices?
 #[tauri::command]
 pub fn openrgb_status(state: State<'_, crate::rgb::EngineState>) -> OpenrgbStatus {
     let st = state.client.status();
@@ -941,17 +720,10 @@ pub fn openrgb_status(state: State<'_, crate::rgb::EngineState>) -> OpenrgbStatu
     }
 }
 
-/// Fetch the pinned OpenRGB build, verify it, and unpack it.
-///
-/// The only path in the app that downloads an executable, which is why the
-/// checksum is not optional: see openrgb_setup.rs. Never runs the MSI, never
-/// asks for elevation.
 #[tauri::command]
 pub async fn openrgb_install() -> Result<String, String> {
     let data = crate::config_store::data_dir();
     let exe = crate::openrgb_setup::download_and_install(&data).await?;
-    // A change to what is installed is worth one line in the log, which is the
-    // only place anyone can find out afterwards what the app fetched.
     log::info!(
         "openrgb {} unpacked to {}",
         crate::openrgb_setup::version(),
@@ -960,11 +732,6 @@ pub async fn openrgb_install() -> Result<String, String> {
     Ok(exe.display().to_string())
 }
 
-/// Start the OpenRGB server with its SDK server enabled.
-///
-/// `--server` is what exposes the port LumenDeck's client connects to; without
-/// it the app runs, takes up the tray, and never lights anything up, which is
-/// the exact state the user was told they had fixed.
 #[tauri::command]
 pub fn openrgb_launch(exe: String) -> Result<(), String> {
     let path = std::path::PathBuf::from(exe);
@@ -980,10 +747,6 @@ pub fn openrgb_launch(exe: String) -> Result<(), String> {
 }
 
 
-/// Download a remote wallpaper (direct video/image URL) into the app media
-/// folder and add it to the gallery. Returns the new entry (full list).
-/// Safety: HTTPS-only, 200 MB cap, extension sniffed from Content-Type —
-/// never executed, only served back through the media:// scheme.
 #[tauri::command]
 pub async fn gallery_add_from_url(
     url: String,
@@ -1033,8 +796,6 @@ pub async fn gallery_add_from_url(
         return Err("Downloaded file is empty".into());
     }
 
-    // Deterministic name from the URL path (fallback: hash) to keep
-    // re-imports idempotent at the same target path.
     let stem = parsed
         .path()
         .rsplit('/')
@@ -1063,7 +824,6 @@ pub async fn gallery_add_from_url(
     gallery_add(display, kind, path_str, None)
 }
 
-/// Tiny FNV-1a hash for collision fallback names (not security-sensitive).
 fn md5_lite(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for b in bytes {
@@ -1073,14 +833,6 @@ fn md5_lite(bytes: &[u8]) -> u64 {
     h
 }
 
-/// One browse dialog for every media kind, with multi-select.
-///
-/// It used to be two commands — one labelled "video", one "image" — but the
-/// filter list was already the union of both, so all the choice ever decided
-/// was which kind string the caller hardcoded alongside the same dialog. The
-/// kind is now inferred from the extension. Taking a list rather than one path
-/// is the part that matters: selecting a folder's worth of wallpapers in one go
-/// is the difference between one dialog and twenty.
 #[tauri::command]
 pub async fn pick_media_files() -> Result<Vec<String>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -1106,7 +858,6 @@ pub async fn pick_media_files() -> Result<Vec<String>, String> {
     rx.await.map_err(crate::error::err_str)
 }
 
-/// Star or unstar one entry.
 #[tauri::command]
 pub fn gallery_set_favorite(id: String, favorite: bool) -> Result<Vec<crate::config::GalleryEntry>, String> {
     let cfg = crate::config_store::update(|c| {
@@ -1117,11 +868,6 @@ pub fn gallery_set_favorite(id: String, favorite: bool) -> Result<Vec<crate::con
     Ok(cfg.gallery)
 }
 
-/// Set (or clear) one gallery entry's playback overrides.
-///
-/// An all-`None` bag is stored as `None` rather than as an empty object, so
-/// "back to the global setting" leaves no residue in the config file and the
-/// entry compares equal to one that never had the drawer opened.
 #[tauri::command]
 pub fn gallery_set_opts(
     id: String,
@@ -1136,21 +882,6 @@ pub fn gallery_set_opts(
     Ok(cfg.gallery)
 }
 
-/// Open the containing folder in Explorer with this file selected.
-///
-/// `/select,` is what makes it a "show me where this lives" rather than a
-/// folder open that leaves you to hunt for the file yourself.
-/// The clipboard's text, if it is a bare http(s) URL.
-///
-/// This exists because a `paste` event is the *wrong* trigger for a button. A
-/// paste only works where the user is already typing, which is why the window
-/// listener has to work so hard: bail on every input, bail on any text that is
-/// not exactly a URL. A "Paste link" button has no such ambiguity — the user
-/// asked for the clipboard, so anything non-URL is simply nothing to do.
-///
-/// Returns `Ok(None)` rather than an error for the same reason. A clipboard
-/// holding a half-typed sentence is the normal state of a clipboard, not a
-/// failure worth a red toast.
 #[tauri::command]
 pub fn clipboard_url() -> Option<String> {
     use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -1163,12 +894,6 @@ pub fn clipboard_url() -> Option<String> {
     Some(trimmed.to_string())
 }
 
-/// Whether a string is exactly one http(s) URL and nothing else.
-///
-/// A URL cannot contain whitespace, so that single test rejects the "paragraph
-/// that happens to include a link" case that would otherwise start a download
-/// because someone pressed the wrong button. `URL::parse` accepts a trailing
-/// newline on some inputs, hence the trim at the call site.
 fn is_bare_http_url(s: &str) -> bool {
     if s.is_empty() || s.chars().any(char::is_whitespace) {
         return false;
@@ -1179,14 +904,7 @@ fn is_bare_http_url(s: &str) -> bool {
     }
 }
 
-/// The membership half of `collection_add_entries`, without the config store.
-///
-/// The command itself needs an initialised store, which a unit test cannot
-/// provide. What actually has rules — dedup, add-only, order — lives here so it
-/// can be tested directly.
 fn add_ids(entry_ids: &mut Vec<String>, incoming: &[String]) {
-    // `Vec::contains` rather than a HashSet: a collection holds tens of ids, and
-    // this keeps the existing order intact, which a HashSet would not.
     for eid in incoming {
         if !entry_ids.contains(eid) {
             entry_ids.push(eid.clone());
@@ -1211,8 +929,6 @@ mod collection_tests {
 
     #[test]
     fn an_id_already_present_is_not_added_twice() {
-        // The behaviour that separates this from the toggle: "add these" must
-        // not remove what was already filed.
         let mut e = ids(&["a"]);
         add_ids(&mut e, &ids(&["a"]));
         assert_eq!(e, ids(&["a"]));
@@ -1234,8 +950,6 @@ mod collection_tests {
 
     #[test]
     fn existing_order_is_preserved_and_new_ids_append() {
-        // Order is the collection's own; a user's arrangement has to survive
-        // someone adding to it.
         let mut e = ids(&["z", "y"]);
         add_ids(&mut e, &ids(&["x", "a"]));
         assert_eq!(e, ids(&["z", "y", "x", "a"]));
@@ -1260,15 +974,12 @@ mod url_guard_tests {    use super::is_bare_http_url;
 
     #[test]
     fn rejects_a_scheme_that_is_not_http() {
-        // Otherwise "paste this" would execute something, which is a very
-        // different thing from downloading a wallpaper.
         assert!(!is_bare_http_url("file:///C:/Windows/System32/cmd.exe"));
         assert!(!is_bare_http_url("javascript:alert(1)"));
     }
 
     #[test]
     fn rejects_prose_that_merely_contains_a_link() {
-        // The case the whole check exists for.
         assert!(!is_bare_http_url(
             "here is my wallpaper https://example.com/a.mp4 enjoy"
         ));
@@ -1288,8 +999,6 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
     if !p.exists() {
         return Err(format!("not found: {path}"));
     }
-    // Was `Command::new("explorer").arg("/select,...")`: a subprocess spawned
-    // for something the platform already does properly.
     use tauri_plugin_opener::OpenerExt;
     let Some(app) = crate::app_handle() else {
         return Err("app not ready".into());
@@ -1300,12 +1009,6 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Gallery entry ids whose file is no longer on disk.
-///
-/// Only the kinds that point at a path are checked: a web wallpaper is a URL
-/// and a shader is a preset id, and calling either of them "missing" would be a
-/// lie rather than a warning. The duplicate half of the health check is
-/// computed in the frontend, where it can be unit-tested without a filesystem.
 #[tauri::command]
 pub fn vault_missing() -> Vec<String> {
     use crate::config::WallpaperKind;
@@ -1318,7 +1021,6 @@ pub fn vault_missing() -> Vec<String> {
         .collect()
 }
 
-/// Throw away a cached poster frame and extract a fresh one.
 #[tauri::command]
 pub fn gallery_regenerate_thumb(id: String) -> Result<Vec<crate::config::GalleryEntry>, String> {
     let source = {
@@ -1338,12 +1040,6 @@ pub fn gallery_regenerate_thumb(id: String) -> Result<Vec<crate::config::Gallery
     Ok(cfg.gallery)
 }
 
-/// One image, for the sticker picker.
-///
-/// Stickers are images only, so this stays a single-file dialog with an
-/// image-only filter. It is deliberately not `pick_media_files` with a `[0]`
-/// on the end: a picker that lets you select five and silently uses one is
-/// worse than one that never offered you the choice.
 #[tauri::command]
 pub async fn pick_image_file() -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -1373,7 +1069,6 @@ pub async fn pick_media_folder() -> Result<Option<String>, String> {
     rx.await.map_err(crate::error::err_str)
 }
 
-/// List image files in a folder (for slideshows), sorted.
 #[tauri::command]
 pub fn list_images(folder: String) -> Vec<String> {
     let dir = std::path::PathBuf::from(&folder);
@@ -1395,7 +1090,6 @@ pub fn list_images(folder: String) -> Vec<String> {
     out
 }
 
-// ---------- RGB ----------
 
 #[tauri::command]
 pub fn rgb_status(state: State<'_, crate::rgb::EngineState>) -> RgbStatus {
@@ -1408,7 +1102,6 @@ pub async fn rgb_refresh(state: State<'_, crate::rgb::EngineState>) -> Result<()
     Ok(())
 }
 
-/// Wallpaper webview pushes zone samples here (about 10 per second).
 #[tauri::command]
 pub fn send_zone_samples(
     state: State<'_, crate::rgb::EngineState>,
@@ -1431,7 +1124,6 @@ pub fn update_rgb_config(cfg: crate::config::RgbConfig) -> Result<(), String> {
     Ok(())
 }
 
-// ---------- Stickers ----------
 
 #[derive(Clone)]
 struct PendingSticker {
@@ -1441,10 +1133,6 @@ struct PendingSticker {
 
 static PENDING_PLACEMENT: Mutex<Option<PendingSticker>> = Mutex::new(None);
 
-/// Begin placement: arms the global mouse hook and awaits the click. Resolves
-/// with the created sticker on left click, or an error on right click / cancel.
-/// A transparent topmost overlay per monitor gives explicit on-screen
-/// feedback (veil + cursor-following preview); clicks pass through it.
 #[tauri::command]
 pub async fn begin_sticker_placement(
     app: AppHandle,
@@ -1452,9 +1140,8 @@ pub async fn begin_sticker_placement(
     url: String,
     kind: String,
 ) -> Result<StickerDef, String> {
-    let _ = kind; // retained for API compat; kind is derived from the extension
+    let _ = kind;
     log::info!("sticker placement: armed (name={name}) — waiting for desktop click");
-    // Normalize up front so the overlay can render the media.
     let preview_url = crate::media::media_url_for_file(&url);
     *PENDING_PLACEMENT.lock().expect("pending poisoned") = Some(PendingSticker {
         name: name.clone(),
@@ -1465,8 +1152,6 @@ pub async fn begin_sticker_placement(
     }
     crate::events::emit_all(&app, crate::events::PLACING, &Some(preview_url));
 
-    // Live cursor + wheel streams for the placement overlay preview: moves
-    // position the preview, wheel resizes it live (persisted on placement).
     let mut cursor_rx = crate::mouse_hook::take_cursor_stream();
     let app_cursor = app.clone();
     let forwarder = tauri::async_runtime::spawn(async move {
@@ -1507,11 +1192,7 @@ pub async fn begin_sticker_placement(
                 return Err("no pending placement".into());
             };
             let cfg = crate::config_store::get();
-            // Normalize to a servable media:// URL and allow-list the file.
             let mut url = crate::media::media_url_for_file(&p.url);
-            // Background removal (config on by default): process a copy and
-            // serve that instead of the original. Statics -> transparent PNG,
-            // animated GIFs -> transparent APNG (all frames processed).
             if cfg.sticker.remove_background {
                 let src_path = crate::media::decode_media_ref(&p.url);
                 match crate::bgremove::process_file(&src_path) {
@@ -1531,16 +1212,8 @@ pub async fn begin_sticker_placement(
                     ),
                 }
             }
-            // Clamp so the default-size sticker stays fully on the virtual
-            // screen, centered on the click. Negative coordinates are valid
-            // (monitors above/left of the primary), so we clamp against the
-            // real virtual-screen bounds rather than assuming (0,0) origin.
             let (x, y) = clamp_placement(x, y);
             let size = placed_size.unwrap_or(crate::tokens::sticker_default_w() as i32) as u32;
-            // Aspect-aware default: probe the media's natural dimensions and
-            // scale the wheel-chosen size to fit, so a wide banner doesn't
-            // land as a letterboxed square. Video probe is best-effort; the
-            // square default remains the fallback.
             let (w, h) = media_aspect_size(&url, size);
             let (x, y) = (
                 x - w as i32 / 2,
@@ -1576,7 +1249,6 @@ pub async fn begin_sticker_placement(
     }
 }
 
-/// Cancel an in-progress placement from the UI.
 #[tauri::command]
 pub fn cancel_sticker_placement(app: AppHandle) -> Result<(), String> {
     log::info!("sticker placement: cancelled (UI)");
@@ -1587,8 +1259,6 @@ pub fn cancel_sticker_placement(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Payload for the placement overlay page: its monitor geometry, DPI, and
-/// the sticker media to preview.
 #[derive(serde::Serialize)]
 pub struct PlacementInfo {
     pub monitor: crate::win32::MonitorRect,
@@ -1619,8 +1289,6 @@ pub fn get_placement_info(webview_window: tauri::WebviewWindow) -> Option<Placem
     })
 }
 
-/// Feed a synthetic wheel delta into the placement resize stream (from the
-/// overlay's +/− buttons). Shares the exact path as real wheel events.
 #[tauri::command]
 pub fn placement_resize(app: AppHandle, delta: i32) -> Result<(), String> {
     let _ = app;
@@ -1631,8 +1299,6 @@ pub fn placement_resize(app: AppHandle, delta: i32) -> Result<(), String> {
     Ok(())
 }
 
-/// Make the calling overlay window accept input (buttons) while staying
-/// transparent: clears WS_EX_TRANSPARENT on its own HWND.
 #[tauri::command]
 pub fn placement_set_interactive(
     webview_window: tauri::WebviewWindow,
@@ -1643,8 +1309,6 @@ pub fn placement_set_interactive(
     Ok(())
 }
 
-/// Resolve an armed placement at an arbitrary screen point (corner
-/// quick-place buttons). Fires the same path as a physical click.
 #[tauri::command]
 pub fn placement_place_at(_app: AppHandle, x: i32, y: i32) -> Result<(), String> {
     if PENDING_PLACEMENT.lock().expect("pending poisoned").is_none() {
@@ -1682,7 +1346,6 @@ pub fn remove_sticker(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Duplicate a sticker: new id/name, offset +24px so both stay grabbable.
 #[tauri::command]
 pub fn duplicate_sticker(app: AppHandle, id: String) -> Result<(), String> {
     let source = crate::config_store::get().stickers.iter().find(|s| s.id == id).cloned();
@@ -1698,8 +1361,6 @@ pub fn duplicate_sticker(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Reorder within the sticker list (render order in the wallpaper layer =
-/// list order; later entries draw on top). delta -1 = back, +1 = forward.
 #[tauri::command]
 pub fn reorder_sticker(app: AppHandle, id: String, delta: i32) -> Result<(), String> {
     crate::config_store::update(|c| {
@@ -1721,8 +1382,6 @@ pub fn is_paused() -> bool {
     crate::wallpaper::is_paused()
 }
 
-/// Manual pause toggle (dashboard / command palette; the tray has the same
-/// control). Returns the new paused state.
 #[tauri::command]
 pub fn toggle_pause(app: AppHandle) -> bool {
     let now = crate::wallpaper::toggle_manual_pause();
@@ -1731,17 +1390,12 @@ pub fn toggle_pause(app: AppHandle) -> bool {
     now
 }
 
-/// The active wallpaper webview pushes a real decoded frame here (JPEG,
-/// captured from its presentation canvas). Installed as the static fallback
-/// AND the Windows desktop/lock-screen background — always a genuine frame
-/// of exactly what the user was watching, unlike Shell thumbnails.
 #[tauri::command]
 pub fn set_live_frame(
     webview_window: tauri::WebviewWindow,
     frame: Vec<u8>,
     source: String,
 ) -> bool {
-    // Only wallpaper windows may push frames.
     if !webview_window.label().starts_with("wallpaper-") {
         return false;
     }
@@ -1753,10 +1407,6 @@ pub fn monitors() -> Vec<crate::win32::MonitorRect> {
     crate::win32::monitors()
 }
 
-/// The titlebar minimize button. The destination is a user preference, so it
-/// is resolved here (against the live config) rather than in the frontend:
-/// `general.minimize_to_tray` sends the dashboard to the notification area,
-/// anything else parks it on the taskbar.
 #[tauri::command]
 pub fn minimize_window(app: AppHandle) -> Result<(), String> {
     use tauri::Manager;
@@ -1773,26 +1423,17 @@ pub fn minimize_window(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn quit(app: AppHandle) -> Result<(), String> {
-    // The wallpaper windows die with the process: leave the OS desktop
-    // showing the current scene's static frame, not a black void.
     crate::wallpaper_bg::ensure_installed_before_exit();
-    // Destroy webview windows before the process dies, so WebView2's DLL
-    // unregisters its window classes cleanly instead of racing live windows
-    // (Chrome_WidgetWin_0 unregister error 1412 in the console).
     app.cleanup_before_exit();
     app.exit(0);
     Ok(())
 }
 
-/// Wipe ALL app data (config, gallery references, sticker placements, cached
-/// thumbnails, logs) and exit. Does NOT touch the user's media files that
-/// vault/sticker entries point at — only LumenDeck's own directory.
 #[tauri::command]
 pub fn factory_reset(app: AppHandle) -> Result<(), String> {
     use std::path::PathBuf;
     log::info!("factory reset requested — wiping app data and exiting");
 
-    // Tear down windows that hold files/handles first.
     let _ = crate::wallpaper::remove(&app);
     crate::sticker_windows::close_all(&app);
     crate::placement_overlay::hide(&app);
@@ -1800,7 +1441,6 @@ pub fn factory_reset(app: AppHandle) -> Result<(), String> {
     let base = dirs::data_dir()
         .ok_or_else(|| "cannot resolve app data dir".to_string())?
         .join("LumenDeck");
-    // Keep the log (we're about to write the outcome), delete everything else.
     for entry in [
         "config.json",
         "thumbs",
@@ -1814,15 +1454,11 @@ pub fn factory_reset(app: AppHandle) -> Result<(), String> {
         }
     }
     log::info!("app data wiped; exiting");
-    // Let Tauri destroy the remaining webview windows first: exiting cold
-    // while WebView2 child windows are alive makes its DLL fail to unregister
-    // Chrome_WidgetWin_* at teardown (benign but noisy error 1412).
     app.cleanup_before_exit();
     app.exit(0);
     Ok(())
 }
 
-// ---------- Collections & playlists ----------
 
 #[tauri::command]
 pub fn collection_create(name: String) -> Result<crate::config::WallpaperCollection, String> {
@@ -1854,7 +1490,6 @@ pub fn collection_rename(id: String, name: String) -> Result<(), String> {
 pub fn collection_delete(id: String) -> Result<(), String> {
     crate::config_store::update(|c| {
         c.collections.retain(|x| x.id != id);
-        // Playlists referencing the deleted collection fall back to `all`.
         for p in &mut c.playlists {
             if p.source == format!("collection:{id}") {
                 p.source = "all".into();
@@ -1869,21 +1504,6 @@ pub fn collection_delete(id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Add several vault entries to a collection in one pass.
-///
-/// Exists because "file this selection into a collection" is a bulk action, and
-/// doing it through the single-entry toggle costs one config read, write, watch
-/// notification and IPC round-trip *per wallpaper*. Twenty wallpapers is twenty
-/// writes and twenty frontend config events for one user gesture — and the
-/// frontend has to serialize them itself to avoid a race, which is a fragile
-/// thing to depend on for correctness.
-///
-/// Ids already in the collection are left where they are rather than toggled:
-/// an "add these" that silently removes half of what it was given is worse than
-/// doing nothing.
-///
-/// Returns the collection's membership afterwards, so the caller does not have
-/// to guess what landed.
 #[tauri::command]
 pub fn collection_add_entries(id: String, entry_ids: Vec<String>) -> Result<Vec<String>, String> {
     let mut result: Vec<String> = Vec::new();
@@ -1891,7 +1511,6 @@ pub fn collection_add_entries(id: String, entry_ids: Vec<String>) -> Result<Vec<
     crate::config_store::update(|c| {
         if let Some(col) = c.collections.iter_mut().find(|x| x.id == id) {
             found = true;
-            // Dedup and add-only; see `add_ids` for the rules and the tests.
             add_ids(&mut col.entry_ids, &entry_ids);
             result = col.entry_ids.clone();
         }
@@ -1902,7 +1521,6 @@ pub fn collection_add_entries(id: String, entry_ids: Vec<String>) -> Result<Vec<
     Ok(result)
 }
 
-/// Add/remove a vault entry to/from a collection (single membership toggle).
 #[tauri::command]
 pub fn collection_toggle_entry(id: String, entry_id: String) -> Result<bool, String> {
     let mut added: bool = false;
@@ -1936,7 +1554,6 @@ pub fn playlist_create(name: String) -> Result<crate::config::WallpaperPlaylist,
     Ok(pl)
 }
 
-/// Upsert a full playlist definition (edited from the dashboard).
 #[tauri::command]
 pub fn playlist_save(playlist: crate::config::WallpaperPlaylist) -> Result<(), String> {
     crate::config_store::update(|c| {
@@ -1956,7 +1573,6 @@ pub fn playlist_delete(id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Enable one playlist and disable the rest (single-active model).
 #[tauri::command]
 pub fn playlist_set_active(id: Option<String>) -> Result<(), String> {
     crate::config_store::update(|c| {
@@ -1968,10 +1584,7 @@ pub fn playlist_set_active(id: Option<String>) -> Result<(), String> {
     Ok(())
 }
 
-// ---------- Scenes (full-look snapshots) ----------
 
-/// Snapshot the CURRENT look into a scene: wallpaper config (incl. per-monitor
-/// overrides) + RGB config. `name` labels it; an id is generated.
 #[tauri::command]
 pub fn scene_save(name: String) -> Result<crate::config::SceneProfile, String> {
     let cfg = crate::config_store::get();
@@ -1986,21 +1599,11 @@ pub fn scene_save(name: String) -> Result<crate::config::SceneProfile, String> {
     };
     crate::config_store::update(|c| {
         c.scenes.push(scene.clone());
-        // The capture *is* the current state, so this profile is the one now
-        // running. Without it the header would keep naming whatever was applied
-        // before, and edits would go to that profile instead of this one.
         c.general.active_profile_id = Some(scene.id.clone());
     })?;
     Ok(scene)
 }
 
-/// Recall a scene: swap in the wallpaper, RGB config and sticker placements,
-/// then re-apply side effects. Sticker restore used to be skipped on the
-/// grounds that placements are "positional, not mood"; it is restored now
-/// because a config that leaves half the desk behind is not a config.
-///
-/// Playlist state is paused during recall so the scheduler doesn't immediately
-/// override the restored wallpaper.
 #[tauri::command]
 pub fn scene_apply(app: AppHandle, id: String) -> Result<(), String> {
     let scene = crate::config_store::get()
@@ -2011,12 +1614,7 @@ pub fn scene_apply(app: AppHandle, id: String) -> Result<(), String> {
     crate::config_store::update(|c| {
         c.wallpaper = scene.wallpaper.clone();
         c.rgb = scene.rgb.clone();
-        // `apply_side_effects` below reconciles the sticker windows from this
-        // list, so assigning is the whole job — no window is touched here.
         c.stickers = scene.stickers.clone();
-        // Set inside the same update as the restore, so the sync that runs on
-        // every write re-captures this profile against the state it just
-        // restored rather than against the one it replaced.
         c.general.active_profile_id = Some(scene.id.clone());
     })?;
     let fresh = crate::config_store::get();
@@ -2025,17 +1623,6 @@ pub fn scene_apply(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Delete a profile, refusing the last one.
-///
-/// The rule lives here as well as in the two front ends: a disabled button is
-/// a courtesy, and this is the door the data actually goes through. With no
-/// profile left the header avatar has nothing to show and the one-click way
-/// back to a liked setup is gone.
-///
-/// Counted from the store rather than from the closure because `update` takes a
-/// void closure. The check and the write are not one atomic step, which is
-/// harmless here: one user, one process, and the worst case is two deletes
-/// arriving together with two profiles on file.
 #[tauri::command]
 pub fn scene_delete(id: String) -> Result<(), String> {
     if crate::config_store::get().scenes.len() <= 1 {
@@ -2055,17 +1642,6 @@ pub fn scene_rename(id: String, name: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Point a config's avatar at an image, or clear it with `None`.
-///
-/// The file is copied into the app's media directory rather than referenced
-/// where it was picked from. A config outlives the folder it was made in, and
-/// an avatar that silently disappears because someone tidied their Pictures
-/// folder is worse than no avatar at all — the initial is the fallback, so it
-/// has to be reachable on purpose.
-///
-/// The name is derived from the scene id rather than the source file, so
-/// choosing a second image overwrites the first instead of filling the media
-/// directory with near-duplicates, and the path stays stable across restarts.
 #[tauri::command]
 pub fn scene_set_logo(id: String, source: Option<String>) -> Result<String, String> {
     let Some(source) = source else {
@@ -2086,9 +1662,6 @@ pub fn scene_set_logo(id: String, source: Option<String>) -> Result<String, Stri
         .ok_or("Unsupported image type")?
         .to_string();
     let bytes = std::fs::read(&src).map_err(crate::error::err_str)?;
-    // Small by construction: this is an avatar rendered at 32px in a header.
-    // Refusing rather than resizing keeps the command honest about what it
-    // stores, and the picker can say why.
     const MAX_LOGO_BYTES: u64 = 4 * 1024 * 1024;
     if bytes.len() as u64 > MAX_LOGO_BYTES {
         return Err("Image is larger than 4 MB".into());
@@ -2112,34 +1685,18 @@ pub fn scene_set_logo(id: String, source: Option<String>) -> Result<String, Stri
     Ok(path_str)
 }
 
-// ---------- Import / export ----------
 
-/// What the UI shows before an import replaces anything.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransferPreview {
-    /// Which payload the file holds.
     kind: crate::transfer::TransferKind,
-    /// The LumenDeck version that wrote it.
     from_version: String,
-    /// Profiles the file carries, named — for a profiles import.
     profiles: Vec<String>,
-    /// True when this replaces the whole config rather than adding to it.
     replaces_everything: bool,
-    /// Media files travelling in the bundle, for a config import.
     bundled_media: usize,
-    /// Paths the exporter referenced but could not include, because the file
-    /// was already gone. Reported so the confirmation can say the restore is
-    /// partial rather than leaving the user to find out tile by tile.
     missing_media: Vec<String>,
 }
 
-/// Ask where to write an export, returning null if cancelled.
-///
-/// A Rust command rather than the frontend dialog plugin, because that is where
-/// every other dialog in this app lives and the dashboard's capability set
-/// grants no dialog permissions at all. Cancelling is a null, not an error: it
-/// is the ordinary outcome of a save dialog and must not raise a toast.
 #[tauri::command]
 pub async fn transfer_pick_save_path(default_name: String) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -2149,8 +1706,6 @@ pub async fn transfer_pick_save_path(default_name: String) -> Result<Option<Stri
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .file()
-        // Both, because a config export is a zip and a profiles export is not.
-        // Listing only `json` would hide every config backup in the dialog.
         .add_filter("LumenDeck export", &["zip", "json"])
         .set_file_name(&default_name)
         .save_file(move |path| {
@@ -2159,7 +1714,6 @@ pub async fn transfer_pick_save_path(default_name: String) -> Result<Option<Stri
     rx.await.map_err(crate::error::err_str)
 }
 
-/// Ask which export file to import, returning null if cancelled.
 #[tauri::command]
 pub async fn transfer_pick_open_path() -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -2176,12 +1730,6 @@ pub async fn transfer_pick_open_path() -> Result<Option<String>, String> {
     rx.await.map_err(crate::error::err_str)
 }
 
-/// Write an export file somewhere the user picked.
-///
-/// The extension is forced to `.json` on the way out rather than trusted from
-/// the dialog, so a file called `backup.txt` still opens in something that can
-/// read it. Returns the path actually written, which is not always the path
-/// asked for.
 #[tauri::command]
 pub async fn transfer_export(
     kind: crate::transfer::TransferKind,
@@ -2191,10 +1739,6 @@ pub async fn transfer_export(
     let file = crate::transfer::build_export(kind, &cfg, env!("CARGO_PKG_VERSION"), &cfg.scenes);
     let text = crate::transfer::to_json(&file);
 
-    // A profiles export is JSON: profiles are wallpaper and lighting settings,
-    // and none of that is a file. A config export is a bundle, because a vault
-    // is a list of absolute paths and those do not survive being copied to
-    // another machine.
     if kind == crate::transfer::TransferKind::Profiles {
         let target = with_extension(path, "json");
         std::fs::write(&target, text).map_err(crate::error::err_str)?;
@@ -2207,9 +1751,6 @@ pub async fn transfer_export(
     });
     let target = with_extension(path, "zip");
     crate::transfer_bundle::write_bundle(&target, &text, &plan.files, &plan.missing)?;
-    // One line, and it says what and where plus how much travelled — an export
-    // is the one action whose result the user cannot see in the app, and a
-    // bundle that silently left files behind would read as complete.
     log::info!(
         "exported config to {} ({} media, {} missing)",
         target.display(),
@@ -2219,11 +1760,6 @@ pub async fn transfer_export(
     Ok(target.display().to_string())
 }
 
-/// Read an export file and say what importing it would do, writing nothing.
-///
-/// Split from the apply so the caller can show a summary and get a yes. A config
-/// import replaces everything, and that is not a thing to discover after the
-/// fact.
 #[tauri::command]
 pub fn transfer_preview(path: String) -> Result<TransferPreview, String> {
     let p = std::path::PathBuf::from(&path);
@@ -2239,9 +1775,6 @@ pub fn transfer_preview(path: String) -> Result<TransferPreview, String> {
         }
         crate::transfer::TransferKind::Config => Vec::new(),
     };
-    // Only a bundle can carry media; a JSON config export from an older build
-    // genuinely has none, and saying so is more useful than implying a restore
-    // will bring the vault with it.
     let (bundled_media, missing_media) = if is_zip(&p) {
         let bundled = crate::transfer_bundle::count_media(&p).unwrap_or(0);
         let missing = crate::transfer_bundle::read_missing(&p);
@@ -2259,11 +1792,6 @@ pub fn transfer_preview(path: String) -> Result<TransferPreview, String> {
     })
 }
 
-/// Apply an import read from disk.
-///
-/// The whole decision — validate, remint, rename — happens in `plan_import`
-/// before anything is written, so a file that turns out to be wrong leaves the
-/// current config exactly as it was.
 #[tauri::command]
 pub fn transfer_import(app: AppHandle, path: String) -> Result<usize, String> {
     let p = std::path::PathBuf::from(&path);
@@ -2275,13 +1803,9 @@ pub fn transfer_import(app: AppHandle, path: String) -> Result<usize, String> {
     };
     let current = crate::config_store::get();
 
-    // Unpacked before the config is replaced, so a vault never points at files
-    // that were never written: that state looks whole and is entirely broken.
     let landed = if bundled {
         let envelope = crate::transfer::parse_export(&text)?;
         let incoming_cfg = envelope.config.clone().unwrap_or_default();
-        // Which gallery entry a bundled file belongs to, so the unpacked name
-        // comes from our own id rather than anything the archive said.
         let by_source: std::collections::HashMap<&str, &str> = incoming_cfg
             .gallery
             .iter()
@@ -2322,8 +1846,6 @@ pub fn transfer_import(app: AppHandle, path: String) -> Result<usize, String> {
         Some(mut incoming) => {
             let count = incoming.scenes.len();
             let rewritten = crate::transfer_archive::rewrite_paths(&mut incoming, &landed);
-            // A replace, deliberately. The caller was warned by
-            // `transfer_preview` and is expected to have exported first.
             crate::config_store::set(incoming)?;
             let fresh = crate::config_store::get();
             apply_side_effects(&app, &fresh);
@@ -2341,10 +1863,6 @@ pub fn transfer_import(app: AppHandle, path: String) -> Result<usize, String> {
     }
 }
 
-/// Force an extension, adding one only when there is none.
-///
-/// Adding rather than replacing: a user who typed `backup.v1` meant that name,
-/// while one who left the dialog's default without an extension meant `.zip`.
 fn with_extension(path: String, ext: &str) -> std::path::PathBuf {
     let p = std::path::PathBuf::from(path);
     match p.extension().and_then(|e| e.to_str()) {
@@ -2358,18 +1876,10 @@ fn with_extension(path: String, ext: &str) -> std::path::PathBuf {
     }
 }
 
-/// The app's own media directory, where bundled files are unpacked.
-///
-/// Already the home of URL downloads and profile logos, so a restored vault
-/// lands beside files the app already owns rather than in a second place.
 fn media_dir() -> std::path::PathBuf {
     crate::config_store::data_dir().join("media")
 }
 
-/// Is this a bundle rather than a plain JSON export?
-///
-/// By magic bytes, not by extension: a user who renamed the file, and a build
-/// from before config exports were bundled, both have to land on the right path.
 fn is_zip(path: &std::path::Path) -> bool {
     use std::io::Read;
     let Ok(mut f) = std::fs::File::open(path) else {
@@ -2382,11 +1892,6 @@ fn is_zip(path: &std::path::Path) -> bool {
     }
 }
 
-/// Read an import file as text, with a size cap.
-///
-/// The cap is generous — a large vault's config runs to a few hundred KB — but
-/// it exists so picking a 4 GB video by mistake produces an error naming the
-/// problem rather than an out-of-memory.
 fn read_text_file(path: &str) -> Result<String, String> {
     const MAX_BYTES: u64 = 64 * 1024 * 1024;
     let p = std::path::PathBuf::from(path);
@@ -2403,13 +1908,6 @@ fn read_text_file(path: &str) -> Result<String, String> {
     std::fs::read_to_string(&p).map_err(crate::error::err_str)
 }
 
-/// Reduce an id to something safe as a filename.
-///
-/// Scene ids are generated, but they also arrive from a migrated config file,
-/// and a path built from an arbitrary string is a way to write outside the
-/// media directory. Disallowed characters are dropped rather than replaced:
-/// both are safe, and dropping leaves `../../night` as `night` instead of
-/// `------night`.
 fn sanitize_for_filename(id: &str) -> String {
     let cleaned: String = id
         .chars()
@@ -2444,7 +1942,6 @@ mod transfer_file_tests {
 
     #[test]
     fn an_extension_the_user_typed_is_kept_and_the_ours_appended() {
-        // `backup.v1` is a name they chose, not a mistake to correct.
         assert!(with_extension(r"C:\exports\backup.v1".into(), "zip")
             .to_string_lossy()
             .ends_with("backup.v1.zip"));
@@ -2455,23 +1952,18 @@ mod transfer_file_tests {
         let out = with_extension(r"C:\backup.zip".into(), "zip");
         assert!(out.to_string_lossy().ends_with("backup.zip"));
         assert!(!out.to_string_lossy().ends_with(".zip.zip"));
-        // And a .json file renamed to .zip becomes .zip, not .zip.zip.
         let out2 = with_extension(r"C:\backup.json".into(), "zip");
         assert!(out2.to_string_lossy().ends_with("backup.json.zip"));
     }
 
     #[test]
     fn a_bundle_is_recognised_by_its_bytes_not_its_name() {
-        // A user who renamed the file, or a build from before config exports
-        // were bundled, both have to land on the right path. Reading the name
-        // would get both wrong.
         let zip = temp_path("detect.zip");
         let plain = temp_path("detect.json");
         std::fs::write(&zip, [0x50u8, 0x4b, 0x03, 0x04]).unwrap();
         std::fs::write(&plain, "{}").unwrap();
         assert!(is_zip(&zip));
         assert!(!is_zip(&plain));
-        // A zip renamed .json is still a zip.
         let renamed = temp_path("renamed.json");
         std::fs::write(&renamed, [0x50u8, 0x4b, 0x03, 0x04]).unwrap();
         assert!(is_zip(&renamed));
@@ -2497,9 +1989,6 @@ mod transfer_file_tests {
 
     #[test]
     fn a_missing_file_is_an_error_rather_than_an_empty_read() {
-        // The assertion is on the failure, not on its wording: Windows' own
-        // message names the file, and a test pinning an OS error string would
-        // fail on a locale change rather than on a behaviour change.
         let p = temp_path("absent.json");
         let err = read_text_file(&p.to_string_lossy()).unwrap_err();
         assert!(!err.is_empty(), "the user must be told something");
@@ -2511,9 +2000,6 @@ mod transfer_file_tests {
 
     #[test]
     fn binary_content_is_refused_not_returned_as_mangled_text() {
-        // `read_to_string` rejects invalid UTF-8, which is the right answer for
-        // "that is not an export file" and much better than a lossy conversion
-        // that reaches `parse_export` as plausible-looking JSON.
         let p = temp_path("binary.json");
         std::fs::write(&p, [0xff, 0xfe, 0x00, 0x01]).unwrap();
         assert!(read_text_file(&p.to_string_lossy()).is_err());
@@ -2532,8 +2018,6 @@ mod scene_tests {
 
     #[test]
     fn path_separators_cannot_escape_the_media_directory() {
-        // The id reaches here from a config file, so a crafted one must not be
-        // able to name a destination outside the media directory.
         assert_eq!(sanitize_for_filename("../../evil"), "evil");
         assert_eq!(sanitize_for_filename(r"..\..\evil"), "evil");
         assert!(!sanitize_for_filename("a/b").contains('/'));
@@ -2542,8 +2026,6 @@ mod scene_tests {
 
     #[test]
     fn an_id_that_sanitizes_to_nothing_still_names_a_file() {
-        // An empty name would resolve to the directory itself, and the write
-        // would fail with an error that says nothing about why.
         assert_eq!(sanitize_for_filename(""), "scene");
         assert_eq!(sanitize_for_filename("///"), "scene");
     }
@@ -2555,7 +2037,6 @@ mod scene_tests {
     }
 }
 
-// ---------- helpers ----------
 
 fn gen_gallery_id(offset: u128) -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -2582,19 +2063,12 @@ fn now_ms() -> u64 {
 }
 
 #[allow(dead_code)]
-/// Keep a placed sticker's default rect inside the virtual screen: the mouse
-/// hook reports raw physical coordinates, and a click near a screen edge
-/// would otherwise center the 220px default rect partly off-screen.
-/// Aspect-aware placed size: probe natural media dimensions and scale the
-/// target `base` (the wheel-chosen box) to fit inside it while preserving
-/// aspect. Falls back to a `base × base` square when the probe fails (video
-/// headers need a demuxer; images decode cheaply and reliably).
 fn media_aspect_size(url: &str, base: u32) -> (u32, u32) {
     let path = crate::media::decode_media_ref(url);
     let dims = (|| -> Option<(u32, u32)> {
         let bytes = std::fs::read(&path).ok()?;
         if bytes.len() > 64 * 1024 * 1024 {
-            return None; // probing huge files isn't worth the stall
+            return None;
         }
         let img = image::load_from_memory(&bytes).ok()?;
         Some((img.width(), img.height()))
@@ -2639,42 +2113,28 @@ fn nanoid_like() -> String {
     format!("{n:x}")
 }
 
-// ---------- Media session (SMTC) ----------
 
-// These are async for one reason: every SMTC call parks the calling thread
-// on a WinRT completion callback (`media_session::wait_op`), and the target
-// player answers whenever it answers. As sync commands they ran on Tauri's
-// main thread, so each press of a transport button froze the window long
-// enough for Windows to swap in its busy cursor. The blocking work moves to
-// the runtime's blocking pool, which is what `media_session`'s `*_async`
-// wrappers are for.
 
-/// Fire a transport action (play/pause/next/previous) at whatever the OS
-/// media session is currently playing — Spotify, a browser, any SMTC client.
 #[tauri::command]
 pub async fn media_transport(action: String) -> Result<(), String> {
     crate::media_session::transport_async(action).await
 }
 
-/// Seek the current SMTC session to the given position (seconds).
 #[tauri::command]
 pub async fn media_seek(position_sec: f64) -> Result<(), String> {
     crate::media_session::seek_async(position_sec).await
 }
 
-/// Toggle shuffle on the current SMTC session.
 #[tauri::command]
 pub async fn media_shuffle(active: bool) -> Result<(), String> {
     crate::media_session::set_shuffle_async(active).await
 }
 
-/// Cycle repeat mode (off -> track -> list -> off) on the current session.
 #[tauri::command]
 pub async fn media_repeat(current: Option<u8>) -> Result<(), String> {
     crate::media_session::cycle_repeat_async(current).await
 }
 
-/// System master volume (0..100) + mute state, for the player card.
 #[tauri::command]
 pub fn volume_get() -> Result<[f32; 2], String> {
     #[cfg(windows)]
@@ -2688,7 +2148,6 @@ pub fn volume_get() -> Result<[f32; 2], String> {
     Ok([0.0, 0.0])
 }
 
-/// Set the system master volume (0..100).
 #[tauri::command]
 pub fn volume_set(percent: f32) -> Result<(), String> {
     #[cfg(windows)]
@@ -2699,7 +2158,6 @@ pub fn volume_set(percent: f32) -> Result<(), String> {
     Ok(())
 }
 
-/// Toggle system mute; returns the new state.
 #[tauri::command]
 pub fn volume_mute_toggle() -> Result<bool, String> {
     #[cfg(windows)]
@@ -2710,39 +2168,26 @@ pub fn volume_mute_toggle() -> Result<bool, String> {
     Ok(false)
 }
 
-/// Current media session snapshot, for the dashboard's initial render before
-/// the first `media-session` event arrives (poller only emits on change).
 #[tauri::command]
 pub fn media_current() -> Option<crate::media_session::MediaInfo> {
     crate::media_session::current()
 }
 
-/// The user's current Windows accent color, for the dashboard's UI accent
-/// fallback (the interface matches the OS theme out of the box).
 #[tauri::command]
 pub fn system_accent() -> Option<[u8; 3]> {
     crate::sys_theme::get_system_accent()
 }
 
-/// The Windows display language as a BCP-47 tag ("es-ES"). The dashboard
-/// resolves its own preference against this; the backend does the same for
-/// the tray, and both read the same config field so they cannot disagree.
 #[tauri::command]
 pub fn system_language() -> String {
     crate::i18n::system_language().to_string()
 }
 
-/// The signed-in Windows account name, verbatim. Empty when Windows will not
-/// say, which the greeting treats as "have no name to use" rather than as a
-/// string to print.
 #[tauri::command]
 pub fn account_name() -> String {
     crate::account::name().to_string()
 }
 
-/// Parse-check a hotkey accelerator without binding it. The settings UI calls
-/// this the moment the user finishes recording a combo, so a combo the OS
-/// could never accept is caught before it is written to the config.
 #[tauri::command]
 pub fn hotkey_validate(accelerator: String) -> Result<(), String> {
     crate::hotkeys::validate(&accelerator)
@@ -2752,19 +2197,11 @@ pub fn hotkey_validate(accelerator: String) -> Result<(), String> {
 mod dev_info_tests {
     use super::*;
 
-    /// The panel reads these as strings and shows them verbatim, so the useful
-    /// assertions are that each one is populated and points where the user
-    /// expects. A version that failed to compile in would show as an empty
-    /// field rather than a wrong one.
     #[test]
     fn dev_info_reports_populated_paths_and_version() {
         let info = dev_info();
         assert!(!info.version.is_empty());
         assert!(!info.build_id.is_empty());
-        // The invariant is one-directional: a dirty build has to announce it,
-        // because a clean-looking id over a dirty tree is the exact ambiguity
-        // this field exists to remove. The converse does not hold — a build with
-        // no git checkout is legitimately "unknown" and clean.
         assert!(
             !info.build_dirty || info.build_id.ends_with("-dirty"),
             "dirty build reported a clean-looking id: {}",
@@ -2773,8 +2210,6 @@ mod dev_info_tests {
         assert!(info.config_path.ends_with("config.json"), "{}", info.config_path);
         assert!(info.log_path.ends_with("lumendeck.log"), "{}", info.log_path);
         assert!(!info.data_dir.is_empty());
-        // The log and the config have to be siblings, or "open the data dir"
-        // would show half of what the panel describes.
         let data_dir = std::path::Path::new(&info.data_dir);
         assert_eq!(
             std::path::Path::new(&info.config_path).parent(),
@@ -2790,9 +2225,6 @@ mod dev_info_tests {
         );
     }
 
-    /// The report header is the first line of every pasted bug report, so the
-    /// build identity it carries has to be the same one the panel shows. Two
-    /// spellings of the same build is how a report becomes unattributable.
     #[test]
     fn dev_info_report_header_carries_the_build_id() {
         let info = dev_info();
@@ -2805,8 +2237,6 @@ mod dev_info_tests {
         assert!(info.report_header.contains(info.version), "{}", info.report_header);
     }
 
-    /// Whatever the panel prints has to be a level the logger could actually be
-    /// set to — it is parsed straight into a filter by whoever reads the report.
     #[test]
     fn dev_info_log_level_parses() {
         let info = dev_info();

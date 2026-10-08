@@ -52,28 +52,16 @@ import { type GalleryDensity } from "../gallery/GalleryToolbar";
 
 type MonEntry = MonitorEntry;
 
-/** Tiles mounted per page. The grid pages rather than rendering a vault of a
- *  few hundred videos at once; the button is the original vault's. */
 const GALLERY_PAGE = 60;
 
 export default function WallpaperTab() {
   const { cfg, rgb, save } = useStore(
     useShallow((s) => ({ cfg: s.cfg, rgb: s.rgb, save: s.save })),
   );
-  // One import at a time, and it owns the dialog: browse and folder open an
-  // OS picker, so a second press while one is open would stack a second dialog
-  // behind the first. Exclusive because these are all routes into the same
-  // vault write, not independent actions.
   const { pending, run } = usePending({ exclusive: true });
-  // Drag-and-drop import is deliberately outside `pending`: dropping again
-  // while the first batch is still importing is a *newer* intent that should
-  // supersede the older one, not a double-press to refuse. It still holds the
-  // import buttons off, so the two cannot import over each other.
   const [dropBusy, setDropBusy] = useState(false);
   const busy = pending.size > 0 || dropBusy;
 
-  // Both import toggles read from one value so the dropdown can represent the
-  // current state as a single selection.
   const importSettings =
     cfg
       ? cfg.wallpaper.applyAfterImport && cfg.wallpaper.indexAfterImport
@@ -90,48 +78,24 @@ export default function WallpaperTab() {
   const [urlNameDraft, setUrlNameDraft] = useState("");
   const [density, setDensity] = useState<GalleryDensity>("cozy");
   const [vaultIndex, setVaultIndex] = useState<VaultIndex>({});
-  /** File stamps from the backend, so a replaced file can be re-probed. */
   const [stamps, setStamps] = useState<StampMap>({});
   const [indexing, setIndexing] = useState(false);
   const [indexProgress, setIndexProgress] = useState<{ done: number; total: number } | null>(null);
   const [missing, setMissing] = useState<ReadonlySet<string>>(new Set());
-  /**
-   * The bulk selection and the tile a shift-click spans from, as one piece of
-   * state.
-   *
-   * They belong together: the anchor is only meaningful relative to the set it
-   * was set from, and splitting them across `useState` plus a `useRef` meant the
-   * two could disagree -- the anchor survived a prune that removed its tile, and
-   * shift-click then silently degraded to a plain toggle. One value, one
-   * updater, no way to get out of step.
-   */
   const [selection, setSelection] = useState<Selection>(emptySelection());
   const checked = selection.selected;
   const [dropActive, setDropActive] = useState(false);
   const [dropCount, setDropCount] = useState(0);
   const [mons, setMons] = useState<MonEntry[]>([]);
-  /** Which of the two views the vault card is showing. Collections are a
-   *  different shape of thing to wallpapers — a list of lists — so they get
-   *  their own surface rather than another dimension of the same grid. */
   const [mode, setMode] = useState<"wallpapers" | "collections">("wallpapers");
-  /** Entry id in flight from a tile drag, so only the collection chips become
-   *  drop targets while something is actually being dragged. */
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  // One query object for search + collection + kind + sort, so the toolbar, the
-  // grid and the counts can never disagree about what is being shown.
   const [gq, setGq] = useState<GalleryQuery>({ ...DEFAULT_QUERY, collection: "all" });
-  /** The entry whose detail drawer is open. Deliberately not the selection: a
-   *  panel is not a selection, and conflating them is what made a bulk choice
-   *  quietly change which wallpaper the drawer was describing. */
   const [inspectedId, setInspectedId] = useState<string | null>(null);
   const [limit, setLimit] = useState(GALLERY_PAGE);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState("");
-  const [playlistFor, setPlaylistFor] = useState<string | null>(null); // open editor
+  const [playlistFor, setPlaylistFor] = useState<string | null>(null);
   const [colNaming, setColNaming] = useState(false);
-  // null = creating a new collection; an id = renaming that one. Both used the
-  // same input before, which is why renaming needed a native prompt: there was
-  // no state to say which of the two it was.
   const [colRenameId, setColRenameId] = useState<string | null>(null);
   const [colNameVal, setColNameVal] = useState("");
   const [plNaming, setPlNaming] = useState(false);
@@ -148,7 +112,6 @@ export default function WallpaperTab() {
     };
   }, []);
 
-  // Drag-and-drop import: Tauri intercepts file drops at the window level.
   useEffect(() => {    let disposed = false;
     let unlisten: (() => void) | undefined;
     let importSeq = 0;
@@ -173,9 +136,6 @@ export default function WallpaperTab() {
             .then(async (list) => {
               if (seq !== importSeq) return;
               const added = newlyAddedEntries(before, list);
-              // Same treatment as the toolbar's import buttons: a drop is an
-              // import, and leaving its files unmeasured would make the drop
-              // path the one route that quietly does not index.
               await indexAfterImport(added.length);
               if (seq !== importSeq) return;
               toast(
@@ -217,11 +177,6 @@ export default function WallpaperTab() {
   const collections = cfg.collections ?? [];
   const playlists = cfg.playlists ?? [];
   const overrides = wall.perMonitor ?? {};
-  /**
-   * Everything the query needs that is not the query. Shared with the toolbar's
-   * count chips, so a chip number and the grid can never disagree about what
-   * is currently visible.
-   */
   const selectCtx: SelectContext = useMemo(
     () => ({
       index: vaultIndex,
@@ -238,18 +193,11 @@ export default function WallpaperTab() {
     selectCtx,
     limit,
   );
-  /**
-   * "every 15 min", or null. A playlist with no shuffle interval only advances
-   * on time rules and a manual nudge, so claiming it rotates would be wrong.
-   */
   const activePlaylist = playlists.find((p) => p.enabled);
   const rotating =
     activePlaylist && (activePlaylist.shuffleMin ?? 0) > 0
       ? String(activePlaylist.shuffleMin)
       : null;
-  // "/" jumps to the search box, the way it does in a file manager, and Escape
-  // clears it and gives focus back. A vault of a few hundred is unusable without
-  // a way to get to search without aiming at it.
   const searchRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
@@ -280,13 +228,10 @@ export default function WallpaperTab() {
     if (why) health.set(g.id, why);
   }
   const unhealthyCount = health.size;
-  /** The vault index is only "ready" once it can actually answer a question. */
   const indexTotal = cfg.gallery.filter(
     (g) => g.kind === "video" || g.kind === "image",
   ).length;
   const indexReady = indexTotal > 0 && cachedCount(cfg.gallery, vaultIndex, stamps) === indexTotal;
-  /** Every query change re-pages from the top, so filtering does not leave you
-   *  on page 4 of a list that is now one screen long. */
   const setQuery = (patch: Partial<GalleryQuery>) => {
     setGq((q) => ({ ...q, ...patch }));
     setLimit(GALLERY_PAGE);
@@ -297,10 +242,6 @@ export default function WallpaperTab() {
   const isActive = (g: GalleryEntry) => g.kind === wall.kind && g.source === wall.source;
   const activeEntry = cfg.gallery.find((x) => isActive(x)) ?? null;
 
-  // The four gallery actions below are the ones a card, the drawer and the
-  // selection bar all funnel through, so the guard lives here rather than in
-  // three sets of button props. Keyed per entry (or per display) so applying
-  // one wallpaper never blocks applying another.
   const applyToAll = (g: GalleryEntry) =>
     void run(
       `apply-${g.id}`,
@@ -369,21 +310,6 @@ export default function WallpaperTab() {
   const undoDelete = (msg: string, restore: (c: Config) => void) =>
     useStore.getState().undoDelete(msg, restore);
 
-  /**
-   * Browse for media and import everything selected.
-   *
-   * There used to be two of these, one for video and one for image, over the
-   * same dialog with the same filter list — all the choice decided was which
-   * kind string got hardcoded next to the picked path. Lively collapsed its two
-   * import buttons into a single browse dialog for the same reason, and taking
-   * a list rather than one path is what makes it worth doing: selecting twenty
-   * wallpapers is one dialog instead of twenty, and every one of them is
-   * classified by its extension in resolvePicked.
-   *
-   * Everything is added to the vault, but only the last is applied. Applying
-   * them in turn would leave the same end state as applying the last one, with
-   * twenty wallpaper changes on the way there.
-   */
   const pickAndAddMany = () =>
     run(
       "browse",
@@ -421,17 +347,8 @@ export default function WallpaperTab() {
       (e) => toast("error", t("gallery.folder-import-failed-{error}", { error: truncateError(e) })),
     );
 
-  /** Whether a fresh import should take over the screens. */
   const appliesOnImport = wall.applyAfterImport !== false;
 
-  /**
-   * Download a link into the vault.
-   *
-   * Shared by the URL form and by pasting a link anywhere in the window. They
-   * are the same request, and two copies of an import path is how the paste
-   * route ends up applying the wallpaper while the form does not — or worse,
-   * neither does.
-   */
   const addFromUrl = (raw: string, name?: string) => {
     const url = raw.trim();
     if (!url) return Promise.resolve(false);
@@ -458,19 +375,6 @@ export default function WallpaperTab() {
     );
   };
 
-  /**
-   * Paste a wallpaper link anywhere in the window.
-   *
-   * The address is the thing a wallpaper is usually shared as, so copying one
-   * anywhere else in the app and pasting into the vault is the gesture people
-   * already have. A paste event carries the text, so this needs no clipboard
-   * permission and no new plugin.
-   *
-   * Deliberately narrow: a bare http(s) URL and nothing else. Copying a
-   * paragraph that mentions a link must not start a download because a URL
-   * happened to be inside it, and pasting into any text field is the field's
-   * business, not this window's.
-   */
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -500,12 +404,6 @@ export default function WallpaperTab() {
     return () => window.removeEventListener("paste", onPaste);
   }, [busy, appliesOnImport]);
 
-  /**
-   * Star an entry.
-   *
-   * Optimistic, and reverted on failure. A favourite is a one-click judgement
-   * and waiting on a round trip to see the star fill in makes it feel broken.
-   */
   const toggleFavorite = (g: GalleryEntry, next: boolean) => {
     const before = !!g.favorite;
     save((c) => {
@@ -523,7 +421,6 @@ export default function WallpaperTab() {
       });
   };
 
-  /** Drop a tile onto a collection chip. Toggles, like the drawer's list. */
   const dropOnCollection = (collectionId: string) => {
     const id = draggingId;
     setDraggingId(null);
@@ -544,13 +441,6 @@ export default function WallpaperTab() {
       );
   };
 
-  /**
-   * Delete a collection, with undo.
-   *
-   * Shared by the collections grid and the filter chips so both places do the
-   * same thing — including leaving the view if you are looking at the one you
-   * just deleted.
-   */
   const deleteCollection = (c: WallpaperCollection) => {
     api
       .collectionDelete(c.id)
@@ -566,42 +456,18 @@ export default function WallpaperTab() {
       );
   };
 
-  /**
-   * Open the name field on an existing collection, pre-filled with its name.
-   *
-   * `colNameVal`, not `renameVal`: those are two different fields for two
-   * different editors, and writing the collection name into the wallpaper-rename
-   * state opened the collection input blank while overwriting whatever the
-   * wallpaper rename box had in it.
-   */
   const startRenameCollection = (c: WallpaperCollection) => {
     setColNameVal(c.name);
     setColNaming(true);
     setColRenameId(c.id);
   };
 
-  /**
-   * Open the name field for a new collection.
-   *
-   * `colRenameId` is cleared so the same form serves create and rename; leaving
-   * it set would rename whatever collection was opened last instead of making
-   * a new one.
-   */
   const startNewCollection = () => {
     setColRenameId(null);
     setColNameVal("");
     setColNaming(true);
   };
 
-  /**
-   * Ask the backend which files have gone, and re-read the persisted index.
-   *
-   * Both run on open and whenever the vault changes, because both are cheap and
-   * both answer a question the user cannot otherwise ask: "is this list still
-   * true?". A vault entry whose file was moved renders a tile and does nothing
-   * when applied, with no error anywhere — the failure is entirely silent, and
-   * it is the one thing a file-based gallery cannot afford.
-   */
   const refreshHealth = async () => {
     try {
       setMissing(new Set(await api.vaultMissing()));
@@ -609,8 +475,6 @@ export default function WallpaperTab() {
       // A failed health check must not empty the set: that would report the
       // whole vault as healthy when we simply do not know.
     }
-    // Stamps alongside the health check: the two are the same disk pass, and a
-    // stale stamp is what makes "index the vault" reappear after a re-encode.
     try {
       setStamps(await api.vaultStamps());
     } catch {
@@ -622,11 +486,6 @@ export default function WallpaperTab() {
 
   useEffect(() => {
     void refreshHealth();
-    // A ticked entry whose file was removed elsewhere stays ticked forever
-    // otherwise, so the bar keeps counting a wallpaper that is not in the vault
-    // and the bulk actions include an id that matches nothing. The anchor is
-    // pruned alongside it: a span from a deleted tile has no position, and
-    // leaving it behind makes every later shift-click quietly degrade.
     setSelection((prev) => pruneSelection(prev, cfg.gallery.map((g) => g.id)));
   }, [cfg.gallery.length]);
 
@@ -644,24 +503,7 @@ export default function WallpaperTab() {
     }
   };
 
-  /**
-   * Measure what an import just brought in, when the setting says to.
-   *
-   * Runs after the gallery has been written, and reads the config back rather
-   * than trusting `cfg.gallery` from the render closure: the import command has
-   * only just returned, so the store may still hold the pre-import vault. Indexing
-   * that would measure the wrong list -- or, on a first import, an empty one, and
-   * report itself complete.
-   *
-   * Silently skipped when the index is already complete or a build is running,
-   * so an ordinary import stays ordinary. Only a failure is worth a toast, and
-   * only because the user was told their files were being measured.
-   */
   const indexAfterImport = async (added: number) => {
-    // Read the config back rather than trusting `cfg.gallery` from the render
-    // closure: the import command has only just returned, so the store may still
-    // hold the pre-import vault. Indexing that would measure the wrong list — or,
-    // on a first import, an empty one, and report itself complete.
     const fresh = await api.getConfig();
     if (!autoIndexEnabled(fresh.wallpaper)) return;
     try {
@@ -677,12 +519,8 @@ export default function WallpaperTab() {
           onProgress: (p) => setIndexProgress({ done: p.done, total: p.total }),
         },
       );
-      // Null means the index already covered the vault, or one was already
-      // running. Nothing to show and nothing to report.
       if (!result) return;
       setVaultIndex(result.index);
-      // The stamps the build ran against, so a later index on this tab judges
-      // coverage from the same view rather than re-probing everything.
       setStamps(result.stamps);
     } catch (e) {
       toast("error", t("gallery.indexing-failed-{error}", { error: truncateError(e) }));
@@ -692,34 +530,17 @@ export default function WallpaperTab() {
     }
   };
 
-  /** Whether the grid is showing its tick boxes. Off until asked for. */
   const selectEntry = (id: string, mods: ClickModifiers) => {
     setSelection((prev) => applyClick(prev, visibleGallery.map((g) => g.id), id, mods));
   };
 
   const clearChecked = () => setSelection(clearSelection());
 
-  /**
-   * Select or clear everything the current filter shows.
-   *
-   * Scoped to `gallery`, the filtered list, rather than the page on screen --
-   * so paging the grid does not silently cap what "select all" means -- and
-   * not the whole vault, so a filter is not a way to accidentally apply 300
-   * wallpapers.
-   */
   const toggleSelectAll = (want: boolean) =>
     setSelection(selectAll(gallery.map((g) => g.id), want));
 
   const allState = selectAllState(selection.selected, gallery.map((g) => g.id));
 
-  /**
-   * File everything ticked into a collection.
-   *
-   * The diff matters more than it looks: `collection_toggle_entry` is a toggle,
-   * so calling it for every ticked id would *remove* the ones already in the
-   * collection. Adding a selection that is half-present is the normal case, not
-   * an edge case, and it would silently unfile the other half.
-   */
   const addCheckedToCollection = (collectionId: string) => {
     const col = collections.find((c) => c.id === collectionId);
     if (!col) return;
@@ -728,11 +549,7 @@ export default function WallpaperTab() {
       toast("info", t("gallery.all-selected-already-collected"));
       return;
     }
-    // Keyed per collection, not exclusive: filing one selection into two
-    // collections in a row is legitimate, and each is one batched config write.
     void run(`collect-${collectionId}`, async () => {
-      // One call, one config write. The batch command also skips ids already
-      // present, so the diff above is only about the message, not correctness.
       await api.collectionAddEntries(collectionId, toAdd);
       const name = col.name;
       toast(
@@ -744,7 +561,6 @@ export default function WallpaperTab() {
     }, (e) => toast("error", t("common.failed-{error}", { error: truncateError(e) })));
   };
 
-  /** Collections the current selection is not already filed under. */
   const checkedCollectionOptions = useMemo(() => {
     const picked = [...checked];
     return collections
@@ -755,25 +571,11 @@ export default function WallpaperTab() {
       .filter((c) => c.pending > 0);
   }, [checked, collections]);
 
-  /** Ticked entries the current filter has hidden off-screen. */
   const hiddenChecked = useMemo(
     () => visibleSelection(checked, visibleGallery.map((g) => g.id)).hiddenCount,
     [checked, visibleGallery],
   );
 
-  /**
-   * Apply the selection, leaving the newest one showing.
-   *
-   * One apply, not one per selected wallpaper. Applying each in turn ends in
-   * the same place and costs a wallpaper change per item on the way there -- for
-   * a five-item selection that is five full decodes on every display -- and it
-   * raised one success toast per item. The button's tooltip has always said it
-   * applies the last ticked wallpaper, and the import path has always done
-   * exactly that; this now matches both.
-   *
-   * `bulkApplyPlan` orders by when each was added rather than by click order, so
-   * the same selection ends in the same place however it was built.
-   */
   const applyChecked = () => {
     const { apply, collapsed } = bulkApplyPlan(cfg.gallery, checked);
     if (!apply) return Promise.resolve();
@@ -781,8 +583,6 @@ export default function WallpaperTab() {
       await api.galleryApply(apply.id);
       toast("ok", t("gallery.applied-to-every-display", { name: apply.name }));
       clearChecked();
-      // Only worth saying when something was actually collapsed. For a
-      // single-item selection this is the plain "applied" toast underneath.
       if (collapsed > 1) {
         toast(
           "info",
@@ -794,25 +594,9 @@ export default function WallpaperTab() {
     );
   };
 
-  /**
-   * Remove the selection, as one undoable action.
-   *
-   * The deletes still happen one at a time -- each wallpaper has to actually
-   * leave the vault -- but the *reporting* is one toast with one Undo. It used
-   * to call `removeEntry` per entry, which meant a five-item delete stacked five
-   * undo cards in the corner and took five presses to take back, on the one
-   * action in the bar that cannot be redone by clicking something else.
-   *
-   * `restoreEntries` puts them all back in the undo's own callback, which is
-   * why the removed entries are captured before the loop rather than read from
-   * the vault afterwards.
-   */
   const removeChecked = () => {
     const picked = bulkRemovePlan(cfg.gallery, checked);
     if (picked.length === 0) return Promise.resolve();
-    // Guarded because this is the destructive one, and it is slow: one IPC
-    // round trip per entry. A second press landing mid-loop would re-plan from
-    // a half-updated vault and delete entries the first pass never saw.
     return run("remove", async () => {
       const removed: GalleryEntry[] = [];
       try {
@@ -824,7 +608,6 @@ export default function WallpaperTab() {
         toast("error", t("gallery.remove-failed-{error}", { error: truncateError(e) }));
       }
       if (removed.length === 0) return;
-      // The drawer describes one entry; if that entry just left, close it.
       if (inspectedId && removed.some((g) => g.id === inspectedId)) setInspectedId(null);
       if (removed.length === picked.length) {
         undoDelete(
@@ -834,9 +617,6 @@ export default function WallpaperTab() {
           },
         );
       } else {
-        // A partial delete cannot be undone as one thing without lying about
-        // what came back, so each survivor gets its own offer -- which is the
-        // old behaviour, reached only when it is the honest one.
         for (const g of removed) {
           undoDelete(t("gallery.removed-{name}", { name: g.name }), (next) => {
             next.gallery = restoreEntries(next.gallery, [g]);
@@ -847,13 +627,9 @@ export default function WallpaperTab() {
     });
   };
 
-  /** Nuke every redundant copy of a duplicated file in one go. */
   const removeDuplicates = () => {
     const redundant = cfg.gallery.filter((g) => duplicateSet.has(g.id));
     if (redundant.length === 0) return Promise.resolve();
-    // One key for the whole sweep, and the loop lives inside it: `removeEntry`
-    // no longer returns a promise to await, so the count below has to be
-    // reported from inside the same guarded run.
     return run(
       "remove-duplicates",
       async () => {
@@ -872,11 +648,11 @@ export default function WallpaperTab() {
 
   return (
     <div className="stagger space-y-6">
-      {/* Above the vault, not inside it: the vault answers "what could I use"
-          and this answers "what is on my desktop right now". Inside the vault
-          card it would inherit that card's header, which already says "Vault"
-          and has a view switcher, and two competing headers is worse than the
-          one question this was added to answer. */}
+      {
+
+
+
+ }
       <NowShowingCard
         cfg={cfg}
         activeEntry={activeEntry}
@@ -925,11 +701,6 @@ export default function WallpaperTab() {
               )}
               <button
                 onClick={() => void (async () => {
-                  // Re-probe, not just re-check existence. "Rescan" next to a
-                  // list of entries needing attention is read as "fix these",
-                  // and it could not: it only ever asked whether the files were
-                  // still there. Now it also re-measures anything whose file
-                  // changed, which is the half that was missing.
                   await refreshHealth();
                   await runIndex();
                 })()}
@@ -995,11 +766,6 @@ export default function WallpaperTab() {
                       api
                         .collectionCreate(name)
                         .then(async (col) => {
-                          // Creating a collection while a pile of wallpapers is
-                          // ticked is almost always meant to be "put these
-                          // there". Creating an empty one and jumping to an
-                          // empty grid makes the user re-do the filing one tile
-                          // at a time.
                           const picked = [...checked];
                           setGq((q) => ({ ...q, collection: col.id }));
                           if (picked.length === 0) return;
@@ -1040,12 +806,12 @@ export default function WallpaperTab() {
               )
             }
           >
-            {/* One control, four sources. They were four peer buttons in a row,
-                which made the toolbar's only create action the widest thing on
-                screen and left search with the leftover space. */}
-            {/* Both of these answer "what happens when I import". They are grouped
-                under one menu so the import row keeps one slot for "add" and one
-                slot for "what happens to new wallpapers". */}
+            {
+
+ }
+            {
+
+ }
             <Dropdown
               icon={<IconSettings className="h-4 w-4" />}
               ariaLabel={t("gallery.import-settings")}
@@ -1101,9 +867,9 @@ export default function WallpaperTab() {
                 </span>
               </div>
             )}
-            {/* The grid is always the full width of the card. The detail drawer
-                is a sibling, not a column, so selecting a wallpaper never
-                reflows the surface you were browsing. */}
+            {
+
+ }
             {mode === "wallpapers" ? (
               <>
             <GalleryGrid
@@ -1158,9 +924,6 @@ export default function WallpaperTab() {
                 collections={collections}
                 entries={cfg.gallery}
                 onOpen={(id) => {
-                  // Opening a collection means going to its wallpapers, so the
-                  // mode has to come with it. Setting the filter alone left
-                  // the user staring at the same list of collections.
                   setMode("wallpapers");
                   setQuery({ collection: id });
                 }}
@@ -1279,15 +1042,15 @@ export default function WallpaperTab() {
             )}
           </div>
 
-          {/* Add source. A dialog rather than a dropdown because the sources are
-              a decision, not a menu of equally likely actions: each one commits
-              to a different kind of work — a file dialog, a folder walk, a
-              download — and a line of text in a popover gave none of them room
-              to say what it actually does.
+          {
 
-              Three rows, not four. Video and image were separate buttons over
-              the same dialog with the same filter list, so splitting them only
-              told you which of two kinds you already knew you had. */}
+
+
+
+
+
+
+ }
           {addStep === "sources" && (
             <Modal
               title={t("gallery.add-a-wallpaper")}
@@ -1320,10 +1083,6 @@ export default function WallpaperTab() {
                   <button
                     key={src.id}
                     onClick={() => {
-                      // Browse and Import folder are destinations: they close
-                      // the dialog. From URL is not — it is the next step
-                      // *within* this dialog, so it must leave it open and let
-                      // the form take its place.
                       if (src.id !== "url") setAddStep(null);
                       src.run();
                     }}
@@ -1395,9 +1154,9 @@ export default function WallpaperTab() {
                   {t("common.direct-link-to-an-mp4-webm-video-or-png-jpg-webp")}
                 </p>
                 <div className="flex items-center justify-between gap-2 pt-1">
-                  {/* The clipboard button, for the case the window paste
-                      listener cannot cover: the user copied a link, opened the
-                      dialog, and never pressed Ctrl+V. */}
+                  {
+
+ }
                   <Btn
                     onClick={() => {
                       api
@@ -1614,7 +1373,7 @@ export default function WallpaperTab() {
 
                     {open && (
                       <div className="mt-4 space-y-4 border-t border-[var(--line)] pt-4">
-                        {/* source picker */}
+                        { }
                         <div>
                           <div className="kicker mb-2">{t("common.source")}</div>
                           <div className="flex flex-wrap gap-2">
@@ -1647,7 +1406,7 @@ export default function WallpaperTab() {
                           </div>
                         </div>
 
-                        {/* shuffle interval */}
+                        { }
                         <Slider
                           label={t("common.shuffle-every")}
                           min={1}
@@ -1662,7 +1421,7 @@ export default function WallpaperTab() {
                           }
                         />
 
-                        {/* transition crossfade */}
+                        { }
                         <Slider
                           label={t("common.transition-crossfade")}
                           min={0}
@@ -1679,7 +1438,7 @@ export default function WallpaperTab() {
                           }
                         />
 
-                        {/* time-of-day rules */}
+                        { }
                         <div>
                           <div className="kicker mb-2">
                             {t("common.time-of-day-rules-optional")}

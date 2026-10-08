@@ -6,25 +6,12 @@ import { useStore } from "./store";
 import { readableOnTheme } from "./accent";
 import "./index.css";
 
-// Before React mounts, and outside the render tree on purpose: this is a
-// property of the webview rather than of a component, so nothing below should
-// have to know it exists or be able to opt out of it.
 installContextMenuSuppression();
 
-// Paint the real accent before React mounts. The CSS default for --glow is a
-// hardcoded blue, and the in-app seeding (Shell's useGlow) only runs after the
-// splash — so splash, onboarding and the first frames all wore the wrong
-// color. One IPC round-trip here themes everything from the very first paint;
-// the store seed below also satisfies useGlow so it skips its own fetch.
 invoke<[number, number, number] | null>("system_accent")
   .then(async (c) => {
     if (!c) return;
     useStore.getState().setSystemAccent(c);
-    // Readability pass assumes dark theme (the default and the splash's
-    // palette before the config loads); useGlow re-picks against the real
-    // theme + user's auto-shade strength once the config is in. AMOLED is
-    // read here because it costs nothing extra from the same call, and the
-    // seed is what a true-black user sees before the first React render.
     let strength = 1;
     let amoled = false;
     try {

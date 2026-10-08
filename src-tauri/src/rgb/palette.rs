@@ -1,7 +1,4 @@
-//! Color science helpers: dominant color extraction, mixer, luma scaling.
-//! Pure functions so they are unit-testable without any hardware.
 
-/// Average a set of colors (simple but robust dominant approximation).
 pub fn dominant(pixels: &[[u8; 3]]) -> Option<[u8; 3]> {
     if pixels.is_empty() {
         return None;
@@ -13,7 +10,6 @@ pub fn dominant(pixels: &[[u8; 3]]) -> Option<[u8; 3]> {
     Some([r.round() as u8, g.round() as u8, b.round() as u8])
 }
 
-/// Dominant color over a set of samples (average of their colors).
 pub fn dominant_over_samples(samples: &[super::ZoneSample]) -> Option<[u8; 3]> {
     if samples.is_empty() {
         return None;
@@ -22,17 +18,14 @@ pub fn dominant_over_samples(samples: &[super::ZoneSample]) -> Option<[u8; 3]> {
     dominant(&colors)
 }
 
-/// Relative luminance (Rec. 709).
 pub fn luma(c: [u8; 3]) -> f64 {
     0.2126 * c[0] as f64 + 0.7152 * c[1] as f64 + 0.0722 * c[2] as f64
 }
 
-/// Scale a color's brightness by a luma factor (0..1 normal, >1 boosts).
 pub fn scale_luma(c: [u8; 3], factor: f64) -> [u8; 3] {
     c.map(|ch| (ch as f64 * factor).round().clamp(0.0, 255.0) as u8)
 }
 
-/// Boost or reduce saturation around the color's luma.
 pub fn saturate(c: [u8; 3], amount: f64) -> [u8; 3] {
     let l = luma(c);
     c.map(|ch| {
@@ -41,7 +34,6 @@ pub fn saturate(c: [u8; 3], amount: f64) -> [u8; 3] {
     })
 }
 
-/// Apply gamma correction (positive brightens midtones).
 pub fn gamma(c: [u8; 3], g: f64) -> [u8; 3] {
     if g <= 0.0 {
         return c;
@@ -53,15 +45,12 @@ pub fn gamma(c: [u8; 3], g: f64) -> [u8; 3] {
     })
 }
 
-/// Full mixer pipeline: saturation -> gamma -> brightness.
 pub fn apply_mixer(c: [u8; 3], brightness: f64, saturation: f64, gamma_val: f64) -> [u8; 3] {
     let s = saturate(c, saturation);
     let g = gamma(s, gamma_val);
     scale_luma(g, brightness)
 }
 
-/// Convert an RGB color to HSV (h in 0..360, s/v in 0..1). For near-gray
-/// colors the hue is arbitrary (0).
 pub fn rgb_to_hsv(c: [u8; 3]) -> (f64, f64, f64) {
     let r = c[0] as f64 / 255.0;
     let g = c[1] as f64 / 255.0;
@@ -83,7 +72,6 @@ pub fn rgb_to_hsv(c: [u8; 3]) -> (f64, f64, f64) {
     (h, s, v)
 }
 
-/// Convert HSV to RGB. `h` in 0..360, `s`/`v` in 0..1.
 pub fn hsv_to_rgb(h: f64, s: f64, v: f64) -> [u8; 3] {
     let h = h.rem_euclid(360.0);
     let c = v * s;
@@ -104,7 +92,6 @@ pub fn hsv_to_rgb(h: f64, s: f64, v: f64) -> [u8; 3] {
     ]
 }
 
-/// Rotate a color's hue by `degrees`, keeping saturation/value.
 pub fn rotate_hue(c: [u8; 3], degrees: f64) -> [u8; 3] {
     let (h, s, v) = rgb_to_hsv(c);
     hsv_to_rgb(h + degrees, s, v)
@@ -149,7 +136,7 @@ mod tests {
     #[test]
     fn saturate_two_boosts() {
         let c = saturate([200, 100, 50], 2.0);
-        assert!(c[0] > 200); // red pushed further from luma
+        assert!(c[0] > 200);
     }
 
     #[test]
@@ -202,6 +189,6 @@ mod tests {
         let (h1, _, v1) = rgb_to_hsv(rotated);
         assert!((h1 - (h0 + 120.0).rem_euclid(360.0)).abs() < 1.0);
         assert!((v1 - v0).abs() < 0.011);
-        assert!(rotated[1] > rotated[0]); // rotated toward green
+        assert!(rotated[1] > rotated[0]);
     }
 }

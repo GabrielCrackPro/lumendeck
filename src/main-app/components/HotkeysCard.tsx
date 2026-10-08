@@ -11,18 +11,9 @@ import { acceleratorFromEvent, isSafeAccelerator } from "../eq";
 import { truncateError } from "../utilities";
 import { t } from "../i18n";
 
-/**
- * Render an accelerator as individual key caps.
- *
- * Through `splitAccelerator` rather than a private labelling map, so a combo
- * reads identically here and on the Overview card ("Super" printed as "Win"
- * in both) and the mapping has one home to drift from.
- */
 function ComboChips({ accelerator }: { accelerator: string }) {
   const caps = splitAccelerator(accelerator);
   if (caps.length === 0) {
-    // Unparseable: echo the raw text in red rather than cap it. Caps claim a
-    // binding the grammar would not accept.
     return (
       <span className="font-mono text-[11px] text-red-300">{accelerator}</span>
     );
@@ -30,14 +21,6 @@ function ComboChips({ accelerator }: { accelerator: string }) {
   return <ComboCaps keys={caps} />;
 }
 
-/**
- * One action row: label, description, and a combo field.
- *
- * Click the field to arm the recorder, then press the combo. Escape cancels,
- * Backspace/Delete clears. While armed, the listener runs in the capture
- * phase on the window and swallows every key so the combo does not also fire
- * whatever shortcut the dashboard has bound to it.
- */
 function HotkeyRow({
   label,
   description,
@@ -52,15 +35,8 @@ function HotkeyRow({
   description: string;
   suggested: string;
   value: string;
-  /** Accelerator already used by a different action, if any. */
   conflict: string | null;
-  /**
-   * Why the OS would not take this combo, if it refused it. Distinct from
-   * `conflict`: that is a clash inside this app (the other row wins), while
-   * this is another program on the machine owning the keys.
-   */
   refused: string | null;
-  /** Master switch is off: the row is inert but its binding is kept. */
   disabled: boolean;
   onChange: (accelerator: string) => void;
 }) {
@@ -76,8 +52,6 @@ function HotkeyRow({
   useEffect(() => {
     if (!recording) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      // Capture phase + preventDefault: the combo being recorded must not
-      // also reach the dashboard's own shortcuts.
       e.preventDefault();
       e.stopPropagation();
       if (e.key === "Escape") {
@@ -90,12 +64,8 @@ function HotkeyRow({
         return;
       }
       const accel = acceleratorFromEvent(e);
-      // null = a modifier on its own, or a key the grammar has no name for.
       if (!accel) return;
       setPending(accel);
-      // The backend owns the grammar, so it gets the final say on whether the
-      // OS would accept this. Checked client-side first to skip the round trip
-      // on the obvious cases.
       if (!isSafeAccelerator(accel)) {
         setError("Add Ctrl, Alt, Shift or Win — a bare key would be taken everywhere.");
         return;
@@ -132,9 +102,6 @@ function HotkeyRow({
         {!error && refused && (
           <div
             className="mt-1 text-[11px] leading-relaxed text-red-300"
-            // The raw OS message is debug-flavoured (`HotKey { mods: … }`), so
-            // the row says it in plain words and keeps the original in the
-            // tooltip for anyone reporting a bug.
             title={refused}
           >
             {t("hotkeys.not-active-this-combo-is-taken-so-the-key-does-n")}
@@ -154,7 +121,6 @@ function HotkeyRow({
         ) : value ? (
           <ComboChips accelerator={value} />
         ) : (
-          // Ghost hint rather than a blank: the suggestion is the affordance.
           <span
             className="font-mono text-[11px] text-[var(--text-faint)]/60"
             title={t("hotkeys.suggested-{combo}", { combo: suggested })}
@@ -182,30 +148,14 @@ function HotkeyRow({
   );
 }
 
-/**
- * Global hotkeys settings.
- *
- * Nothing is bound on a fresh install — see `HotkeyBinding` in config.rs for
- * why. This card therefore leads with the suggestion rather than a value, so
- * the affordance is "here is a combo you probably want, press it to take it"
- * instead of an empty column of dashes.
- */
 export default function HotkeysCard() {
   const general = useStore((s) => s.cfg?.general);
   const save = useStore((s) => s.save);
-  // What the OS actually took on the last registration pass. Matched on the
-  // combo as well as the action, so a binding edited since the last pass does
-  // not inherit the previous combo's warning.
   const failures = useStore((s) => s.hotkeyFailures);
-  // While a row is recording, the value under it has not been written yet, so
-  // duplicate detection needs the pending combo too. Tracked here rather than
-  // in each row so every row agrees on who has what.
   const [draft, setDraft] = useState<{ id: HotkeyActionId; accel: string } | null>(null);
 
   if (!general) return null;
   const cfg: HotkeyConfig = general.hotkeys;
-  // Older configs predate the switch; absence means on, matching the Rust
-  // default so the dashboard and the tray can never disagree about it.
   const enabled = general.hotkeysEnabled ?? true;
   const boundCount = HOTKEY_ACTIONS.filter(
     (a) => (cfg[a.id]?.accelerator ?? "").trim() !== "",
@@ -225,11 +175,7 @@ export default function HotkeysCard() {
   };
 
   const anyBound = boundCount > 0;
-  // Older configs predate the blink; absence means on, matching the Rust
-  // default so the card can never show a toggle the backend would ignore.
   const blinkMs = general.hotkeyBlinkMs ?? 450;
-  // Falls back to the shared token, which is the same value the backend
-  // substitutes for a binding with no stored colour.
   const blinkColor = general.hotkeyBlinkColor ?? HOTKEY_BLINK_COLOR;
 
   return (
@@ -242,8 +188,6 @@ export default function HotkeysCard() {
             size="sm"
             variant="ghost"
             onClick={() => {
-              // Fill every empty action with its suggestion in one save, so a
-              // user who wants the whole set does not click twelve times.
               const next: Record<string, string> = {};
               for (const a of HOTKEY_ACTIONS) {
                 next[a.id] = cfg[a.id]?.accelerator || a.suggested;
@@ -278,8 +222,8 @@ export default function HotkeysCard() {
             onChange={(v) => save((c) => (c.general.hotkeysEnabled = v))}
           />
         </div>
-        {/* ---- blink feedback: lives with the bindings because it is a
-            reaction to them, not a general lighting preference ---- */}
+        {
+ }
         <div
           className={`border-b border-[var(--line)] py-3 transition-opacity ${
             enabled ? "" : "pointer-events-none opacity-40"

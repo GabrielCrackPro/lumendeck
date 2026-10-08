@@ -1,8 +1,6 @@
 
 export interface FrecencyEntry {
-  /** Strength: one per use, older uses decayed away. */
   s: number;
-  /** When the entry was last bumped, epoch ms. */
   t: number;
 }
 
@@ -10,15 +8,11 @@ export interface FrecencyStore {
   [id: string]: FrecencyEntry;
 }
 
-/** A run is worth half as much a week later. */
 export const FRECENCY_HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Below this a use is history, not signal: dropped on write, hidden from rank. */
 const FADE_FLOOR = 0.01;
-/** The store is pruned to this — an unbounded map is a blob in localStorage. */
 const STORE_CAP = 60;
 
-/** Exponentially decayed by the entry's age. */
 export function decayedStrength(
   s: number,
   ageMs: number,
@@ -28,11 +22,6 @@ export function decayedStrength(
   return s * 0.5 ** (ageMs / halfLifeMs);
 }
 
-/**
- * Record one more use of `id`: its stored strength decays to now, then gains
- * 1. Pruned as it writes, so the store never grows past `STORE_CAP` or keeps
- * entries too faint to rank.
- */
 export function bumpFrecency(
   store: FrecencyStore,
   id: string,
@@ -44,11 +33,6 @@ export function bumpFrecency(
   return pruneFrecency({ ...store, [id]: { s, t: now } }, now, halfLifeMs);
 }
 
-/**
- * Drop what has faded below the floor, then keep only the strongest
- * `STORE_CAP`. Survivors keep their original `{s, t}` — decay is
- * multiplicative, so nothing is lost by not re-stamping them.
- */
 export function pruneFrecency(
   store: FrecencyStore,
   now: number,
@@ -64,11 +48,6 @@ export function pruneFrecency(
   return out;
 }
 
-/**
- * Ids by strength right now, strongest first — the "run often and lately"
- * block the idle list shows after the pins. Ids that no longer resolve to a
- * command simply fall out at the ordering step (see `withPinnedRecents`).
- */
 export function rankFrecency(
   store: FrecencyStore,
   now: number,
@@ -81,11 +60,6 @@ export function rankFrecency(
     .map((x) => x.id);
 }
 
-/**
- * Validate whatever is in localStorage into a store: absent, malformed or
- * hand-edited input all read as "no history" rather than throwing in an
- * open handler. One bad entry drops that entry, not the whole store.
- */
 export function parseFrecency(raw: string | null): FrecencyStore {
   if (!raw) return {};
   try {

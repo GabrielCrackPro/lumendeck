@@ -11,9 +11,6 @@ describe("buildReport", () => {
   });
 
   it("keeps the build identity when the fact rows omit it entirely", () => {
-    // The regression this guards: commit and dirty state used to be rows like
-    // any other, so relabelling or filtering a row could drop the one fact
-    // that makes a report actionable.
     const report = buildReport(HEADER, [["Platform", "Win32"]], null);
     expect(report.split("\n")[0]).toBe(HEADER);
     expect(report).toContain("ac91689-dirty");
@@ -42,8 +39,6 @@ describe("buildReport", () => {
   });
 
   it("appends the panic line last, unmodified", () => {
-    // Raw, not `Label: value`: the line already reads `PANIC in thread …` and
-    // copying it verbatim keeps it greppable against the log the user attaches.
     const panic =
       "PANIC in thread 'rgb-worker' at src/rgb/mod.rs:42: index out of bounds [build ac91689-dirty]";
     const report = buildReport(HEADER, [["Version", "0.2.7"]], panic);
@@ -56,8 +51,6 @@ describe("buildReport", () => {
   });
 
   it("tolerates a blank header rather than emitting a leading blank line", () => {
-    // An old backend without `report_header` reports empty. A leading empty
-    // line in a pasted report looks like the user pressed enter twice.
     const report = buildReport("   ", [["Version", "0.2.7"]], null);
     expect(report).toBe("Version: 0.2.7");
   });

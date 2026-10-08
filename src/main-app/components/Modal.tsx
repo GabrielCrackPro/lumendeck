@@ -25,29 +25,6 @@ function getFocusableControls(panel: HTMLElement): HTMLElement[] {
   );
 }
 
-/**
- * A modal dialog: scrim, header, and a focus trap.
- *
- * Rendered through a portal to <body>, and that is not optional. A `Card` sets
- * `backdrop-filter: blur(14px)`, and per the spec `backdrop-filter` — like
- * `filter`, `transform` and `perspective` — makes its element a containing
- * block for `position: fixed` descendants. So a `fixed inset-0` dialog written
- * in place resolves against the card it happens to live in, not the viewport:
- * the scrim covers one panel and the dialog centres in the middle of the
- * wallpaper grid instead of the window. The portal is the only thing that
- * escapes it, and it has to survive any future wrapper too.
- *
- * The trap is the part that matters next. A dialog without one lets Tab walk
- * out through the scrim into the page behind it, which is invisible and
- * unrecoverable — there is nothing on screen saying where focus went. Escape,
- * the scrim and the close button all dismiss, and focus goes back to whatever
- * opened it, so a cancelled dialog leaves you where you started rather than at
- * the top of the document.
- *
- * No exit animation. A dialog is dismissed by an explicit act, so unlike a
- * popover there is no pointer chasing the disappearing panel, and the deferred
- * unmount that buys a fade would just delay the next one opening.
- */
 export function Modal({
   title,
   onClose,
@@ -59,23 +36,8 @@ export function Modal({
 }: {
   title: string;
   onClose: () => void;
-  /**
-   * Renders a back arrow in the header. A dialog with more than one step needs
-   * to be able to return to the previous one without closing, or the only way
-   * back is to dismiss and start over.
-   */
   onBack?: () => void;
-  /** Required alongside `onBack`: the arrow alone names nothing. */
   backLabel?: string;
-  /**
-   * A minimal control that belongs to the dialog rather than to its content,
-   * drawn beside the close button at the same quiet weight.
-   *
-   * The profiles picker's save lives here: a full-width primary button under a
-   * three-row list is more chrome than the list it acts on, and the header is
-   * where the dialog's own commands belong. A caller passes `undefined` to hide
-   * it for a step where it would be a second route to the same place.
-   */
   headerAction?: ReactNode;
   children: ReactNode;
   className?: string;
@@ -85,10 +47,6 @@ export function Modal({
   const scrimPointerRef = useRef<number | null>(null);
   const titleId = useId();
 
-  // Focus the first real control rather than the panel itself. The panel only
-  // needs focus when it holds nothing focusable, and claiming it unconditionally
-  // beats any `autoFocus` the content set — a form that opens with the cursor
-  // nowhere near its first field is a form you have to click into.
   useEffect(() => {
     openerRef.current = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
@@ -117,7 +75,6 @@ export function Modal({
       const last = focusable[focusable.length - 1];
       if (!first || !last) return;
       const active = document.activeElement;
-      // Only wrap at the edges; in the middle, let the browser do its thing.
       if (e.shiftKey && (active === first || active === panel || !panel.contains(active))) {
         e.preventDefault();
         last.focus();

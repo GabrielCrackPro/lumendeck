@@ -1,10 +1,6 @@
-// Global dashboard state: config + rgb status + pause, synced with the backend.
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-// i18n.ts reads the config off this store, so importing its bound `t` back
-// would close an import cycle. i18next is the same singleton underneath and
-// has no such dependency.
 import i18next from "i18next";
 import { EVENTS, HOTKEY_ACTIONS } from "@shared/constants";
 import type {
@@ -22,17 +18,8 @@ import { truncateError } from "./utilities";
 import type { AvailableUpdate } from "./updater";
 import type { UpdateCheckRecord } from "./components/updateCheck";
 
-/**
- * A request to move the user somewhere: a tab, and optionally an anchor within
- * it. Held in the store because the tab itself lives in `Shell`.
- *
- * `tab` is a plain string rather than `TabId` on purpose — a module-level toast
- * must not import the Sidebar to name a screen. The Shell narrows it before it
- * renders anything.
- */
 export interface NavRequest {
   tab: string;
-  /** Where within the tab, as declared in `TAB_ANCHORS`. */
   anchor?: string;
 }
 
@@ -40,104 +27,36 @@ export interface Toast {
   id: number;
   tone: "error" | "info" | "ok";
   msg: string;
-  /** Bold headline above the message. Omitted for one-line notices. */
   title?: string;
-  /** 0..100 while a long task runs (an update download). */
   progress?: number | null;
-  /** Stay until dismissed — for things the user should not miss. */
   sticky?: boolean;
-  /**
-   * Collapses repeats: a new toast with the same key updates this one in
-   * place and bumps `count` instead of stacking. A device that reconnects
-   * every few seconds should read as "flapping", not as fifty cards.
-   */
   key?: string;
-  /** How many times a keyed toast has fired. */
   count?: number;
-  /** Optional single action — "Undo" on deletes, "Install" on an update. */
   action?: { label: string; run: () => void; disabled?: boolean };
-  /**
-   * Secondary text link, below the action.
-   *
-   * Separate from `action` because an update toast needs two distinct
-   * intentions: install now, or read what changed first. One button cannot
-   * offer both, and a toast has no room for two equal-weight buttons.
-   */
   link?: { label: string; run: () => void };
 }
 
 interface Store {
   cfg: Config | null;
   rgb: RgbStatus;
-  /** Latest colors actually pushed to OpenRGB, keyed by device id. */
   deviceColors: Record<number, DeviceColor>;
-  /**
-   * When each device id arrived, ms. Drives the "just connected" highlight on
-   * the device card, which has to outlive the toast because a toast only helps
-   * someone already looking at the dashboard.
-   *
-   * A device with no entry was present when we started watching — it has not
-   * been seen to arrive, so it gets no badge.
-   */
   deviceAddedAt: ArrivalMarks;
-  /** Live audio level from the audio-reactive mode. */
   audioLevel: AudioLevel;
-  /** What the OS media session is playing (null = nothing). */
   media: MediaInfo | null;
-  /** Wallpaper's current dominant color — drives the UI glow. */
   wallpaperColor: [number, number, number] | null;
-  /** The user's Windows accent color; live-updated via SYSTEM_ACCENT. */
   systemAccent: [number, number, number] | null;
-  /** The Windows display language as a BCP-47 tag ("es-ES"), fetched once at
-   *  boot. Read by the UI only when `general.language` is "auto"; the backend
-   *  reads the same preference for the tray. */
   systemLanguage: string | null;
-  /** Latest [volume_percent, muted_flag] from the backend volume watcher. */
   systemVolume: [number, number] | null;
   wallpaperPaused: boolean;
-  /**
-   * Bindings the OS refused on the last registration pass. Held here rather
-   * than only toasted, so the settings row can keep saying "this combo does
-   * nothing" for as long as it is true — a toast is gone in four seconds,
-   * which is easy to miss for a binding that silently never fires.
-   */
   hotkeyFailures: HotkeyError[];
   updateAvailable: AvailableUpdate | null;
-  /**
-   * A tab to switch to, and optionally a place within it, set by anything
-   * outside the Shell.
-   *
-   * The tab lives in `Shell`'s own `useState`, because it is the one piece of
-   * navigation state no store consumer needs. That leaves an update toast, which
-   * is raised from a module-level function with no access to the setter, unable
-   * to send the user to the changelog. This is the seam.
-   *
-   * The anchor is what makes it usable from more than one place: "open the
-   * changelog" is a tab, but "show the vault" or "take them to the lighting
-   * mode" is a tab plus a spot in it. Both halves are optional in the sense that
-   * a tab on its own is the common case.
-   *
-   * Held as a plain object rather than two fields because a request must not be
-   * able to apply its tab and then lose its anchor across a render -- the Shell
-   * reads both in one go and clears once.
-   *
-   * Cleared by the Shell as it applies it, so the same request cannot re-fire
-   * on the next render.
-   */
   navRequest: NavRequest | null;
   loaded: boolean;
-  /** True while a config save is in flight (optimistic UI already applied). */
   saving: boolean;
   loadError: string | null;
   load: () => Promise<void>;
   save: (mutate: (cfg: Config) => void) => Promise<void>;
   setRgb: (rgb: RgbStatus) => void;
-  /**
-   * Adopt a device list we asked for rather than were told, without recording
-   * arrivals. Only the boot poll may use this: hardware already plugged in
-   * when the app launched did not just connect, and a dashboard that opens
-   * with six "just connected" cards is worse than one that says nothing.
-   */
   seedRgb: (rgb: RgbStatus) => void;
   setDeviceColors: (frame: DeviceColor[]) => void;
   setAudioLevel: (level: AudioLevel) => void;
@@ -148,25 +67,10 @@ interface Store {
   setWallpaperPaused: (p: boolean) => void;
   setHotkeyFailures: (failures: HotkeyError[]) => void;
   setUpdateAvailable: (update: AvailableUpdate | null) => void;
-  /**
-   * The last update check that ran, or null when none ever has.
-   *
-   * Separate from `updateAvailable`, which answers "is there something to
-   * install" and is null both when there is not and when nothing has been
-   * checked. This one answers "has the app looked, and what did it find" --
-   * the difference between an interval that is working and one that is quietly
-   * failing.
-   */
   updateCheck: UpdateCheckRecord | null;
   setUpdateCheck: (record: UpdateCheckRecord | null) => void;
-  /**
-   * Ask the Shell to switch tab, and optionally scroll to an anchor within it.
-   * Read `navRequest` for the reason.
-   */
   navigateTo: (tab: string, anchor?: string) => void;
-  /** Called by the Shell once it has applied a request. */
   clearNavRequest: () => void;
-  /** Transient notifications (auto-dismiss in Shell). */
   toasts: Toast[];
   toast: (
     tone: Toast["tone"],
@@ -175,18 +79,11 @@ interface Store {
       Pick<Toast, "action" | "link" | "title" | "progress" | "sticky" | "key">
     >,
   ) => void;
-  /** Patch an existing toast in place (progress ticks, disabling its action). */
   patchToast: (id: number, patch: Partial<Omit<Toast, "id">>) => void;
   dismissToast: (id: number) => void;
-  /**
-   * Toast offering to put a just-deleted config entity back, verbatim.
-   * `restore` mutates the config the same way the delete removed it, so the
-   * original id (and anything pointing at it) survives.
-   */
   undoDelete: (msg: string, restore: (cfg: Config) => void) => void;
 }
 
-/** Invoke with a timeout so a hung command becomes a visible error. */
 async function invokeWithTimeout<T>(
   cmd: string,
   args?: Record<string, unknown>,
@@ -252,15 +149,12 @@ export const useStore = create<Store>((set, get) => ({
     } else {
       errors.push(`rgb: ${String(rgbRes.reason)}`);
     }
-    // Media is optional chrome: a failure to read SMTC must never block the
-    // dashboard, and "no session" (null) is a normal state.
     if (mediaRes.status === "fulfilled") {
       patch.media = mediaRes.value;
     }
 
     patch.loadError = errors.length ? errors.join(" · ") : null;
     set(patch as Store);
-    // Surface load problems as toasts too (refreshes included).
     if (patch.loadError) {
       get().toast("error", i18next.t("common.backend-unreachable-{error}", { error: patch.loadError }));
     }
@@ -269,9 +163,6 @@ export const useStore = create<Store>((set, get) => ({
   toasts: [],
   toast: (tone, msg, opts) =>
     set((s) => {
-      // A repeat with the same key updates the card already on screen: the
-      // newest state wins, the card keeps one identity, and the count says
-      // how noisy it has been. The dismiss timer restarts with it.
       if (opts?.key) {
         const i = s.toasts.findIndex((t) => t.key === opts.key);
         if (i !== -1) {
@@ -317,8 +208,6 @@ export const useStore = create<Store>((set, get) => ({
             label: i18next.t("common.undo"),
             run: () => {
               get().dismissToast(id);
-              // save() reports its own failures; a rejected restore just
-              // re-syncs from the backend like any other failed write.
               void get().save(restore);
             },
           },
@@ -332,13 +221,12 @@ export const useStore = create<Store>((set, get) => ({
     if (!current) return;
     const next = structuredClone(current);
     mutate(next);
-    set({ cfg: next, saving: true }); // optimistic
+    set({ cfg: next, saving: true });
     try {
       const saved = await api.setConfig(next);
       set({ cfg: saved });
     } catch (e) {
       get().toast("error", i18next.t("common.save-failed-{error}", { error: truncateError(e, 140) }));
-      // Re-sync with the truth so the optimistic state doesn't linger.
       get()
         .load()
         .catch(() => {});
@@ -347,10 +235,6 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
-  // Pruning lives here rather than at the event listener so that every route
-  // into a new device list gets it: the `rgb-status` event, the boot poll, and
-  // the onboarding probe. A caller that remembered to prune would have been
-  // the same class of bug as the one that never emitted the event at all.
   setRgb: (rgb) =>
     set((s) => ({
       rgb,
@@ -365,9 +249,6 @@ export const useStore = create<Store>((set, get) => ({
         Date.now(),
       ),
     })),
-  // The one status we requested rather than were told. Diffing it against an
-  // empty baseline would report every device the user already owns as a fresh
-  // arrival, so it is adopted without recording anything.
   seedRgb: (rgb) =>
     set((s) => ({
       rgb,
@@ -396,14 +277,10 @@ export const useStore = create<Store>((set, get) => ({
   setUpdateAvailable: (updateAvailable) => set({ updateAvailable }),
   setUpdateCheck: (updateCheck) => set({ updateCheck }),
   navigateTo: (tab, anchor) =>
-    // A fresh object every call rather than mutating, so two requests for the
-    // same tab are two renders: repeating "go to the vault" has to scroll again
-    // even though the tab is already active.
     set({ navRequest: { tab, anchor } }),
   clearNavRequest: () => set({ navRequest: null }),
 }));
 
-/** Subscribe to backend events; returns a cleanup fn. */
 export async function bindEvents(): Promise<() => void> {
   const unsubs: (() => void)[] = [];
   unsubs.push(
@@ -416,9 +293,6 @@ export async function bindEvents(): Promise<() => void> {
     await listen<RgbStatus>(EVENTS.RGB_STATUS, (e) => {
       const prev = lastDeviceIds;
       const next = e.payload.devices.map((d) => d.id);
-      // Turning lighting off in the settings clears the backend's device list
-      // too, which would otherwise read as OpenRGB having crashed and raise a
-      // toast every time the user toggled the feature they were looking at.
       const userDisabled = useStore.getState().cfg?.rgb.enabled === false;
       if (prev !== null && !e.payload.connected && prev.length > 0 && !userDisabled) {
         useStore
@@ -429,8 +303,6 @@ export async function bindEvents(): Promise<() => void> {
         const removed = prev.filter((id) => !next.includes(id));
         const nameOf = (id: number) =>
           e.payload.devices.find((d) => d.id === id)?.name ?? `Device ${id}`;
-        // Keyed per device: a USB hub that drops and comes back produces one
-        // card that keeps count, not a new card on every transition.
         for (const id of added) {
           useStore
             .getState()
@@ -448,9 +320,6 @@ export async function bindEvents(): Promise<() => void> {
       useStore.getState().setRgb(e.payload);
     }),
   );
-  // The engine emits frames at up to 40Hz per device; the dashboard preview
-  // only needs ~12Hz. Coalesce to the latest frame on a fixed interval so the
-  // store (and every subscribing component) re-renders 3-4x less.
   let latestFrame: DeviceColor[] | null = null;
   let frameTimer: ReturnType<typeof setInterval> | null = null;
   unsubs.push(
@@ -494,10 +363,6 @@ export async function bindEvents(): Promise<() => void> {
       useStore.setState({ systemVolume: e.payload });
     }),
   );
-  // A hotkey that could not be bound (another app owns the combo) or that had
-  // nothing to act on. Keyed per accelerator so a combo another app holds
-  // produces one toast rather than one per failed save. A press with nothing
-  // to act on is informational, not a failure — the binding itself is fine.
   unsubs.push(
     await listen<HotkeyError>(EVENTS.HOTKEY_ERROR, (e) => {
       const { action, accelerator, message } = e.payload;
@@ -513,33 +378,16 @@ export async function bindEvents(): Promise<() => void> {
         );
     }),
   );
-  // The full post-registration picture. Replaces the list outright each pass,
-  // so a combo the user has just fixed stops showing as broken without any
-  // extra bookkeeping on the frontend.
   unsubs.push(
     await listen<HotkeyError[]>(EVENTS.HOTKEY_STATUS, (e) => {
       useStore.getState().setHotkeyFailures(e.payload ?? []);
     }),
   );
-  // The backend only emits on a *transition* — emitting every poll would wake
-  // all four webviews once a second to re-render an unchanged list. So a
-  // machine whose gear never changes emits nothing, and the dashboard would
-  // sit on its boot-time default showing no devices at all. One poll is the
-  // baseline; every later change arrives as an event. Seeding
-  // `lastDeviceIds` at the same time is what keeps the first real transition
-  // from looking like a mass disconnect.
-  //
-  // Last, deliberately: this is an awaited round-trip, and every listener
-  // above needs to be subscribed before it returns or early `rgb-frame`s have
-  // nowhere to land.
   try {
     const initial = await api.rgbStatus();
     lastDeviceIds = initial.connected ? initial.devices.map((d) => d.id) : [];
     useStore.getState().seedRgb(initial);
   } catch (e) {
-    // Not swallowing this: an unreachable IPC host is a real fault, and the
-    // device list stays empty with nothing to say why. A missing OpenRGB
-    // server is not — `rgbStatus` still returns a status in that case.
     console.error("[rgb] initial status poll failed", e);
   }
   return () => {

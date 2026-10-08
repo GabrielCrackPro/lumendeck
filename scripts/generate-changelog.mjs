@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-// Generates CHANGELOG.md from conventional commits.
-//
-// Why this exists: the release pipeline's changelog was a GitHub Action that
-// only ever produced a release *body*, matched categories to PR labels this
-// repo does not use, and threw away commit scopes. That left no file to read
-// in the repo, nothing for the app to display, and release notes padded with
-// CI noise nobody wants to read.
-//
-// Usage:
-//   node scripts/generate-changelog.mjs                 # write CHANGELOG.md
-//   node scripts/generate-changelog.mjs --since v0.2.6  # one range
-//   node scripts/generate-changelog.mjs --stdout        # print, write nothing
-//   node scripts/generate-changelog.mjs --release-notes # just this version
-//   node scripts/generate-changelog.mjs --check         # exit 1 if stale
-//   node scripts/generate-changelog.mjs --commit        # write, then commit it
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -23,8 +8,6 @@ const CHANGELOG_NAME = "CHANGELOG.md";
 const CHANGELOG = `${ROOT}${CHANGELOG_NAME}`;
 const NOTES_DIR = `${ROOT}.github/changelog-notes`;
 
-// Conventional-commit types, split by whether a user would care. Internal
-// types still count toward the summary line so nothing is silently lost.
 const SECTIONS = [
   { title: "Added", types: ["feat"], user: true },
   { title: "Changed", types: ["refactor", "style"], user: true },
@@ -43,7 +26,6 @@ function fail(message) {
   process.exit(1);
 }
 
-/** Commits newest-first, one per record, with NUL separators. */
 function readCommits(from) {
   const range = from ? [`${from}..HEAD`] : [];
   const format = ["%H%x00%s%x00%b%x00%aI%x00%cI%x1e"].join("");
@@ -64,11 +46,6 @@ function readCommits(from) {
     });
 }
 
-/**
- * Commits in the range that touched `path`. Asked separately because
- * `git log --name-only` interleaves the file list with the next record's
- * fields, which is not worth parsing.
- */
 function commitsTouching(path, from) {
   const range = from ? [`${from}..HEAD`] : [];
   let out = "";
@@ -85,7 +62,6 @@ function commitsTouching(path, from) {
   );
 }
 
-/** `fix(tray): show one icon` -> { type: "fix", scope: "tray", text: "..." } */
 function parseSubject(subject) {
   const match = /^(\w+)(?:\(([^)]+)\))?(!)?:\s*(.+)$/.exec(subject.trim());
   if (!match) return null;
@@ -116,16 +92,10 @@ function shortHash(hash) {
   return hash.slice(0, 7);
 }
 
-/** True when a commit type earns a line in the notes a user reads. */
 function isUserFacing(type) {
   return SECTIONS.find((s) => s.types.includes(type))?.user === true;
 }
 
-/**
- * The date a release earns: when its commits landed, not when the script
- * happened to run. Wall-clock time would rewrite the file on every run and
- * make `--check` fail on CI every day after the commit.
- */
 function releaseDate() {
   try {
     const committed = git(["log", "-1", "--format=%cI"]).trim();
@@ -136,23 +106,16 @@ function releaseDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/**
- * Normalize line endings. CI checks out on windows-latest with autocrlf, so
- * the file on disk arrives CRLF while the generator emits LF — comparing
- * them raw would report a correct changelog as stale on every run.
- */
 function normalize(text) {
   return text.replace(/\r\n?/g, "\n");
 }
 
-/** Commit hashes the file already lists. */
 function listedHashes(document) {
   return new Set(
     [...document.matchAll(/\(`([0-9a-f]{7,})`\)/g)].map((m) => m[1]),
   );
 }
 
-/** Extra prose a human wrote for a version, if any. */
 function notesFor(version) {
   const path = `${NOTES_DIR}/${version}.md`;
   if (!existsSync(path)) return null;
@@ -166,9 +129,6 @@ function formatEntry(entry) {
   return `- ${breaking}${scope}${entry.parsed.text} (\`${shortHash(entry.hash)}\`)`;
 }
 
-/** Section title -> a conventional type that renders under it. Carried lines
- *  arrive as finished markdown from an earlier run, so they need a type only
- *  to land back in the same heading. */
 const SECTION_TYPE = {
   Added: "feat",
   Changed: "refactor",
@@ -177,18 +137,6 @@ const SECTION_TYPE = {
   Internal: "chore",
 };
 
-/**
- * Entries the file already lists under this version, so regenerating adds to
- * the section instead of replacing it.
- *
- * The old behaviour rebuilt the current version's section purely from
- * `<newest tag>..HEAD`. That is only correct while the newest tag by *version
- * string* is also the boundary of this release — and here it is not: tags run
- * to v0.2.22 while the app is 0.2.7, so `v0.2.22..HEAD` excludes commits that
- * genuinely belong to 0.2.7 and the next run deleted three real release
- * notes. Merging keeps the promise in the comment below: a note that was
- * written once is never dropped, whatever the tag situation looks like.
- */
 function carryForward(section) {
   const carried = [];
   let counts = { internal: 0, misc: 0 };
@@ -208,8 +156,6 @@ function carryForward(section) {
       });
       continue;
     }
-    // Internal commits are summarised as a count rather than listed, so the
-    // count is the only record of them that exists.
     const summary = line.match(/^_(\d+) (internal|misc)/);
     if (summary) counts[summary[2]] = Number(summary[1]);
   }
@@ -228,7 +174,6 @@ function renderRelease(version, date, entries, carriedCounts = { internal: 0, mi
   const internal = entries.filter(
     (e) => !SECTIONS.find((s) => s.types.includes(e.parsed.type))?.user,
   );
-  // Commit types the table does not know about would otherwise vanish.
   const unknown = entries.filter((e) => !KNOWN_TYPES.has(e.parsed.type));
 
   for (const section of SECTIONS) {
@@ -267,16 +212,8 @@ function build() {
     readFileSync(`${ROOT}src-tauri/tauri.conf.json`, "utf8"),
   ).version;
 
-  // Everything since the newest tag already on the repo is unreleased. With
-  // an explicit --since, that range wins (used to backfill a single release).
   const allTags = tagsDescending();
   const from = since ?? allTags[0];
-  // Commits that touched this file are the ones recording it, not the ones it
-  // describes. Both bookkeeping commits would otherwise feed on themselves: the
-  // release job's `chore(release): record <version>` and the `--commit` above,
-  // each landing after its own tag and each guaranteeing the next run had
-  // something to write. `--check` has always excluded them; the write path has
-  // to agree, or `--commit` never reaches a fixed point.
   const bookkeeping = commitsTouching(CHANGELOG_NAME, from);
   const entries = readCommits(from)
     .map((commit) => ({ ...commit, parsed: parseSubject(commit.subject) }))
@@ -300,9 +237,6 @@ function build() {
     "",
   ].join("\n");
 
-  // Rebuild the file: the current version's section is regenerated, older
-  // sections are carried over untouched, so running this with no new commits
-  // is a no-op and no release note is ever silently dropped.
   const existing = existsSync(CHANGELOG)
     ? normalize(readFileSync(CHANGELOG, "utf8"))
     : "";
@@ -310,12 +244,7 @@ function build() {
   const [oldHeader, ...oldSections] = existing.split(/\n(?=## )/);
   const kept = oldSections.filter((s) => !s.startsWith(head));
   const current = oldSections.find((s) => s.startsWith(head)) ?? "";
-  // New commits first (newest at the top), then everything the section
-  // already listed that this range did not rediscover. Re-running is stable:
-  // the second pass finds its own output and produces the same file.
   const { carried, counts } = carryForward(current);
-  // Bullets carry the short hash while git gives the full one, so the
-  // comparison has to be in the same units.
   const fresh = new Set(entries.map((e) => shortHash(e.hash)));
   const document = [
     header.trimEnd(),
@@ -336,24 +265,12 @@ function build() {
     console.log(document);
     return;
   }
-  // The GitHub release body: this version's section only, so a release does
-  // not reprint the project's whole history.
   if (releaseNotes) {
     const [, section = ""] = document.split(/\n(?=## )/);
     console.log(section.trim());
     return;
   }
   if (check) {
-    // The rule: every *user-facing* commit since the last release is listed
-    // in the file, except commits that are themselves changelog bookkeeping.
-    // A commit that edits CHANGELOG.md can never appear in its own contents,
-    // so demanding it would make the check unpassable the moment it is fixed.
-    // Internal types are excluded too: they collapse into a count, so there
-    // is no entry line to carry their hash.
-    //
-    // Hashes are compared rather than the whole document, so a differently
-    // stamped date, a CRLF checkout, or a reworded summary line cannot turn
-    // a correct changelog into a red build.
     if (!existsSync(CHANGELOG)) {
       fail("CHANGELOG.md is missing — run: node scripts/generate-changelog.mjs");
     }
@@ -382,16 +299,6 @@ function build() {
 
   if (!commit) return;
 
-  // The commit is named after the release rather than after the hash it listed.
-  // GitHub titles a run after the subject of the commit at the tip, and that
-  // commit is always this one — so a subject of `chore: list a2625fb in the
-  // release notes` is the name every push to main gets, and it tells you
-  // nothing you could not read off the release page instead.
-  // `git status --porcelain` cannot be used for this. With `core.autocrlf` on
-  // and an LF working tree, it reports the file as modified while `git diff`
-  // and a byte comparison both say it is identical to HEAD — the index stat
-  // cache, not a real change. Asking git for the diff is the only version of
-  // the question that agrees with what `git commit` will then decide.
   if (!git(["diff", "--numstat", "--", CHANGELOG_NAME]).trim()) {
     console.log("CHANGELOG.md already matches; nothing to commit.");
     return;

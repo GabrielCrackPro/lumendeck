@@ -10,40 +10,14 @@ import { IconRefresh } from "./components/icons";
 import { AppMark, AppWordmark } from "./components/ui";
 import { GLOW_TEXT_DARK } from "@shared/constants";
 
-/**
- * Boot readiness gates. The splash stays up until ALL of these pass so the
- * user never sees a half-built interface (empty cards, stale counters):
- *   1. config + RGB status loaded from the backend
- *   2. the first RGB frame arrived (engine is actually streaming)
- *   3. a short beat for the window to settle
- * If the engine never streams a frame (no OpenRGB, all devices excluded),
- * gate 2 falls away after a grace period instead of blocking forever.
- */
 const FIRST_FRAME_GRACE_MS = 2500;
-const MIN_SPLASH_MS = 700; // avoids a jarring flash of the splash
+const MIN_SPLASH_MS = 700;
 
-/**
- * How long `.theme-anim` rides on <html> — one cross-fade of the palette,
- * then off again (index.css says why it cannot be permanent).
- */
 const THEME_FADE_MS = 380;
 
-/**
- * Whether the palette has been applied once already.
- *
- * The first application lands a frame after the first paint, where a fade
- * would show the wrong palette as a *transition* rather than as the frame it
- * already was — so only the switches after it animate.
- */
 let paletteSeeded = false;
 
 type Stage = 0 | 1 | 2 | 3;
-/**
- * Catalog keys, one per boot stage — the words the splash reads out while the
- * loading bar fills. Keys rather than copy: this is user-facing text, and a
- * Spanish build was booting in English because the checker cannot see a bare
- * `{STAGE_LABEL[stage]}` expression.
- */
 const STAGE_LABEL_KEYS: Record<Stage, string> = {
   0: "shell.connecting-to-the-engine",
   1: "shell.reading-your-setup",
@@ -51,12 +25,6 @@ const STAGE_LABEL_KEYS: Record<Stage, string> = {
   3: "shell.polishing-the-glass",
 };
 
-/**
- * Warm the lazy tab chunks while the splash is still up, so the first tab
- * click (and the Overview's first paint) never sits on a skeleton. Idle
- * scheduling keeps this off the critical path; failures are harmless because
- * Suspense retry handles them on demand.
- */
 function preloadTabs() {
   const kick = () => {
     void import("./components/tabs/OverviewTab");
@@ -74,8 +42,6 @@ function preloadTabs() {
 }
 
 export default function App() {
-  // Scoped: a bare useStore() would re-render the whole app on every RGB
-  // frame (~12Hz) because the store hands out a new deviceColors object.
   const { cfg, loaded, loadError, load } = useStore(
     useShallow((s) => ({
       cfg: s.cfg,
@@ -85,23 +51,12 @@ export default function App() {
     })),
   );
 
-  // Subscribing here is what makes a language change repaint the app: the
-  // translator is a plain function that re-reads the locale on every call, so
-  // this render is the signal that reaches every screen. Nothing below is
-  // memoized, so one root render is enough.
   const locale = useLocale();
 
-  // Keep the document honest about what language it is in — screen readers
-  // announce with it, and the browser picks the right font fallbacks.
-  //
-  // `applyLocale` is the other half: it points i18next at the catalog, which
-  // is what `t` actually reads through. Both have to happen or the tree
-  // re-renders in the old language.
   useEffect(() => {
     document.documentElement.lang = locale;
     applyLocale(locale);
   }, [locale]);
-  // Splash holds until `ready`; `stage` drives the splash's progress copy.
   const [stage, setStage] = useState<Stage>(0);
   const [ready, setReady] = useState(false);
 
@@ -114,10 +69,6 @@ export default function App() {
     };
   }, [load]);
 
-  // The Windows display language, fetched once at boot. Only consulted when
-  // `general.language` is "auto", but it is cheap and it has to be in the
-  // store before the first paint or the splash would flash English on a
-  // Spanish machine.
   useEffect(() => {
     let disposed = false;
     api
@@ -131,16 +82,10 @@ export default function App() {
     };
   }, []);
 
-  // Watches for releases while the app is running, not only at startup: it
-  // checks once now, again whenever the window comes back, and then on the
-  // interval the user set. Without this, an app left open across a release
-  // stayed on the old build until the user happened to restart it.
   useUpdateWatcher(loaded && !!cfg?.general.onboarded, cfg?.general.updateCheckMinutes);
 
-  // Stage machine: advance as real readiness signals arrive.
   useEffect(() => {
     if (stage === 0 && loaded) setStage(1);
-    // Gate 2's grace: don't wait forever for a first frame.
     const t = window.setTimeout(
       () => setStage((s) => Math.max(s, 2) as Stage),
       FIRST_FRAME_GRACE_MS,
@@ -148,12 +93,6 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [loaded, stage]);
 
-  // Gate 2's real signal: the first RGB frame from the engine. Without this
-  // the splash always burned its full grace timeout on every launch —
-  // the single biggest "why does this take so long to open" offender. A
-  // machine without OpenRGB (or with everything muted) never streams frames,
-  // so an offline engine + loaded config also releases the gate immediately;
-  // the grace timeout remains as the fallback for a hung connection.
   const gate2Done = useRef(false);
   useEffect(() => {
     if (stage >= 2 || gate2Done.current) return;
@@ -189,10 +128,6 @@ export default function App() {
     const theme = cfg?.general.theme ?? "system";
     const amoled = cfg?.general.amoled ?? false;
 
-    // The palette is one class flip, which would otherwise snap between two
-    // complete themes in a single frame. `.theme-anim` cross-fades every colour
-    // property for the length of the swap and is removed again when it has
-    // run, so nothing else in the app inherits this duration.
     let timer = 0;
     const key = (dark: boolean, black: boolean) => `${dark}|${black}`;
     const apply = (dark: boolean, black: boolean) => {
@@ -200,7 +135,6 @@ export default function App() {
         root.classList.contains("dark"),
         root.classList.contains("amoled"),
       );
-      // AMOLED only applies to the dark theme — light stays unchanged.
       root.classList.toggle("dark", dark);
       root.classList.toggle("amoled", black);
       const animate = paletteSeeded && before !== key(dark, black);
@@ -212,7 +146,6 @@ export default function App() {
         THEME_FADE_MS,
       );
     };
-    // "system" follows the OS preference live; dark/light are explicit.
     if (theme === "system") {
       const mq = window.matchMedia("(prefers-color-scheme: light)");
       const onSystem = () => apply(!mq.matches, amoled && !mq.matches);
@@ -233,9 +166,6 @@ export default function App() {
     };
   }, [cfg?.general.theme, cfg?.general.amoled]);
 
-  // Theme must be known before ANY chrome paints: applying it after the
-  // splash would flash the wrong palette. Seed from the store synchronously
-  // (the config may already be in the store from a fast reload).
   if (loadError) {
     return <LoadError error={loadError} onRetry={() => load()} />;
   }
@@ -251,7 +181,6 @@ export default function App() {
   return <Shell />;
 }
 
-/** Boot splash: the LumenDeck LED mark with live staging readout. */
 function Splash({ stage, streaming }: { stage: Stage; streaming: boolean }) {
   const pct = ((stage + 1) / 4) * 100;
   return (
@@ -265,10 +194,10 @@ function Splash({ stage, streaming }: { stage: Stage; streaming: boolean }) {
             {t(STAGE_LABEL_KEYS[stage])}
           </div>
         </div>
-        {/* One track easing toward this stage's share, with a sweep that keeps
-            moving while the stage is still running. Four blocks said "3 of 4
-            done" and then sat dead still for as long as the stage took — the
-            one thing a loading bar has to say is that it is still working. */}
+        {
+
+
+ }
         <div
           role="progressbar"
           aria-label={t(STAGE_LABEL_KEYS[stage])}
@@ -295,14 +224,11 @@ function Splash({ stage, streaming }: { stage: Stage; streaming: boolean }) {
   );
 }
 
-/** Backend connect failure — readable reason + a glowing retry. */
 function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
   const [retrying, setRetrying] = useState(false);
   const retry = () => {
     setRetrying(true);
     onRetry();
-    // onRetry is async (store load); if it fails again the error re-renders
-    // and this flag resets via the store update. Optimistic spinner only.
     setTimeout(() => setRetrying(false), 1200);
   };
   return (

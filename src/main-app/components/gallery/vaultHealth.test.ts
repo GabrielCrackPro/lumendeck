@@ -30,9 +30,6 @@ describe("sourceKey", () => {
   });
 
   it("lowercases, so a path Explorer re-cased still matches", () => {
-    // Windows paths are case-insensitive, and renaming in Explorer freely
-    // changes the case. Treating these as two files would offer to delete one
-    // of two entries that are genuinely the same wallpaper.
     expect(sourceKey(entry({ source: win("Clip.MP4") }))).toBe(
       sourceKey(entry({ source: win("clip.mp4") })),
     );
@@ -62,8 +59,6 @@ describe("findDuplicates", () => {
   });
 
   it("does not merge a video and an image that share a path", () => {
-    // Cannot really happen, but the key does not include the kind and that is
-    // deliberate: same path means same file, and a file is one kind.
     expect(
       findDuplicates([
         entry({ source: win("a.mp4"), kind: "video" }),
@@ -78,8 +73,6 @@ describe("healthOf", () => {
   const dupes = new Set(["d"]);
 
   it("reports a missing file above a duplicate", () => {
-    // A duplicate whose file is also gone is a missing file. Reporting the
-    // duplicate would send the user to tidy something that cannot be played.
     expect(healthOf("m", missing, dupes)).toBe("missing");
   });
 

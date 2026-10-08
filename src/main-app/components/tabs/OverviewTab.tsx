@@ -29,16 +29,6 @@ import {
   useAudioVars,
 } from "../overview/hooks";
 
-/**
- * The four salutations, each mapped to the same sentence with the account name
- * folded in.
- *
- * Written as a map rather than interpolated at the call site so that both forms
- * of every salutation sit together and are visible to `i18n-check` — a
- * template-literal key would leave the named half looking dead. The pairing is
- * the point: nothing here can end up greeting someone by name with the
- * afternoon's sentence.
- */
 const GREETING_KEYS = {
   "overview.up-late": "overview.up-late-{name}",
   "overview.good-morning": "overview.good-morning-{name}",
@@ -47,11 +37,6 @@ const GREETING_KEYS = {
 } as const;
 
 export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) => void }) {
-  // Every field here changes at human speed. The one thing on this screen that
-  // does not is the live device colour — republished ~12x/second — and it is
-  // deliberately absent: selecting it put the entire tab on that cadence,
-  // repainting the media card, the profile list and the shortcuts twelve times a
-  // second to move one colour bar. Each DeviceRow reads its own slice instead.
   const { cfg, rgb, wallpaperPaused, save, media } = useStore(
     useShallow((s) => ({
       cfg: s.cfg,
@@ -61,20 +46,8 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
       media: s.media,
     })),
   );
-  // Any config save holds the store's one `saving` flag; the attention chips
-  // that answer by saving read it so a second press while the first write is
-  // in flight cannot double-apply the same fix. Navigation needs no guard —
-  // it is a client-side state change, not a write.
   const saving = useStore((s) => s.saving);
-  // The signed-in Windows account, for the greeting below. Asked once: it
-  // cannot change while the app runs. An empty string is a real answer, not a
-  // placeholder — Windows sometimes will not say — and it has to fall back to
-  // the unnamed salutation rather than print a comma with nothing after it.
   const [accountName, setAccountName] = useState("");
-  // Whether the engine card is showing every device. Lived in the card until
-  // this: it is a property of how much room the user wants this card to take on
-  // the page, not of any one row, and it has to survive the row list changing
-  // underneath it when a device connects.
   const [allDevices, setAllDevices] = useState(false);
   useEffect(() => {
     let disposed = false;
@@ -83,30 +56,25 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
       .then((name) => {
         if (!disposed) setAccountName(name);
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        console.warn(
+          "[overview] account name unavailable; using the unnamed greeting",
+          error,
+        );
+      });
     return () => {
       disposed = true;
     };
   }, []);
-  // The list rows below each drive one IPC call, keyed by entity so two rows
-  // can be in flight without blocking one another.
   const { pending, run } = usePending();
   const fps = useFps();
-  // Accent provenance: the same resolver that paints `--glow` names its own
-  // branch, so the chip below cannot claim a source the interface is not
-  // using. A clock for it is unnecessary — the resolver is reactive, so the
-  // chip re-derives whenever any of its three switches or its sources move.
   const accentFrom = useAccent().source;
-  // Written onto the row holding both cards, because both read the variables.
   const audio = useAudioVars(!!media?.playing);
 
   if (!cfg) return null;
 
   const stickers = cfg.stickers;
   const visibleStickers = stickers.filter((s) => s.visible);
-  // One walk derives every figure this tab prints, instead of the private
-  // reduce pair this used to keep — which could drift from the lighting tab's
-  // copy of the same arithmetic.
   const counts = ledCounts(rgb.devices, cfg.rgb.excludedDevices);
   const ledActive = counts.active;
   const excluded = new Set(cfg.rgb.excludedDevices);
@@ -115,12 +83,6 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
   const idleOn = cfg.rgb.idleTimeoutSec > 0;
   const nightOn = !!cfg.rgb.nightStart && !!cfg.rgb.nightEnd;
   const playlistOn = (cfg.playlists ?? []).some((p) => p.enabled);
-  // The picker, not a second hand-rolled list: this card must agree with the
-  // header avatar about which profile is applied, and `useConfigPicker` is the
-  // one derivation of that. Applying from here goes through its `apply`, so
-  // the in-flight row and the failure toast behave as they do in Settings --
-  // and on success the row itself turns into the "Applied now" tick, which is
-  // why the old "profile applied" toast is no longer needed.
   const picker = useConfigPicker();
   const lastChange = useLastChange([
     {
@@ -134,7 +96,6 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
     { value: picker.activeId ?? "", labelKey: CHANGE_LABEL.profile },
   ]);
   const now = useNow(lastChange != null);
-  // Truncation that keeps the applied profile in view; see `visibleProfiles`.
   const profileList = visibleProfiles(picker.scenes, picker.activeId);
   const wallpaperName =
     cfg.wallpaper.kind === "shader"
@@ -148,18 +109,10 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
     save((c) => (c.general.wallpaperEnabled = !c.general.wallpaperEnabled));
   };
 
-  // Re-derived on an interval, not read at render: the tab no longer
-  // re-renders on the old 12Hz frame loop, so a greeting read once would say
-  // "Good morning" until something else happened to re-render the tab. The
-  // interval fires at the next hour boundary — waking up exactly when the
-  // answer changes — rather than polling every minute.
   const greetingKey = useGreetingKey();
   const greeting = accountName
     ? t(GREETING_KEYS[greetingKey], { name: accountName })
     : t(greetingKey);
-  // Every thing that wants doing, each with the click that fixes it. This used
-  // to be a chain of `if`s whose last arm only ran when nothing else had, so a
-  // machine with two problems was told about one of them.
   const attention = attentionItems({
     rgbConnected: rgb.connected,
     wallpaperPaused: paused,
@@ -168,44 +121,44 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
 
   return (
     <div className="stagger space-y-5">
-      {/* ===== header: salutation, live state, and the counted strip ===== */}
+      { }
       <header className="min-w-0">
-        {/* Kicker row: which tab this is, and the version of the engine
-            running it. The version is here rather than only in the title bar
-            because this is the screen that reports on the engine. */}
+        {
+
+ }
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
           <span className="kicker">{t("overview.at-a-glance")}</span>
           <span aria-hidden className="text-[var(--text-faint)]">·</span>
-          {/* A chip rather than loose text: this is the engine's version, and
-              the card header below is the engine. Matching them lets the eye
-              connect "what version" with "what is running". */}
+          {
+
+ }
           <span className="rounded-md border border-[rgb(var(--glow)/0.35)] bg-[rgb(var(--glow)/0.08)] px-1.5 py-px font-mono text-[10px] uppercase tracking-[0.14em] text-[rgb(var(--glow))]">
             {t("overview.engine", { v: versionLabel(__APP_VERSION__) })}
           </span>
         </div>
 
-        {/* Salutation and the right-hand controls share a baseline, which is
-            what makes the row read as one header rather than a heading with
-            something parked beside it. */}
+        {
+
+ }
         <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <h1 className="lednum text-[34px] leading-none text-[var(--text)]">
+            <h1 className="min-w-0 text-[clamp(1.5rem,3vw,2.125rem)] font-semibold leading-[1.1] tracking-[-0.035em] text-[var(--text)]">
               {greeting}
             </h1>
-            {/* The config avatar lives in the app header now, not here: it is a
-                property of the machine rather than of this screen, and it used
-                to vanish the moment you opened another tab. */}
+            {
+
+ }
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <RefreshBtn />
           </div>
         </div>
 
-        {/* The status strip. Two jobs, and both are things no card below can
-            do: say what wants fixing and where the accent came from. The counts
-            that used to be here — devices, LEDs, stickers — are gone because the
-            cards below already print each of them, and printing the same number
-            four times on one screen is how two of them drift. */}
+        {
+
+
+
+ }
         <div className="mt-2.5 flex flex-wrap items-center gap-2 font-mono text-[11px] text-[var(--text-faint)]">
           {attention.length === 0 ? (
             <span className="flex items-center gap-1.5 text-emerald-400">
@@ -233,9 +186,9 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             ))
           )}
 
-          {/* Where the accent is coming from. Three switches in two other tabs
-              decide this, and until now the tab that shows the result named
-              none of them — which is exactly why "why is it blue" needed a log. */}
+          {
+
+ }
           <Chip tone="idle">
             {t(ACCENT_SOURCE_LABELS[accentFrom])}
           </Chip>
@@ -246,35 +199,22 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
             </span>
           )}
 
-          {/* 0 is "still warming up", not "the app is not running": the frame
-              loop has nothing to average for its first second, and printing
-              0 FPS there would be a stall report about nothing. */}
+          {
+
+ }
           <span className="tabular-nums text-[var(--text-faint)]">
             {fps > 0 ? t("common.{n}-fps", { n: fps }) : t("common.fps-warming-up")}
           </span>
         </div>
       </header>
-      {/* ===== row 1: now playing + engine ===== */}
+      { }
       <div
         ref={audio.ref}
         style={audio.style}
-        // `items-start`, and it is the whole fix for a card that changes height.
-        //
-        // A grid row is as tall as its tallest item and every other item is
-        // stretched to fill it, so opening a device row grew the engine card and
-        // dragged the Now playing card beside it to the same height — 73px of
-        // wallpaper and transport stretched across 478px of empty panel,
-        // measured. The stretch is invisible while the row's contents happen to
-        // be the same height, which is why it only ever showed up as "expanding
-        // moves the other thing".
-        //
-        // `start` and not `self-start` on the card: the cards are direct grid
-        // items, and setting it here means a future card in this row inherits
-        // the same independence rather than having to remember.
         className="grid min-w-0 items-start gap-5 xl:grid-cols-12"
       >
-        {/* Now playing — spans 5. The wallpaper is the card: its own strip
-            docked at the top edge, the player docked at the bottom. */}
+        {
+ }
         <Card
           title={t("overview.now-playing")}
           icon={<IconWave />}
@@ -302,9 +242,9 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
           />
         </Card>
 
-        {/* Engine — spans 7. The device list is the hero: it carries the live
-            LEDs, the device identity and the mute control in one place, so no
-            other part of the card has to repeat the same counts. */}
+        {
+
+ }
         <EngineCard
           cfg={cfg}
           rgb={rgb}
@@ -319,10 +259,10 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
         />
       </div>
 
-      {/* ===== row 2: displays + stickers ===== */}
-      {/* `items-start` for the same reason as the engine row above: these cards
-          have independent content, and a grid row otherwise makes the shorter
-          one grow to match the taller one. */}
+      { }
+      {
+
+ }
       <div className="grid min-w-0 items-start gap-5 xl:grid-cols-12">
         <div className="xl:col-span-7">
           <DisplaysCard compact />
@@ -402,17 +342,17 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
         </div>
       </div>
 
-      {/* ===== row 3: system =====
-          Its own full-width row rather than a column beside another card. Both
-          curves are unreadable at a third of the width -- the shape is the
-          whole point of the card, and a squashed sparkline shows only that
-          there was some activity, which the header's frame rate already said. */}
+      {
+
+
+
+ }
       <SystemCard />
 
-      {/* ===== row 4: profiles + shortcuts =====
-          Not gated on there being any profiles: the shortcuts half describes
-          the keyboard, which exists whether or not anything has been captured
-          yet, and the old `scenes.length > 0` took both cards away together. */}
+      {
+
+
+ }
       <div className="grid min-w-0 items-start gap-5 xl:grid-cols-12">
         <Card
           title={t("common.profiles")}
@@ -427,9 +367,6 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
           }
         >
           {picker.scenes.length === 0 ? (
-            /* An empty state rather than a missing card. A card that only
-               exists once you have used it teaches nothing about the feature,
-               and this is the screen a new user lands on. */
             <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-[var(--line-strong)] px-6 py-8 text-center">
               <IconLayers className="h-5 w-5 text-[var(--text-faint)]" />
               <p className="max-w-sm text-xs leading-relaxed text-[var(--text-faint)]">
@@ -448,11 +385,11 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                   const sum = profileSummary(s);
                   return (
                     <li key={s.id}>
-                      {/* The whole row is the target, because applying a profile
-                          is the only thing a row does here and a card-sized
-                          target with no other controls inside it cannot
-                          misfire. Management lives in the picker, which is one
-                          click away and has room for it. */}
+                      {
+
+
+
+ }
                       <button
                         onClick={() => picker.apply(s.id)}
                         disabled={isActive || isApplying}
@@ -468,9 +405,9 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                           <span className="block truncate text-[13px] font-semibold text-[var(--text)]">
                             {s.name}
                           </span>
-                          {/* What the profile holds. A bare list of names
-                              cannot tell "Work" from "Work, dimmed", and this
-                              is the row that decides which gets applied. */}
+                          {
+
+ }
                           <span className="mt-0.5 block truncate font-mono text-[10px] text-[var(--text-faint)]">
                             {sum.stickers > 0
                               ? `${sum.kind} · ${sum.mode} · ${t("common.{n}-stickers", {
@@ -487,9 +424,6 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                             {t("common.profile-applied-now")}
                           </span>
                         ) : (
-                          /* Quiet rather than hidden until hover: this row is
-                             clickable, and a chevron that only appears under the
-                             mouse says nothing to anyone using the keyboard. */
                           <IconChevronRight className="h-4 w-4 shrink-0 text-[var(--text-faint)] opacity-40 transition-opacity group-hover:opacity-100" />
                         )}
                       </button>
@@ -515,7 +449,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
         />
       </div>
 
-      {/* jump links */}
+      { }
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {(
           [
@@ -551,14 +485,7 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
               Icon: IconSticker,
             },
             {
-              // Settings is the fourth tile because every destination the
-              // header strip can raise an issue about is fixed from there --
-              // OpenRGB offline, wallpaper paused, lighting switched off. A
-              // tile that navigates nowhere real would be worse than three.
               id: "general",
-              // `nav.settings`, not a new `common.` key: the rail, the command
-              // palette and this tile must all call the tab the same thing, and
-              // the nav key is the one they already share.
               label: t("nav.settings"),
               detail: t("common.profiles-and-shortcuts"),
               Icon: IconLayers,
@@ -582,9 +509,9 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
         ))}
       </div>
 
-      {/* The empty-state "Capture current look" opens this, and applying a
-          profile from the card goes through the same hook, so the modal has
-          to live here rather than only in Settings. */}
+      {
+
+ }
       {picker.open && (
         <ConfigPickerModal
           scenes={picker.scenes}

@@ -1,5 +1,3 @@
-// Pure sampling math for zone color analysis. Works on a small downscaled
-// pixel buffer (e.g. 64x36) drawn from the media element.
 
 export interface PixelBuf {
   data: Uint8ClampedArray;
@@ -11,9 +9,7 @@ export interface Sample {
   id: string;
   rgb: [number, number, number];
   luma: number;
-  /** Monitor device string this sample was taken on ("" = unknown). */
   monitor?: string;
-  /** True when taken on the primary display (ambient/pulse follow it). */
   primary?: boolean;
 }
 
@@ -51,8 +47,6 @@ export function lumaOf(rgb: [number, number, number]): number {
   return (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
 }
 
-/** Full-frame dominant sample plus one sample per zone, tagged with the
- * monitor identity so the RGB engine can prefer the primary display. */
 export function computeSamples(
   buf: PixelBuf,
   zones: ZoneRect[],

@@ -1,12 +1,3 @@
-//! Playlist scheduler: rotates the active wallpaper from a playlist's source
-//! (whole vault or a collection) on a shuffle interval, with optional
-//! time-of-day rules that swap the source pool at fixed local times.
-//!
-//! One background task polls every 30s (plus a `nudge()` channel for instant
-//! reaction to edits). When the desired entry differs from the live wallpaper,
-//! it applies through the same path the gallery uses (`gallery_apply`
-//! semantics), so RGB ambient sampling, the static fallback frame, and all
-//! broadcasts stay consistent.
 
 use crate::config::{PlaylistRule, WallpaperKind, WallpaperPlaylist};
 use std::time::Duration;
@@ -14,8 +5,6 @@ use tokio::sync::mpsc;
 
 static NUDGE_TX: std::sync::OnceLock<mpsc::UnboundedSender<()>> = std::sync::OnceLock::new();
 
-/// Ask the scheduler to re-evaluate immediately (config changed, playlist
-/// enabled/disabled, etc.).
 pub fn nudge() {
     if let Some(tx) = NUDGE_TX.get() {
         let _ = tx.send(());
@@ -36,16 +25,10 @@ pub fn spawn() {
     });
 }
 
-/// Local time-of-day in minutes; None when the clock is unavailable.
 fn now_minutes() -> Option<u32> {
-    // No chrono dependency: derive from SystemTime + the local timezone via
-    // win32's GetLocalTime-equivalent. Simpler: use `std::time` plus libc's
-    // localtime through the `windows` crate is heavy — read TZ offset once.
-    // Keep it dependency-free with GetLocalTime via the existing win32 layer.
     crate::win32::local_time_minutes()
 }
 
-/// The pool of gallery entries a source string selects.
 fn pool_for(source: &str, cfg: &crate::config::Config) -> Vec<String> {
     match source.strip_prefix("collection:") {
         Some(col_id) => cfg
@@ -64,8 +47,6 @@ fn pool_for(source: &str, cfg: &crate::config::Config) -> Vec<String> {
     }
 }
 
-/// Pick the source string active right now for a playlist (time-of-day rules;
-/// the last rule whose start <= now wins).
 fn active_rule_source(pl: &WallpaperPlaylist) -> &str {
     let now = now_minutes().unwrap_or(0);
     let mut best: Option<(&PlaylistRule, u32)> = None;
@@ -79,8 +60,6 @@ fn active_rule_source(pl: &WallpaperPlaylist) -> &str {
     best.map(|(r, _)| r.source.as_str()).unwrap_or("all")
 }
 
-/// Deterministic-but-varying pick: hash of (day, current slot) over the pool,
-/// so every interval lands on a different entry without persisting state.
 fn pick_entry(pool: &[String], slot: u64) -> Option<String> {
     if pool.is_empty() {
         return None;
@@ -91,8 +70,6 @@ fn pick_entry(pool: &[String], slot: u64) -> Option<String> {
 
 async fn tick() {
     let cfg = crate::config_store::get();
-    // Wallpapers disabled: never rotate. Otherwise re-enabling the wallpaper
-    // surfaces a random playlist entry instead of what the user last chose.
     if !cfg.general.wallpaper_enabled {
         return;
     }
@@ -107,28 +84,23 @@ async fn tick() {
         .unwrap_or(0);
     let slot = minutes / interval;
 
-    // Re-apply when either the slot rolled over or the pool changed (entries
-    // added/removed). We detect "rolled over" by hashing slot+pool.
     let source = active_rule_source(pl);
     let pool = pool_for(source, &cfg);
     let want = match pick_entry(&pool, slot ^ (source.len() as u64)) {
         Some(id) => id,
-        None => return, // empty pool; leave the current wallpaper alone
+        None => return,
     };
     let entry = match cfg.gallery.iter().find(|g| g.id == want) {
         Some(e) => e.clone(),
         None => return,
     };
 
-    // Already playing this entry? (per-monitor overrides keep their own state)
     let live = &cfg.wallpaper;
     let already = live.kind == entry.kind && live.source == entry.source;
     if already {
         return;
     }
 
-    // Track which slot we last applied so clock drift doesn't re-apply
-    // mid-slot (compare against a persisted marker).
     let marker = format!("{}:{}", slot, entry.id);
     if LAST_APPLIED.lock().map(|m| m.as_str() == marker).unwrap_or(false) {
         return;
@@ -138,7 +110,6 @@ async fn tick() {
         Some(a) => a,
         None => return,
     };
-    // Same semantics as ipc::gallery_apply minus the id lookup.
     let _ = crate::config_store::update(|c| {
         c.wallpaper.kind = entry.kind;
         c.wallpaper.source = entry.source.clone();
@@ -160,12 +131,6 @@ async fn tick() {
 
 static LAST_APPLIED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
-/// Which vault entry `advance` should apply next, given the live wallpaper.
-///
-/// Pure so the ordering rule is testable: it walks the vault in display order
-/// from whichever entry matches what is on screen, wrapping at the end. A
-/// wallpaper that is not a vault entry (a file the user picked directly, or a
-/// shader) has no position, so the walk restarts from the top.
 pub fn next_entry_index(
     gallery: &[crate::config::GalleryEntry],
     live: &crate::config::WallpaperConfig,
@@ -182,10 +147,6 @@ pub fn next_entry_index(
     })
 }
 
-/// Wall-clock nanoseconds, the seed for a shuffled pick.
-///
-/// Nanos rather than seconds so two presses within the same second still land
-/// on different wallpapers.
 fn seed_now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -193,25 +154,6 @@ fn seed_now() -> u64 {
         .unwrap_or(0)
 }
 
-/// Pick a vault entry that is not the one on screen, deterministically from a
-/// seed.
-///
-/// Takes the seed as an argument rather than reading a clock inside, so the
-/// rule is testable and so a caller that wants a different pick per press just
-/// passes a different seed.
-///
-/// Two rules that are not obvious:
-///
-///  - It never returns the current entry. A "random" wallpaper that lands on
-///    the one already showing looks broken, because pressing the key appears to
-///    do nothing.
-///  - With exactly two entries it alternates. Any random choice there is the
-///    same as "the other one", and being explicit keeps it from ever repeating
-///    the current wallpaper.
-///
-/// The mix is a small integer hash rather than a crate: the project has no
-/// random dependency, and adding one for a single index is not worth the lock
-/// file churn. Seeded from the clock by the caller.
 pub fn shuffled_entry_index(
     gallery: &[crate::config::GalleryEntry],
     live: &crate::config::WallpaperConfig,
@@ -226,33 +168,19 @@ pub fn shuffled_entry_index(
     let current = gallery
         .iter()
         .position(|g| g.kind == live.kind && g.source == live.source);
-    // SplitMix-style finaliser: cheap, and it spreads adjacent seeds across the
-    // whole range, which a raw modulo of a millisecond clock does not.
     let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     z ^= z >> 31;
     let pick = (z % gallery.len() as u64) as usize;
     match current {
-        // Off-by-one from the current index, so the result is never the current
-        // entry -- which is also what makes it correct at the wrap point.
         Some(i) => Some((i + 1 + pick % (gallery.len() - 1)) % gallery.len()),
-        // Nothing on screen from the vault yet, so any entry will do.
         None => Some(pick),
     }
 }
 
-/// Apply the next vault entry after the one on screen, wrapping at the end.
-/// Backs the "next wallpaper" hotkey so the vault can be stepped without
-/// opening the dashboard.
-///
-/// Per-display overrides are cleared: the point of a "next wallpaper" key is
-/// that something changes on the screens you are looking at, and leaving
-/// stale overrides in place can make the press look like a no-op.
 pub fn advance() -> Option<crate::config::GalleryEntry> {
     let cfg = crate::config_store::get();
-    // Sequential unless the gallery is set to shuffle, so the default behaviour
-    // of the next-wallpaper key is unchanged.
     let idx = if cfg.gallery_shuffle {
         shuffled_entry_index(&cfg.gallery, &cfg.wallpaper, seed_now())?
     } else {
@@ -276,8 +204,6 @@ pub fn advance() -> Option<crate::config::GalleryEntry> {
     Some(next)
 }
 
-// Silence unused-variant warnings on WallpaperKind when playlists only use a
-// subset in a given build.
 #[allow(dead_code)]
 fn _kind_used(k: WallpaperKind) -> WallpaperKind {
     k
@@ -329,7 +255,6 @@ mod tests {
 
     #[test]
     fn a_kind_mismatch_is_not_a_match() {
-        // Same path, different kind: the vault entry is a different wallpaper.
         let mut other = entry("a");
         other.kind = WallpaperKind::Image;
         let g = vec![other, entry("b")];
@@ -372,8 +297,6 @@ mod shuffle_tests {
 
     #[test]
     fn never_returns_the_wallpaper_already_on_screen() {
-        // The failure this guards: a "random" wallpaper that lands on the one
-        // already showing, so pressing the key looks like nothing happened.
         let gallery = vault(6);
         for start in 0..gallery.len() {
             for seed in 0..64u64 {
@@ -386,8 +309,6 @@ mod shuffle_tests {
 
     #[test]
     fn alternates_when_the_vault_holds_two() {
-        // With two entries any random choice is "the other one"; being explicit
-        // keeps it from ever repeating what is on screen.
         let gallery = vault(2);
         for seed in 0..32u64 {
             assert_eq!(shuffled_entry_index(&gallery, &live(&gallery, 0), seed), Some(1));
@@ -397,7 +318,6 @@ mod shuffle_tests {
 
     #[test]
     fn a_single_entry_vault_repeats_itself() {
-        // Nothing else to play, so this is not a bug worth refusing over.
         let gallery = vault(1);
         assert_eq!(shuffled_entry_index(&gallery, &live(&gallery, 0), 7), Some(0));
     }
@@ -417,9 +337,6 @@ mod shuffle_tests {
 
     #[test]
     fn a_seed_moves_the_pick_rather_than_always_walking_on() {
-        // The behaviour the flag exists for: pressing twice in a row must not
-        // be the same as "next, next, next". Distinct seeds should reach more
-        // than one entry over a press sequence.
         let gallery = vault(5);
         let current = live(&gallery, 0);
         let reached: std::collections::BTreeSet<usize> = (0..200u64)

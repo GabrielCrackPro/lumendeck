@@ -104,15 +104,11 @@ describe("selectGallery", () => {
   });
 
   it("ignores diacritics so a Spanish keyboard finds an accented name", () => {
-    // A Spanish user types "cancion" without the tilde; the vault has
-    // "canción". Matching literally would look like the search is broken.
     const out = selectGallery([entry({ name: "canción.mp4" })], [], query({ search: "cancion" }));
     expect(out).toHaveLength(1);
   });
 
   it("does not match on path or kind, only the name", () => {
-    // Matching on path would surface entries the user cannot recognise from
-    // what they typed.
     const out = selectGallery(
       [entry({ name: "clip", source: "C:/holiday/beach.mp4" })],
       [],
@@ -122,8 +118,6 @@ describe("selectGallery", () => {
   });
 
   it("sorts newest first by default and breaks ties by name", () => {
-    // A folder import stamps every entry in the same millisecond, so without a
-    // tiebreak the order would depend on filesystem enumeration.
     const all = [
       entry({ id: "z", name: "Zed", addedMs: 5000 }),
       entry({ id: "b", name: "Bee", addedMs: 5000 }),
@@ -213,16 +207,11 @@ describe("index-backed sorting and filtering", () => {
   });
 
   it("puts unmeasured entries last rather than first", () => {
-    // An image has no duration, and a real 0s video exists. Sorting an
-    // unmeasured entry to the top would claim it is the shortest thing in the
-    // vault when in fact nobody has measured it.
     const out = selectGallery(all, [], query({ sort: "length" }), { index: idx });
     expect(out.at(-1)?.id).toBe("u");
   });
 
   it("compares resolution by pixel count, not by width alone", () => {
-    // A 2560x1080 ultrawide has more pixels than a 1920x1200 16:10, but a
-    // width-only sort would call it smaller.
     const a = entry({ id: "a", name: "A", source: "C:/a.mp4" });
     const b = entry({ id: "b", name: "B", source: "C:/b.mp4" });
     const two: VaultIndex = {
@@ -244,8 +233,6 @@ describe("index-backed sorting and filtering", () => {
   });
 
   it("keeps unmeasured entries when a width floor is set", () => {
-    // Unknown is not "under the floor". A filter that hid everything it had not
-    // measured yet would look like the filter was deleting wallpapers.
     const out = selectGallery(all, [], query({ minWidth: 1920 }), { index: idx });
     expect(out.map((e) => e.id)).toContain("u");
     expect(out.map((e) => e.id)).not.toContain("small");
@@ -286,7 +273,6 @@ describe("favourites, uncollected and per-display views", () => {
       globalKind: "video" as const,
       globalSource: "C:/plain.mp4",
     };
-    // DISPLAY2 is overridden, so the global wallpaper is NOT what it shows.
     const out = selectGallery([...all, onTwo], [], query({ display: "\\.\\DISPLAY2" }), ctx);
     expect(out.map((e) => e.id)).toEqual(["two"]);
   });
@@ -298,16 +284,11 @@ describe("favourites, uncollected and per-display views", () => {
       globalKind: "video" as const,
       globalSource: "C:/plain.mp4",
     };
-    // DISPLAY3 has no override of its own, so it falls back to the global —
-    // which is the case a per-display filter that only looked for overrides
-    // would report as empty.
     const out = selectGallery([...all, onTwo], [], query({ display: "\\.\\DISPLAY3" }), ctx);
     expect(out.map((e) => e.id)).toEqual(["plain"]);
   });
 
   it("counts the global wallpaper as running on every display", () => {
-    // A single-monitor setup has no overrides at all, so a per-display filter
-    // that only looked for overrides would show nothing and look broken.
     const ctx = { perMonitor: {}, globalKind: "video" as const, globalSource: "C:/plain.mp4" };
     const out = selectGallery(all, [], query({ display: "any-device" }), ctx);
     expect(out.map((e) => e.id)).toEqual(["plain"]);
@@ -330,7 +311,6 @@ describe("favourites, uncollected and per-display views", () => {
   });
 
   it("the kind counts honour the other filters too", () => {
-    // Otherwise a chip can promise twelve entries that clicking it would not show.
     const cols = [collection({ id: "c1", entryIds: [filed.id] })];
     const counts = kindCounts(all, cols, query({ picks: "uncollected" }));
     expect(counts.all).toBe(2);

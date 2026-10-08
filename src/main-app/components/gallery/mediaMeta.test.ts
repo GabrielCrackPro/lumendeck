@@ -7,8 +7,6 @@ describe("formatResolution", () => {
   });
 
   it("omits the fact entirely when it is unknown", () => {
-    // Guessing would be worse than saying nothing: a wrong resolution on a
-    // card is a claim the app cannot back up.
     expect(formatResolution(null)).toBeNull();
   });
 });
@@ -23,7 +21,6 @@ describe("formatDuration", () => {
   });
 
   it("keeps a zero-length clip rather than hiding it", () => {
-    // Zero is a real value for a still frame, so it must not read as unknown.
     expect(formatDuration(0)).toBe("0:00");
   });
 

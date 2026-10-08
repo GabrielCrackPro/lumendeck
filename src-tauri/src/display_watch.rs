@@ -1,13 +1,3 @@
-//! Display-topology watching: re-syncs wallpaper windows when monitors are
-//! plugged, unplugged, or change resolution/DPI.
-//!
-//! Two triggers feed one throttled resync:
-//! 1. `WM_DISPLAYCHANGE` / `WM_DPICHANGED` via a hidden top-level window.
-//!    These arrive as broadcast messages, so the window must be a real
-//!    (invisible) top-level window, NOT a message-only one — HWND_MESSAGE
-//!    windows are excluded from broadcasts.
-//! 2. A topology fingerprint poll (every 2s) as the catch-all: wake-from-
-//!    sleep, RDP reconnects, and some driver changes don't broadcast cleanly.
 
 #![cfg(windows)]
 
@@ -21,20 +11,16 @@ use windows::Win32::UI::WindowsAndMessaging::{
     TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_DPICHANGED, WM_DISPLAYCHANGE, WNDCLASSW,
 };
 
-/// Last topology fingerprint we synced against.
 static LAST_TOPOLOGY: AtomicU64 = AtomicU64::new(0);
-/// Timestamp (ms) of the last resync, for throttling.
 static LAST_RESYNC_MS: AtomicU64 = AtomicU64::new(0);
 
 const RESYNC_MIN_INTERVAL_MS: u64 = 500;
 
-/// Stable fingerprint of the current monitor topology (count, geometry,
-/// primary flag). Order-independent: XOR over per-monitor hashes.
 pub fn topology_fingerprint() -> u64 {
-    let mut acc: u64 = 0x9E37_79B9_7F4A_7C15; // golden-ratio seed
+    let mut acc: u64 = 0x9E37_79B9_7F4A_7C15;
     let mons = win32::monitors();
     for m in &mons {
-        let mut h = 0xcbf2_9ce4_8422_2325u64; // FNV-1a offset basis
+        let mut h = 0xcbf2_9ce4_8422_2325u64;
         for byte in m.device.bytes() {
             h ^= byte as u64;
             h = h.wrapping_mul(0x0000_0100_0000_01B3);
@@ -48,7 +34,6 @@ pub fn topology_fingerprint() -> u64 {
     acc ^ (mons.len() as u64).rotate_left(32)
 }
 
-/// Current ms since epoch (0 if clock goes backwards).
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -56,7 +41,6 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Request a resync; returns true if this call performed one.
 pub fn request_resync() -> bool {
     let now = now_ms();
     let last = LAST_RESYNC_MS.load(Ordering::Relaxed);
@@ -76,8 +60,6 @@ pub fn request_resync() -> bool {
         match crate::wallpaper::ensure(&app) {
             Ok(()) => {
                 log::info!("wallpaper re-synced after display change");
-                // Tell every webview its (possibly new) monitor geometry now,
-                // instead of waiting for the periodic re-fetch.
                 crate::events::emit_all(&app, crate::events::DISPLAY_CHANGED, &crate::win32::monitors());
                 did = true;
             }
@@ -85,12 +67,9 @@ pub fn request_resync() -> bool {
         }
     }
 
-    // Stickers render inside the wallpaper windows, which were just
-    // re-created/repositioned — nothing extra to recover.
     did
 }
 
-/// Fingerprint poll: call periodically (from pause::spawn loop).
 pub fn poll() {
     let fp = topology_fingerprint();
     let last = LAST_TOPOLOGY.load(Ordering::Relaxed);
@@ -101,7 +80,6 @@ pub fn poll() {
     LAST_TOPOLOGY.store(fp, Ordering::Relaxed);
 }
 
-/// Record the current topology as the baseline (call once at startup).
 pub fn snapshot() {
     LAST_TOPOLOGY.store(topology_fingerprint(), Ordering::Relaxed);
 }
@@ -109,7 +87,7 @@ pub fn snapshot() {
 const CLASS_NAME: &[u16] = &[
     b'L' as u16, b'M' as u16, b'D' as u16, b'W' as u16, b'a' as u16, b't' as u16, b'c' as u16,
     b'h' as u16, b'C' as u16, b'l' as u16, b'a' as u16, b's' as u16, b's' as u16, 0,
-]; // "LMDWatchClass"
+];
 
 extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
@@ -127,7 +105,6 @@ extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRE
     }
 }
 
-/// Spawn the message-pump thread that owns the hidden broadcast window.
 pub fn spawn() {
     std::thread::Builder::new()
         .name("display-watch".into())
@@ -146,8 +123,6 @@ pub fn spawn() {
                 return;
             }
 
-            // Note: a real (not message-only) window is required for
-            // broadcast delivery; it stays invisible (no WS_VISIBLE).
             let hwnd = match CreateWindowExW(
                 WINDOW_EX_STYLE(0),
                 class_name,
@@ -188,7 +163,6 @@ mod tests {
 
     #[test]
     fn fingerprint_is_stable_and_changes_with_count() {
-        // Deterministic across repeated calls on the same (real) topology.
         let a = topology_fingerprint();
         let b = topology_fingerprint();
         assert_eq!(a, b, "fingerprint must be deterministic for a fixed topology");

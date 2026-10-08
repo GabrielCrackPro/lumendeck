@@ -1,6 +1,3 @@
-// Generates LumenDeck icons: PNG (32, 128, 256) + ICO wrapping the 256 PNG,
-// plus the UI copy at public/app-icon.png (splash + title bar).
-// Pure Node: raw RGBA rasterizer + zlib PNG encoder. Run: pnpm icons.
 import { deflateSync } from "node:zlib";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -11,7 +8,6 @@ const outDir = join(root, "src-tauri", "icons");
 const pubDir = join(root, "public");
 mkdirSync(outDir, { recursive: true });
 
-// ---------- tiny PNG encoder ----------
 const CRC_TABLE = (() => {
   const t = new Int32Array(256);
   for (let n = 0; n < 256; n++) {
@@ -39,9 +35,8 @@ function encodePng(w, h, rgba) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(w, 0);
   ihdr.writeUInt32BE(h, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 6; // RGBA
-  // raw scanlines with filter byte 0
+  ihdr[8] = 8;
+  ihdr[9] = 6;
   const raw = Buffer.alloc((w * 4 + 1) * h);
   for (let y = 0; y < h; y++) {
     raw[y * (w * 4 + 1)] = 0;
@@ -55,11 +50,6 @@ function encodePng(w, h, rgba) {
   ]);
 }
 
-// ---------- rasterizer ----------
-// Design: "RGB halo ring" — a dark graphite rounded tile, three arc segments
-// (red, green, blue) forming a glowing ring around a bright white core: the
-// wallpaper drives the light. Arcs have soft radial + angular falloff so the
-// ring reads as luminous rather than hard-edged, and survives 32px.
 function render(size) {
   const buf = Buffer.alloc(size * size * 4);
   const put = (x, y, r, g, b, a) => {
@@ -81,30 +71,26 @@ function render(size) {
     const dy = Math.abs(y - hw) - (hw - radius);
     return Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
   };
-  // Vertical graphite gradient (matches the console UI tokens).
   const top = [0x22, 0x26, 0x30];
   const bottom = [0x0c, 0x0e, 0x13];
   const cx = hw;
   const cy = hw;
   const ringR = size * 0.3;
   const thick = size * 0.075;
-  const bandSigma = thick / 4.5; // tight falloff: crisp ring, not a blur
-  // Arc segments: 100 degrees each with 20 degree gaps, starting at -60 so a
-  // gap sits at the top (the "missing pixel" the core lights up).
+  const bandSigma = thick / 4.5;
   const arcs = [
-    { start: -60, color: [248, 76, 92] }, // red
-    { start: 60, color: [86, 220, 130] }, // green
+    { start: -60, color: [248, 76, 92] },
+    { start: 60, color: [86, 220, 130] },
     { start: 180, color: [96, 140, 255] }, // blue
   ];
   const ARC = 100;
-  const FEATHER = 3; // degrees of angular softness per arc edge
+  const FEATHER = 3;
   const angleOf = (x, y) => {
     let a = (Math.atan2(y - cy, x - cx) * 180) / Math.PI;
     if (a < 0) a += 360;
     return a;
   };
   const arcAlpha = (ang, arc) => {
-    // Normalize angular distance from arc start, in [0, 360).
     const d = (ang - arc.start + 360) % 360;
     if (d > ARC) return 0;
     const edge = Math.min(d, ARC - d);
@@ -114,7 +100,6 @@ function render(size) {
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const d = cornerDist(x, y);
-      // 1px anti-aliased tile edge.
       const tileA = Math.max(0, Math.min(1, radius + 0.5 - d));
       if (tileA <= 0) continue;
       const t = y / Math.max(1, size - 1);
@@ -123,7 +108,6 @@ function render(size) {
       const b0 = Math.round(top[2] + (bottom[2] - top[2]) * t);
       put(x, y, r0, g0, b0, Math.round(255 * tileA));
       const dist = Math.hypot(x - cx, y - cy);
-      // Ring band with soft inner/outer falloff (gaussian-ish).
       const band = Math.exp(-((dist - ringR) ** 2) / (2 * bandSigma ** 2));
       if (band > 0.05) {
         const ang = angleOf(x, y);
@@ -131,12 +115,10 @@ function render(size) {
           const aa = arcAlpha(ang, arc) * band;
           if (aa < 0.02) continue;
           const [cr, cg, cb] = arc.color;
-          // Slightly brighter toward the ring's outside (light-source feel).
           const boost = 1 + 0.25 * Math.max(0, (dist - ringR) / thick);
           put(x, y, Math.min(255, cr * boost), Math.min(255, cg * boost), Math.min(255, cb * boost), Math.round(245 * aa));
         }
       }
-      // Core: white dot with a tight bloom, the lumen.
       const coreR = size * 0.07;
       const bloomR = size * 0.14;
       if (dist < bloomR) {
@@ -152,7 +134,6 @@ function render(size) {
 
 function renderPngBuffer(size) {
   const rgba = render(size);
-  // Wrap raw buffer with row stride already correct; encodePng expects Buffer rgba
   return encodePng(size, size, rgba);
 }
 
@@ -162,42 +143,36 @@ for (const size of [32, 128, 256]) {
 writeFileSync(join(outDir, "icon.png"), renderPngBuffer(256));
 writeFileSync(join(pubDir, "app-icon.png"), renderPngBuffer(256));
 
-// ICO with classic 32bpp DIB entries (RC.EXE rejects PNG-compressed entries).
 function icoDibEntry(size, rgba) {
-  // BITMAPINFOHEADER with doubled height (XOR + AND masks).
   const header = Buffer.alloc(40);
   header.writeUInt32LE(40, 0);
   header.writeInt32LE(size, 4);
   header.writeInt32LE(size * 2, 8);
-  header.writeUInt16LE(1, 12); // planes
-  header.writeUInt16LE(32, 14); // bpp
-  header.writeUInt32LE(0, 16); // BI_RGB
-  header.writeUInt32LE(0, 20); // image size (BI_RGB => may be 0)
-  // XOR mask: bottom-up BGRA.
+  header.writeUInt16LE(1, 12);
+  header.writeUInt16LE(32, 14);
+  header.writeUInt32LE(0, 16);
+  header.writeUInt32LE(0, 20);
   const xor = Buffer.alloc(size * size * 4);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const si = (y * size + x) * 4;
       const di = ((size - 1 - y) * size + x) * 4;
-      xor[di] = rgba[si + 2]; // B
-      xor[di + 1] = rgba[si + 1]; // G
-      xor[di + 2] = rgba[si]; // R
-      xor[di + 3] = rgba[si + 3]; // A
+      xor[di] = rgba[si + 2];
+      xor[di + 1] = rgba[si + 1];
+      xor[di + 2] = rgba[si];
+      xor[di + 3] = rgba[si + 3];
     }
   }
-  // AND mask: 1 bit per pixel, rows padded to 32 bits, bottom-up. All zeros
-  // (fully opaque); alpha channel governs transparency.
   const rowBytes = Math.ceil(size / 32) * 4;
   const and = Buffer.alloc(rowBytes * size);
   return Buffer.concat([header, xor, and]);
 }
 
 function buildIco(entries) {
-  // entries: { size, data }[] — data is the DIB blob
   const count = entries.length;
   const dir = Buffer.alloc(6);
   dir.writeUInt16LE(0, 0);
-  dir.writeUInt16LE(1, 2); // type icon
+  dir.writeUInt16LE(1, 2);
   dir.writeUInt16LE(count, 4);
   const headerSize = 6 + 16 * count;
   const infos = [];
@@ -206,10 +181,10 @@ function buildIco(entries) {
     const info = Buffer.alloc(16);
     info.writeUInt8(e.size >= 256 ? 0 : e.size, 0);
     info.writeUInt8(e.size >= 256 ? 0 : e.size, 1);
-    info.writeUInt8(0, 2); // palette
-    info.writeUInt8(0, 3); // reserved
-    info.writeUInt16LE(1, 4); // planes
-    info.writeUInt16LE(32, 6); // bpp
+    info.writeUInt8(0, 2);
+    info.writeUInt8(0, 3);
+    info.writeUInt16LE(1, 4);
+    info.writeUInt16LE(32, 6);
     info.writeUInt32LE(e.data.length, 8);
     info.writeUInt32LE(offset, 12);
     offset += e.data.length;

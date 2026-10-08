@@ -9,7 +9,6 @@ describe("displayName", () => {
   });
 
   it("falls back to the device name with its backslashes stripped", () => {
-    // This is what the panel showed before renaming existed: ".DISPLAY1".
     expect(displayName({ device: "\\.\\DISPLAY1" }, 0, {})).toBe(".DISPLAY1");
   });
 
@@ -35,7 +34,6 @@ describe("displayName", () => {
   });
 
   it("numbers the display when Windows reports no device name", () => {
-    // A headless or briefly-unnamed monitor must still be addressable.
     expect(displayName({ device: "" }, 2, {})).toBe("Display 3");
   });
 

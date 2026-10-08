@@ -1,4 +1,3 @@
-//! Background watcher applying pause rules (battery saver, fullscreen app).
 
 use crate::events;
 use crate::wallpaper;
@@ -10,8 +9,6 @@ pub fn spawn() {
         loop {
             let cfg = crate::config_store::get();
 
-            // Catch-all for topology changes that don't broadcast (sleep/wake,
-            // RDP, some driver resets).
             crate::display_watch::poll();
             let mut paused = false;
 

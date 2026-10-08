@@ -7,9 +7,6 @@ import {
   restCounts,
 } from "./releaseDigest";
 
-// The real shape, copied from `generate-changelog.mjs --release-notes` output for
-// 0.2.34. Taken from the file rather than invented, because the parser's whole
-// job is to survive what that script emits.
 const RELEASE_BODY = [
   "## 0.2.34 — 2026-10-04",
   "",
@@ -25,16 +22,12 @@ const RELEASE_BODY = [
 
 describe("plainEntry", () => {
   it("drops the conventional-commit scope", () => {
-    // The scope identifies the change to someone reading CHANGELOG.md. In a
-    // one-line toast "transfer: move a setup" is a stutter, not information.
     expect(plainEntry("- **transfer:** move a setup (`72c7e2d`)")).toBe(
       "move a setup",
     );
   });
 
   it("keeps a bolded word that is not a scope", () => {
-    // Matched on the colon-inside-bold form only, so an entry that opens with a
-    // bolded term keeps it.
     expect(plainEntry("- **Note:** run the installer first (`1122334`)")).toBe(
       "Note: run the installer first",
     );
@@ -45,8 +38,6 @@ describe("plainEntry", () => {
   });
 
   it("keeps the words the hash sat between", () => {
-    // The failure this guards: a strip that eats the tail of the line leaves a
-    // headline reading "one concept for a setup," with no verb.
     expect(plainEntry("- **profiles:** one concept for a setup (`4953441`)")).toBe(
       "one concept for a setup",
     );
@@ -59,8 +50,6 @@ describe("plainEntry", () => {
   });
 
   it("leaves no markdown punctuation behind", () => {
-    // The BREAKING marker is reported as a separate flag, so keeping it here
-    // would make it the whole headline for a breaking entry.
     const out = plainEntry("- **BREAKING** — **rgb:** the engine restarts (`abc1234`)");
     expect(out).not.toMatch(/[*`]/);
     expect(out).not.toContain("BREAKING");
@@ -83,8 +72,6 @@ describe("releaseDigest", () => {
   });
 
   it("does not count the internal footer as a change", () => {
-    // `_3 internal._` is prose wrapped in underscores, and counting it would
-    // inflate every release by the number of chores in it.
     expect(releaseDigest(RELEASE_BODY).total).toBe(3);
     expect(releaseDigest(RELEASE_BODY).userFacing).toBe(3);
   });
@@ -96,14 +83,11 @@ describe("releaseDigest", () => {
   });
 
   it("remembers which section the headline came from", () => {
-    // So the counts can discount the headline instead of counting it twice.
     expect(releaseDigest(RELEASE_BODY).headlineSection).toBe("added");
     expect(releaseDigest("_4 internal._").headlineSection).toBeNull();
   });
 
   it("returns an empty digest for a missing body", () => {
-    // A release cut before the changelog was generated has notes but nothing to
-    // say; the toast still needs a version and a restart button.
     for (const body of [null, undefined, "", "   \n  "]) {
       const d = releaseDigest(body);
       expect(d.counts).toEqual({});
@@ -113,8 +97,6 @@ describe("releaseDigest", () => {
   });
 
   it("ignores prose above the first section heading", () => {
-    // `.github/changelog-notes/<version>.md` can carry a hand-written intro.
-    // It is not a change, so it must not become a count or a headline.
     const d = releaseDigest(
       ["A hand-written introduction.", "", "### Fixed", "- **ui:** a thing (`aa1b2c3`)"].join("\n"),
     );
@@ -140,8 +122,6 @@ describe("releaseDigest", () => {
   });
 
   it("handles a release with only internal churn", () => {
-    // Nothing to show but chores: the toast should say so rather than lead with
-    // "chore: bump a lockfile".
     const d = releaseDigest(
       ["### Internal", "- **chore:** bump a lockfile (`99aa11b`)"].join("\n"),
     );
@@ -151,15 +131,11 @@ describe("releaseDigest", () => {
   });
 
   it("takes only the first version heading", () => {
-    // The workflow appends the whole file for some paths; a card must not claim
-    // to be about two releases at once.
     const d = releaseDigest(["## 0.2.34 — 2026-10-04", "## 0.2.33 — 2026-10-03"].join("\n"));
     expect(d.version).toBe("0.2.34");
   });
 
   it("survives a body that is not changelog markdown at all", () => {
-    // The updater reads whatever the release happens to carry. Nothing here
-    // should throw.
     const d = releaseDigest("<p>hello</p>\r\nrandom text\n\n- not a section\n");
     expect(d.total).toBe(0);
     expect(d.headline).toBeNull();
@@ -175,7 +151,6 @@ describe("notableCounts", () => {
   });
 
   it("omits internal", () => {
-    // "4 internal" tells a user nothing they can act on.
     const d = releaseDigest(
       ["### Internal", "- a (`1`)", "- b (`2`)", "### Fixed", "- c (`3`)"].join("\n"),
     );
@@ -194,8 +169,6 @@ describe("notableCounts", () => {
 
 describe("restCounts", () => {
   it("discounts the entry already used as the headline", () => {
-    // Otherwise the toast reads "move a setup between machines, plus 2 added",
-    // counting the line the user is already reading.
     expect(restCounts(releaseDigest(RELEASE_BODY))).toEqual([["added", 1], ["fixed", 1]]);
   });
 
@@ -206,8 +179,6 @@ describe("restCounts", () => {
   });
 
   it("equals notableCounts when there is no headline", () => {
-    // Only internal churn: there is no headline to discount, so the counts stand
-    // on their own.
     const d = releaseDigest(["### Internal", "- a (`1`)", "- b (`2`)"].join("\n"));
     expect(restCounts(d)).toEqual([]);
   });

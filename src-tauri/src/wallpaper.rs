@@ -1,5 +1,3 @@
-//! Wallpaper window management: one window per monitor, each sized exactly to
-//! its display, attached behind the desktop icons. Re-syncs on display changes.
 
 use crate::config::{WallpaperConfig, WallpaperKind};
 use crate::win32;
@@ -7,7 +5,6 @@ use std::sync::Mutex;
 use tauri::Manager;
 
 static PAUSED: Mutex<bool> = Mutex::new(false);
-/// User-requested pause (tray / future hotkey), OR-ed with automatic rules.
 static MANUAL_PAUSE: Mutex<bool> = Mutex::new(false);
 
 pub fn is_paused() -> bool {
@@ -19,7 +16,6 @@ pub fn set_paused(p: bool) {
     *PAUSED.lock().expect("pause mutex poisoned") = p;
 }
 
-/// Toggle the manual pause and emit the new combined state.
 pub fn toggle_manual_pause() -> bool {
     let mut m = MANUAL_PAUSE.lock().expect("pause mutex poisoned");
     *m = !*m;
@@ -31,12 +27,10 @@ pub fn toggle_manual_pause() -> bool {
     combined
 }
 
-/// Stable window label for a monitor index: "wallpaper-0", "wallpaper-1", …
 pub fn label_for(index: usize) -> String {
     format!("wallpaper-{index}")
 }
 
-/// Create (or re-position/re-attach) one wallpaper window per monitor.
 pub fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
     let mons = win32::monitors();
     if mons.is_empty() {
@@ -47,13 +41,6 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
         let label = label_for(index);
         match app.get_webview_window(&label) {
             Some(existing) => {
-                // Skip redundant work only when the window covers EXACTLY this
-                // monitor's rect and is still attached under the shell.
-                // Re-running SetParent/SetWindowPos + the Progman 0x052C
-                // broadcast on every config save makes the layer flicker, but
-                // a window that merely exists is NOT enough: after a monitor
-                // reorder the label→monitor mapping shifts and every window
-                // must be verified against its assigned rect, not its label.
                 let pos = existing.outer_position().map(|p| (p.x, p.y));
                 let size = existing.outer_size().map(|s| (s.width as i64, s.height as i64));
                 let pos_ok = pos.map(|(x, y)| (x - m.x).abs() <= 1 && (y - m.y).abs() <= 1).unwrap_or(false);
@@ -69,8 +56,6 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
                     );
                     crate::window_utils::reposition_window(&existing, m.x, m.y, m.w.max(1), m.h.max(1));
                     attach_existing(&existing, (m.x, m.y, m.w.max(1) as u32, m.h.max(1) as u32))?;
-                    // The webview's cached monitor geometry is now wrong —
-                    // nudge it to re-fetch immediately.
                     if let Some(app) = crate::app_handle() {
                         crate::events::emit_all(
                             &app,
@@ -94,12 +79,9 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
                 attach_existing(&window, (m.x, m.y, m.w.max(1) as u32, m.h.max(1) as u32))?;
             }
         }
-        // Ground truth for geometry debugging: monitor rect vs actual window
-        // rect after placement.
         if let Some(w) = app.get_webview_window(&label) {
             let pos = w.outer_position().map(|p| (p.x, p.y)).unwrap_or((-1, -1));
             let size = w.outer_size().map(|s| (s.width, s.height)).unwrap_or((0, 0));
-            // Geometry ground truth: pure diagnostics, hidden at default level.
             log::debug!(
                 "wallpaper-{index}: monitor=({},{} {}x{}) window=({},{} {}x{})",
                 m.x, m.y, m.w, m.h, pos.0, pos.1, size.0, size.1
@@ -107,7 +89,6 @@ pub fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
         }
     }
 
-    // Close windows for monitors that no longer exist.
     close_orphans(app, mons.len());
     Ok(())
 }
@@ -144,7 +125,6 @@ pub fn hwnd_of(window: &tauri::WebviewWindow) -> Result<windows::Win32::Foundati
     Ok(windows::Win32::Foundation::HWND(hwnd.0))
 }
 
-/// Detach and close every wallpaper window.
 pub fn remove(app: &tauri::AppHandle) -> Result<(), String> {
     let mut labels: Vec<String> = app
         .webview_windows()
@@ -163,18 +143,15 @@ pub fn remove(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Which media source string should a wallpaper webview render?
 pub fn resolve_source(cfg: &WallpaperConfig) -> String {
     match cfg.kind {
         WallpaperKind::Video | WallpaperKind::Image => crate::media::to_media_url(&cfg.source),
-        WallpaperKind::Slideshow => String::new(), // webview scans folder via IPC
+        WallpaperKind::Slideshow => String::new(),
         WallpaperKind::Web => cfg.source.clone(),
         WallpaperKind::Shader => cfg.source.clone(),
     }
 }
 
-/// Resolve the effective (kind, source) for one display: the per-monitor
-/// override when present, else the global wallpaper.
 pub fn resolve_for_monitor(cfg: &WallpaperConfig, device: &str) -> (WallpaperKind, String) {
     match cfg.per_monitor.get(device) {
         Some(pm) => (pm.kind, resolve_source_of(pm.kind, &pm.source)),
@@ -182,12 +159,6 @@ pub fn resolve_for_monitor(cfg: &WallpaperConfig, device: &str) -> (WallpaperKin
     }
 }
 
-/// The effective (kind, source) for one display *before* media-URL resolution.
-///
-/// The vault indexes entries by the path it stored, not by the `media://` URL
-/// the webview actually renders, so anything that has to line a config up with
-/// a gallery entry has to match against this rather than against
-/// `resolve_for_monitor`.
 pub fn raw_for_monitor(cfg: &WallpaperConfig, device: &str) -> (WallpaperKind, String) {
     match cfg.per_monitor.get(device) {
         Some(pm) => (pm.kind, pm.source.clone()),

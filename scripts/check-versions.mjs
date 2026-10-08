@@ -32,9 +32,6 @@ if (
 
 console.log(`Application versions are synchronized at ${packageVersion}.`);
 
-// Off unless asked for, because it shells out to `gh`: a pre-commit hook that
-// needs the network is a hook people learn to bypass. CI opts in, where being
-// wrong about the version is expensive.
 const driftRequested =
   process.argv.includes("--tag-drift") ||
   process.env.LUMENDECK_TAG_DRIFT === "1";

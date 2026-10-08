@@ -18,9 +18,6 @@ describe("nextCheckRecord", () => {
   });
 
   it("records a check that failed as a check that ran", () => {
-    // The distinction that matters: "looked and could not reach the server" and
-    // "never looked" are opposite problems with opposite fixes, so a failure has
-    // to be recorded rather than dropped.
     expect(nextCheckRecord("failed", 2000).outcome).toBe("failed");
   });
 
@@ -45,11 +42,8 @@ describe("CHECK_OUTCOME_LABELS", () => {
 
 describe("checkTimeLabel", () => {
   it("shows a bare clock time for a check earlier today", () => {
-    // Local noon, so the arithmetic holds whatever timezone the machine is in.
     const now = new Date(2026, 9, 4, 12, 0, 0).getTime();
     const label = checkTimeLabel(new Date(2026, 9, 4, 11, 0, 0).getTime(), now, "en");
-    // The digits are not asserted: the formatter's 12- or 24-hour choice is the
-    // locale's, not ours. What is ours is the decision to omit the date.
     expect(label).toMatch(/\d{1,2}[:.]\d{2}/);
     expect(label).not.toMatch(/Oct/);
   });
@@ -68,8 +62,6 @@ describe("checkTimeLabel", () => {
   });
 
   it("follows the requested language rather than the machine's", () => {
-    // "11:00" in en and "11:00" in es are both plausible; what matters is that the
-    // formatter was handed the app's locale at all.
     const es = checkTimeLabel(NOON, NOON, "es");
     expect(typeof es).toBe("string");
     expect(es.length).toBeGreaterThan(0);

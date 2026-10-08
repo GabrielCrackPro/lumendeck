@@ -12,8 +12,6 @@ import {
 
 describe("DARK_LED", () => {
   it("is one shared unlit colour, and it is not black", () => {
-    // A true-black package reads as a hole punched in the track. All three
-    // renderers used to bring their own grey here.
     expect(DARK_LED).toEqual([30, 32, 36]);
     expect(Math.max(...DARK_LED)).toBeGreaterThan(0);
   });
@@ -46,8 +44,6 @@ describe("emitterColor", () => {
   });
 
   it("takes no boost for an unlit package, so it stays dark", () => {
-    // This is the muted-device case, and the reason boost is a parameter
-    // rather than the constant baked in.
     expect(emitterColor(DARK_LED, 0)).toEqual(DARK_LED);
   });
 
@@ -58,8 +54,6 @@ describe("emitterColor", () => {
 
 describe("glowAlpha", () => {
   it("scales with how much light the colour puts out", () => {
-    // The defect: the device strip used a constant alpha, so a black LED threw
-    // the same halo as a white one.
     const dark = glowAlpha([4, 4, 8]);
     const mid = glowAlpha([128, 128, 128]);
     const bright = glowAlpha([255, 255, 255]);
@@ -77,8 +71,6 @@ describe("glowAlpha", () => {
   });
 
   it("weights green the way the eye does", () => {
-    // Rec. 709 luma, so pure green glows harder than pure blue at the same
-    // numeric value. Anything else makes a blue LED look underlit.
     expect(glowAlpha([0, 255, 0])).toBeGreaterThan(glowAlpha([0, 0, 255]));
   });
 });
@@ -112,8 +104,6 @@ describe("previewDpr", () => {
   });
 
   it("never drops below 1", () => {
-    // 0 is what a display reporting no ratio actually hands over, and dividing
-    // by it produced a zero-sized backing store.
     expect(previewDpr(0)).toBe(1);
     expect(previewDpr(undefined)).toBe(1);
     expect(previewDpr(-2)).toBe(1);
@@ -145,10 +135,6 @@ describe("frameSignature", () => {
   });
 
   it("notices a change in any single LED, at any position", () => {
-    // The bug: only ledColors[0] was sampled, so a zoned board whose zone 2
-    // changed sat on screen showing the old colour until something else moved.
-    // Every index is checked because "sample a few points" was the wrong fix —
-    // on a four-zone board, sampling 0/2/3 misses zone 1 entirely.
     for (let i = 0; i < four.length; i++) {
       const moved = four.map((c, j) =>
         j === i ? ([9, 9, 9] as [number, number, number]) : c,
@@ -165,8 +151,6 @@ describe("frameSignature", () => {
   });
 
   it("notices a change on a full-size board's last LED too", () => {
-    // The 96-LED case is the one that actually ships, and the last key is the
-    // right-hand edge of the spacebar row.
     const wide = Array.from({ length: 96 }, (_, i) => [
       i,
       i,
@@ -194,8 +178,6 @@ describe("frameSignature", () => {
   });
 
   it("does not confuse one frame's samples with another's", () => {
-    // Guards against a separator that a colour could imitate, which would make
-    // two genuinely different frames compare equal and skip a repaint.
     const a = frameSignature(rgb, [[1, 1, 1], [1, 1, 1], [1, 1, 1]]);
     const b = frameSignature(rgb, [[1, 1, 1], [1, 1, 1], [1, 1, 2]]);
     expect(a).not.toBe(b);

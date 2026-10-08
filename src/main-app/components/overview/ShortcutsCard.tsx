@@ -1,5 +1,3 @@
-// The shortcuts card: this window's bindings and the global ones, drawn from
-// the same table the "?" sheet renders. Extracted from OverviewTab.tsx.
 import { Card, ComboCaps, MINI_BTN } from "../ui";
 import { shortcutRows } from "../Sidebar";
 import { condenseWindowShortcuts, globalHotkeyState } from "../overviewCards";
@@ -14,15 +12,10 @@ export default function ShortcutsCard({
   hotkeys: Config["general"]["hotkeys"];
   hotkeysEnabled: boolean;
 }) {
-  // This window's own keys, from the same table the "?" sheet renders, so the
-  // card cannot advertise a binding the overlay does not have. Folded, because
-  // five Ctrl+digit tab rows would push the global keys below the fold of a
-  // 5-column card.
   const windowShortcuts = condenseWindowShortcuts(
     shortcutRows(),
     t("common.switch-tab"),
   );
-  // The system-wide bindings, which the old card did not mention at all.
   const globalKeys = globalHotkeyState(
     hotkeys,
     hotkeysEnabled,
@@ -33,10 +26,10 @@ export default function ShortcutsCard({
           icon={<IconKeyboard />}
           className="xl:col-span-5"
         >
-          {/* Two lists because they are two different things: these keys only
-              work with this window focused, the ones below work from anywhere.
-              The old card listed three prose strings and said nothing about the
-              eleven global bindings the user had actually set. */}
+          {
+
+
+ }
           <div className="kicker mb-1.5 text-[var(--text-faint)]">
             {t("common.this-window")}
           </div>
@@ -76,10 +69,10 @@ export default function ShortcutsCard({
                   </li>
                 ))}
               </ul>
-              {/* The distinction the old card could not draw: stored bindings
-                  that the master switch has released are not unbound, and
-                  reporting them that way sends a user to rebind keys they
-                  already bound. */}
+              {
+
+
+ }
               {globalKeys.dormant && (
                 <p className="mt-2.5 text-[11px] leading-relaxed text-amber-300/90">
                   {t("common.keys-released-switch-off")}

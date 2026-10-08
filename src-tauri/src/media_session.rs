@@ -1,69 +1,32 @@
-//! Windows System Media Transport Controls (SMTC) integration.
-//!
-//! Every app that plays media on Windows (Spotify, browsers, media players)
-//! registers a session with the OS media flyout. That session carries what
-//! WASAPI capture can never provide: *metadata* — title, artist, playback
-//! state — plus transport control (play/pause/skip from outside the player).
-//!
-//! Threading model: WinRT event handlers must run on an ASTA thread, which is
-//! fragile in a thread that also talks to Tauri. The pragmatic pattern is a
-//! 1 Hz polling thread (mirrors `rgb::audio`'s capture loop) that diffed-
-//! checks the payload and only emits when something changed — near-zero cost
-//! while nothing plays.
-//!
-//! Album art is normalized to PNG through the image crate and downscaled
-//! before being sent as a data URI, so even monster covers stay cheap.
-//!
-//! Consumers:
-//! - `media-session` event → dashboard Now playing card (metadata + transport)
-//! - `media_session::take_track_change()` → RGB engine, one-shot track flash
-//! - `media_transport` IPC → play/pause/next/previous from the dashboard
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-/// Everything the dashboard needs to render the Now playing card.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaInfo {
     pub title: String,
     pub artist: String,
     pub album: String,
-    /// Source app display name, e.g. "Spotify" — package-family suffix and
-    /// `.exe` extension stripped.
     pub app_id: String,
-    /// True while the session reports Playing.
     pub playing: bool,
-    /// Album art as a data URI (PNG/JPEG), decoded from the session
-    /// thumbnail. Empty = the UI renders a placeholder.
     #[serde(default)]
     pub art: String,
-    /// Source app icon as a PNG data URI, extracted from the app's
-    /// executable. Empty = the UI falls back to a generic glyph.
     #[serde(default)]
     pub app_icon: String,
-    /// Playback position at sampling time, seconds (timeline may be absent).
     #[serde(default)]
     pub position_sec: f64,
-    /// Track duration, seconds. 0 = the sender reports no timeline.
     #[serde(default)]
     pub duration_sec: f64,
-    /// Unix ms when `position_sec` was sampled; the UI advances the bar
-    /// locally between polls instead of waiting for the next one.
     #[serde(default)]
     pub position_updated_ms: u64,
-    /// Shuffle state reported by the sender. None = the app doesn't expose
-    /// it (button renders disabled rather than wrong).
     #[serde(default)]
     pub shuffle: Option<bool>,
-    /// Repeat mode reported by the sender: 0 off, 1 track, 2 list/queue.
     #[serde(default)]
     pub repeat: Option<u8>,
 }
 
 impl MediaInfo {
-    /// Which track this is, ignoring the playing toggle: the RGB flash
-    /// should fire on a track change, not on pause/resume.
     fn track_key(&self) -> (&str, &str, &str, &str) {
         (&self.title, &self.artist, &self.album, &self.app_id)
     }
@@ -79,9 +42,6 @@ impl MediaInfo {
     }
 }
 
-/// Set by the poller when the identity of the track changed (new title/
-/// artist, not just a state toggle). The RGB engine drains it once per
-/// frame for the track-flash effect.
 static TRACK_CHANGED: AtomicBool = AtomicBool::new(false);
 
 pub fn take_track_change() -> bool {
@@ -90,15 +50,12 @@ pub fn take_track_change() -> bool {
 
 static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
 
-/// Latest session snapshot, for IPC consumers that want the current value
-/// without waiting up to a poll cycle for the next change event.
 static CURRENT: std::sync::Mutex<Option<MediaInfo>> = std::sync::Mutex::new(None);
 
 pub fn current() -> Option<MediaInfo> {
     CURRENT.lock().ok().and_then(|g| g.clone())
 }
 
-/// Spawn the poller once. Idempotent like `audio::ensure_started`.
 pub fn ensure_started() {
     if STARTED.set(()).is_err() {
         return;
@@ -118,8 +75,6 @@ fn poll_loop() {
             (None, None) => {}
             (Some(prev), Some(next)) => {
                 if prev.key() != next.key() {
-                    // Flash only when the track itself changed; a
-                    // pause/resume of the same track is not a change.
                     if prev.track_key() != next.track_key() {
                         TRACK_CHANGED.store(true, Ordering::Relaxed);
                     }
@@ -128,13 +83,11 @@ fn poll_loop() {
                     }
                 }
             }
-            // First metadata after startup, or media started playing.
             (None, Some(next)) => {
                 if let Some(app) = crate::app_handle() {
                     crate::events::emit_all(&app, crate::events::MEDIA_SESSION, next);
                 }
             }
-            // Everything stopped / player closed: clear the card once.
             (Some(_), None) => {
                 if let Some(app) = crate::app_handle() {
                     crate::events::emit_all(
@@ -151,7 +104,6 @@ fn poll_loop() {
     }
 }
 
-/// Read the current session's metadata. `Ok(None)` = no session registered.
 fn read_current() -> Result<Option<MediaInfo>, windows::core::Error> {
     use windows::Media::Control::{
         GlobalSystemMediaTransportControlsSessionManager,
@@ -162,7 +114,6 @@ fn read_current() -> Result<Option<MediaInfo>, windows::core::Error> {
     let manager = wait_op(&GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?)?;
     let session = match manager.GetCurrentSession() {
         Ok(s) => s,
-        // No session at all — the normal "nothing playing" case.
         Err(_) => return Ok(None),
     };
 
@@ -176,26 +127,19 @@ fn read_current() -> Result<Option<MediaInfo>, windows::core::Error> {
     let title = props.Title().unwrap_or_default().to_string();
     let artist = props.Artist().unwrap_or_default().to_string();
     let album = props.AlbumTitle().unwrap_or_default().to_string();
-    // "Spotify.exe!App" / "Spotify.exe" / "Spotify" all end up "Spotify".
     let raw_aumid = session
         .SourceAppUserModelId()
         .unwrap_or_default()
         .to_string();
     let app_id = clean_app_name(raw_aumid.split('!').next().unwrap_or(""));
 
-    // Album art: session thumbnail stream → PNG/JPEG bytes → data URI.
     let art = props
         .Thumbnail()
         .ok()
         .and_then(|t| decode_art(&t).ok())
         .unwrap_or_default();
-    // App icon: resolve the AUMID to a window/pipeline and pull its icon.
-    // Cached per AUMID: manifest parsing + logo decode are disk work that
-    // would otherwise repeat on every SMTC poll (~1Hz).
     let app_icon = cached_app_icon(&raw_aumid);
 
-    // Timeline: position + duration for the player bar. Some senders report
-    // nothing (or a zero duration) — the UI hides the bar in that case.
     let (position_sec, duration_sec) = session
         .GetTimelineProperties()
         .map(|t| {
@@ -209,9 +153,6 @@ fn read_current() -> Result<Option<MediaInfo>, windows::core::Error> {
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
 
-    // Shuffle / repeat state. The capability gates live on PlaybackControls
-    // (info.Controls()); the current values sit on PlaybackInfo itself. A
-    // missing capability => None => the UI hides/disables the toggle.
     let info = session.GetPlaybackInfo().ok();
     let controls = info.as_ref().and_then(|i| i.Controls().ok());
     let shuffle = controls
@@ -252,12 +193,7 @@ fn read_current() -> Result<Option<MediaInfo>, windows::core::Error> {
     }))
 }
 
-// ---------- art / icon / name helpers ----------
 
-/// "Spotify.EXE" → "Spotify", "Microsoft.MicrosoftEdge_8wekyb3d8bbwe" →
-/// "MicrosoftEdge"? No — package AUMIDs are handled by the `!` split before
-/// this runs; what survives here is an exe-style name or a friendly one.
-/// Strip a trailing `.exe` (any case) and trim.
 fn clean_app_name(raw: &str) -> String {
     let s = raw.trim();
     let s = s.strip_suffix(".exe")
@@ -266,38 +202,27 @@ fn clean_app_name(raw: &str) -> String {
     s.trim().to_string()
 }
 
-/// Album art stream → `data:image/...;base64,...`. Re-encoded to PNG so the
-/// payload is small and the <img> needs no content-type sniffing beyond the
-/// URI itself. Fails soft: empty string on any error, UI shows a placeholder.
 fn decode_art(reference: &windows::Storage::Streams::IRandomAccessStreamReference) -> Result<String, Box<dyn std::error::Error>> {
     use windows::Storage::Streams::InputStreamOptions;
 
     let stream = wait_op(&reference.OpenReadAsync()?)?;
     let size = stream.Size()? as usize;
-    // Sanity cap: album art should be tens of KB. 4 MB = something is wrong.
     if size == 0 || size > 4 * 1024 * 1024 {
         return Ok(String::new());
     }
     let content_type = stream.ContentType()?.to_string();
 
-    // ReadAsync is IAsyncOperationWithProgress; drain it with the same
-    // SetCompleted trick as the plain operation.
     let buf = windows::Storage::Streams::Buffer::Create(size as u32)?;
     let read = drain_progress(&stream.ReadAsync(&buf, size as u32, InputStreamOptions::ReadAhead)?)?;
     let len = read.Length()? as usize;
     if len == 0 {
         return Ok(String::new());
     }
-    // The buffer's backing bytes: read via DataReader over the buffer,
-    // the portable WinRT way (IBuffer has no direct byte accessor in Rust).
     let mut bytes = vec![0u8; len];
     let reader =
         windows::Storage::Streams::DataReader::FromBuffer(&read)?;
     reader.ReadBytes(&mut bytes)?;
 
-    // Normalize to PNG through the image crate we already ship: art comes
-    // as jpeg/png/webp depending on the source, and re-encoding also lets
-    // us downscale monster covers (some are 3000px) to something sane.
     let mime = if content_type.contains("png") {
         "image/png"
     } else if content_type.contains("webp") {
@@ -310,8 +235,6 @@ fn decode_art(reference: &windows::Storage::Streams::IRandomAccessStreamReferenc
     Ok(format!("data:{mime};base64,{b64}"))
 }
 
-/// Per-AUMID icon cache. A failed lookup caches the empty string too, so a
-/// sender without an extractable icon stops re-probing the disk every poll.
 fn cached_app_icon(aumid: &str) -> String {
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -326,17 +249,6 @@ fn cached_app_icon(aumid: &str) -> String {
     icon
 }
 
-/// Extract the source app's icon and return it as a PNG data URI.
-///
-/// Resolution order:
-/// 1. Packaged app (AUMID like `SpotifyAB.SpotifyMusic_...!App`): resolve the
-///    package install dir from the full name, parse AppxManifest.xml for the
-///    app's Square44x44Logo / Square150x150Logo / default tile logo, find the
-///    best scale variant on disk, decode + PNG-encode.
-/// 2. Classic exe (AUMID endswith `.exe`): the AUMID often *is* the path.
-///    SHGetFileInfoW pulls the icon handle, CopyIcon + GetIconInfo give the
-///    bitmaps, PNG-encode.
-/// 3. Fallback: empty (UI shows a glyph). Non-fatal — names still display.
 fn app_icon_data_uri(aumid: &str) -> Option<String> {
     let path = aumid.trim();
     if path.to_ascii_lowercase().ends_with(".exe") {
@@ -345,18 +257,14 @@ fn app_icon_data_uri(aumid: &str) -> Option<String> {
         }
         return None;
     }
-    // Packaged AUMID: `<PackageFamily>!<AppId>` — the part before `!` is the
-    // package full name (no `!` means the whole string is it).
     let full_name = raw_aumid_package_full_name(path);
     extract_package_icon(&full_name)
 }
 
-/// The package full name portion of a raw AUMID (before the `!App` suffix).
 fn raw_aumid_package_full_name(aumid: &str) -> &str {
     aumid.split('!').next().unwrap_or(aumid).trim()
 }
 
-/// Extract a packaged app's tile logo as a PNG data URI.
 fn extract_package_icon(package_full_name: &str) -> Option<String> {
     use windows::Win32::Storage::Packaging::Appx::GetPackagePathByFullName;
     use windows::core::HSTRING;
@@ -365,7 +273,6 @@ fn extract_package_icon(package_full_name: &str) -> Option<String> {
         return None;
     }
     unsafe {
-        // Two-call pattern: first with no buffer to get the length.
         let mut len = 0u32;
         let err = GetPackagePathByFullName(
             &HSTRING::from(package_full_name),
@@ -394,9 +301,6 @@ fn extract_package_icon(package_full_name: &str) -> Option<String> {
     }
 }
 
-/// Pull the app's logo attribute out of AppxManifest.xml without a real XML
-/// parser: the manifest is machine-written, so the first `Attr="value"` hit
-/// for a known logo attribute is reliable. A tiny scan keeps deps flat.
 fn manifest_logo_path(xml: &str) -> Option<String> {
     for attr in [
         "Square44x44Logo=",
@@ -407,8 +311,6 @@ fn manifest_logo_path(xml: &str) -> Option<String> {
     ] {
         if let Some(pos) = xml.find(attr) {
             let rest = &xml[pos + attr.len()..];
-            // Value must be a double-quoted attribute; manifests always use
-            // `"`. Accept single quotes defensively.
             for quote in ['"', '\''] {
                 if let Some(stripped) = rest.strip_prefix(quote) {
                     if let Some(end) = stripped.find(quote) {

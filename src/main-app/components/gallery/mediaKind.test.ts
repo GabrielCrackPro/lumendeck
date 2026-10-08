@@ -8,9 +8,6 @@ import {
   resolvePicked,
 } from "./mediaKind";
 
-// Built from a char code rather than written out: a literal backslash in this
-// file has been mangled in transit before, and a broken character class fails
-// at import time with an error that points nowhere near the cause.
 const BS = String.fromCharCode(92);
 const win = (name: string) => `C:` + BS + `Users` + BS + `g` + BS + `Media` + BS + name;
 const posix = (name: string) => `/home/g/Media/${name}`;
@@ -76,15 +73,11 @@ describe("nameForPath", () => {
   });
 
   it("never returns an empty name, whatever it is handed", () => {
-    // The vault falls back to a placeholder on an empty name, but that should
-    // never be this function's job to trigger.
     expect(nameForPath("")).toBe("Untitled");
     expect(nameForPath(win(""))).toBe("Untitled");
   });
 
   it("keeps a dotfile name as-is rather than inventing a stem", () => {
-    // ".mp4" has no stem, so there is nothing to strip and nothing to add; the
-    // file is simply named that.
     expect(nameForPath(win(".mp4"))).toBe(".mp4");
   });
 });
@@ -98,8 +91,6 @@ describe("resolvePicked", () => {
   });
 
   it("drops the paths it cannot classify rather than guessing", () => {
-    // Guessing would put a text file in the vault as a wallpaper that renders
-    // nothing, which is worse than not adding it.
     const out = resolvePicked([win("a.mp4"), win("notes.txt"), win("b.png")]);
     expect(out.map((o) => o.name)).toEqual(["a", "b"]);
   });

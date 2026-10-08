@@ -5,17 +5,6 @@ import { avatarInitial } from "./avatarInit";
 import { t } from "../i18n";
 import type { SceneProfile } from "@shared/types";
 
-/**
- * The current config as an avatar: the image the user chose, or their name's
- * first character.
- *
- * A circle rather than the chip this replaced, because an avatar reads as an
- * identity you switch between, and a labelled pill in a 52px header competes
- * with the tab name it sits beside. It lives in the header rather than next to
- * the greeting because it is a property of the machine, not of one screen —
- * moving to the Lighting tab should not make the config you are running
- * disappear.
- */
 export function ConfigAvatar({
   scene,
   size = 32,
@@ -24,43 +13,15 @@ export function ConfigAvatar({
   live,
   overlay,
 }: {
-  /** The config currently applied, or null when the machine is on none. */
   scene: SceneProfile | null;
   size?: number;
-  /**
-   * Makes the avatar a button that opens the picker.
-   *
-   * Optional because it is not always an action: the Settings list shows the
-   * same avatar purely as an identity mark, and a control that opens a dialog
-   * there would be a second, hidden route into the picker. Without it the mark
-   * renders as a span and is described to assistive tech rather than focusable.
-   */
   onClick?: () => void;
-  /**
-   * Overrides the announced name. The header announces which config is running;
-   * inside the picker the same circle is a button that changes the image, and
-   * announcing "Config: Night" for that would name the wrong action.
-   */
   label?: string;
-  /**
-   * Draws the status dot. Undefined draws none, which is what the list inside
-   * Settings and the picker want: those are rows of saved setups, and a dot
-   * there would claim something about a setup the machine is not running.
-   */
   live?: boolean;
-  /**
-   * A scrim and glyph drawn over the mark while it is actionable, so the button
-   * says what it does before it is pressed — the header's chevron for "switch
-   * profile", the picker's image mark for "change this picture". Ignored by the
-   * non-button shell: a change affordance over an identity that cannot change
-   * is a lie, and the Settings list renders that shape.
-   */
   overlay?: ReactNode;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const logo = scene?.logo ?? null;
-  // Reset when the logo changes, or a config whose image is missing would
-  // poison the next one that loads fine.
   useEffect(() => setImageFailed(false), [logo]);
 
   const showImage = logo != null && !imageFailed;
@@ -73,21 +34,17 @@ export function ConfigAvatar({
       : "border-[var(--line-strong)] bg-[var(--panel-strong)]"
   }`;
 
-  // The mark itself, shared by both shells below.
   const inner = (
     <>
-      {/* The clip lives on this inner span and not on the button. On the button
-          it would cut the status dot into a sliver, because `overflow-hidden`
-          follows the border radius and the dot sits in the corner the circle
-          does not cover. */}
+      {
+
+
+ }
       <span className="block h-full w-full overflow-hidden rounded-full">
         {showImage ? (
           <img
             src={convertFileSrc(logo, "media")}
             alt=""
-            // The file is a copy in our own media directory, so a failure means
-            // it was deleted out from under us. The initial is the honest
-            // fallback; a broken-image glyph in the header is not.
             onError={() => setImageFailed(true)}
             className="h-full w-full object-cover"
           />
@@ -101,23 +58,23 @@ export function ConfigAvatar({
         )}
       </span>
 
-      {/* The overlay belongs to the button, not to the row around it: `group/av`
-          is named so an ancestor that happens to be a `group` (every list row in
-          the app is one) cannot fire this from a hover two levels up. It sits
-          under the status dot, which is the one part of the mark that must
-          never be covered — the dot is machine state, the face is profile state. */}
+      {
+
+
+
+ }
       {overlay && onClick && (
         <span className="t-fast pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-black/50 text-white opacity-0 group-hover/av:opacity-100 group-focus-visible/av:opacity-100">
           {overlay}
         </span>
       )}
 
-      {/* The dot sits on the avatar rather than beside it in the header. The
-          words it replaced said "live" or "attention" in a 10px uppercase
-          label, which is a sentence about the machine competing with the tab
-          name for the same row. The tooltip keeps the state available to a
-          pointer and to a screen reader while the header itself stays a mark
-          you recognise rather than one you read. */}
+      {
+
+
+
+
+ }
       {live !== undefined && (
         <span
           title={t(live ? "overview.live" : "overview.attention")}
@@ -131,9 +88,6 @@ export function ConfigAvatar({
     </>
   );
 
-  // Same mark, two roles. Only the actionable one is a button, so the Settings
-  // list does not put an unnamed dialog trigger between the user and the
-  // profile name.
   return onClick ? (
     <button
       type="button"
@@ -152,7 +106,6 @@ export function ConfigAvatar({
   );
 }
 
-/** Label for the avatar button: the config running, or that there is none. */
 export function configAvatarLabel(name: string | null): string {
   return name
     ? t("overview.profile-{name}", { name })

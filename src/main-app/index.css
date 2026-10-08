@@ -13,14 +13,6 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ============================================================
-   LumenDeck console design language
-   ------------------------------------------------------------
-   Dark: graphite instrument panel. Light: warm ivory workbench.
-   The accent (--glow) is the live system color; it appears as
-   thin rules, dots and fills — precision, not bloom.
-   ============================================================ */
-
 /* theme-tokens */
 
 @theme {
@@ -28,22 +20,6 @@
   --font-display: "Unbounded", "Outfit", ui-sans-serif, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
 
-  /* One radius scale for the whole app, redefined rather than sprinkled.
-     Before this the tree carried eight different radii (2/4/5/6/8/12/16 plus
-     full) and the two tokens this file declared for the job -- 12px and 16px --
-     were used by exactly one class each, so cards were 12px in most places and
-     16px wherever .glass happened to be. Redefining the Tailwind namespace
-     aligns every existing `rounded-*` call site at once, so the app reads as
-     one surface language without touching a component.
-
-       sm       mini buttons, checkboxes, badges
-       DEFAULT  inputs, small buttons
-       md       buttons and icon buttons  <- what Btn already used
-       lg       cards, panels, dropdowns  (the declared 12px)
-       xl       modals and sheets         (the declared 16px)
-       2xl/3xl  the largest surfaces
-
-     Pills stay `rounded-full`: a capsule is a shape, not a radius to normalise. */
   --radius-sm: 6px;
   --radius: 8px;
   --radius-md: 10px;
@@ -52,33 +28,9 @@
   --radius-2xl: 20px;
   --radius-3xl: 28px;
 
-  /* The app is a window that gets maximized, so it has to stay composed on a
-     32" 1440p/4K panel as well as in a 900px side-by-side column. Tailwind
-     stops at 2xl (1536px); these two cover the widths a maximized window
-     actually reaches, where grids add columns instead of stretching. */
-  --breakpoint-3xl: 120rem; /* 1920px */
-  --breakpoint-4xl: 160rem; /* 2560px */
+  --breakpoint-3xl: 120rem;
+  --breakpoint-4xl: 160rem;
 
-  /* ---------- motion ----------
-     The one scale the app was missing. Radius and colour each had a scale and
-     a rule about where they live; motion had neither, so all twenty-odd
-     animations carried a hand-picked duration -- 0.12s, 0.16s, 0.18s, 0.24s,
-     0.45s -- and six different easings. Every one of them was a reasonable
-     individual choice and none of them agreed with any other, which is the
-     condition under which an interface feels "almost right" and nobody can say
-     why. Naming them makes the feel a decision instead of an accumulation.
-
-     Durations, by what the motion is doing:
-       instant  state that only confirms a press
-       fast     hover and press feedback
-       base     an element entering or leaving
-       slow     something large travelling into place
-       slower   decoration, where the eye is not waiting on it
-
-     Easings:
-       standard    the default; accelerates out, decelerates in
-       emphasized  overshoots, for something that should feel physical
-       exit        accelerates away, for something being dismissed           */
   --motion-instant: 90ms;
   --motion-fast: 160ms;
   --motion-base: 220ms;
@@ -90,7 +42,6 @@
   --ease-smooth: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
-/* ---------- base ---------- */
 
 html,
 body {
@@ -113,7 +64,6 @@ body {
   border-radius: 6px;
 }
 
-/* thin luminous scrollbar */
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -132,10 +82,7 @@ body {
   background-clip: content-box;
 }
 
-/* ---------- atmosphere ---------- */
 
-/* Console backdrop: a fine engineering grid plus a single soft accent
-   wash that follows the live color. Reads as a control surface. */
 .aura {
   position: fixed;
   inset: 0;
@@ -155,20 +102,6 @@ body {
     var(--bg);
 }
 
-/* ---------- theme cross-fade ----------
-   The palette is a class on <html>, so a theme switch was a single-frame snap:
-   one frame dark, the next light. `.theme-anim` rides on <html> for the length
-   of one swap and App.tsx removes it when that swap has run, so the cross-fade
-   exists only while it is wanted -- a standing rule on every element would drag
-   every hover, focus and press state out to this duration too.
-
-   Colours only, deliberately: transform and opacity are left out so a control
-   that happens to be mid-animation during a theme change is not re-timed by a
-   rule that knows nothing about it.
-
-   Inside `no-preference` because the rule is `!important`, and a class beats
-   the reduced-motion wildcard's bare `*` -- the media query, not the wildcard,
-   is what keeps the swap instant for someone who asked for no motion. */
 @media (prefers-reduced-motion: no-preference) {
   .theme-anim,
   .theme-anim *,
@@ -185,7 +118,6 @@ body {
   }
 }
 
-/* film grain over everything (kept subtle so panels read clean) */
 .grain::after {
   content: "";
   position: fixed;
@@ -197,10 +129,7 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* ---------- primitives ---------- */
 
-/* Panel: flat console tile. Crisp 1px frame, sunken header rule,
-   no hover lift (panels are furniture, not buttons). */
 .glass {
   position: relative;
   border-radius: var(--radius-xl);
@@ -214,12 +143,6 @@ body {
   border-color: var(--line-strong);
 }
 
-/* The lift, on cards only.
-   Every card on every screen, so this is the app's most-exercised transition --
-   and the reason it is NOT on `.glass` above: that class is also the app header,
-   the loading skeletons, the onboarding panel and the modal bodies, and none of
-   those should shift when a mouse passes over them. `Card` adds `card-surface`
-   and only a card gets this. */
 .card-surface {
   transition:
     border-color var(--motion-base) var(--ease-standard),
@@ -228,27 +151,18 @@ body {
 }
 .card-surface:hover {
   transform: translateY(-1px);
-  /* A second, offset shadow rather than a bigger blur: the offset is what reads
-     as elevation, and blur alone looks like the card going out of focus. */
   box-shadow:
     var(--shadow),
     0 10px 24px -12px rgb(0 0 0 / 0.5);
 }
 
-/* ---------- utilities ----------
-   Tailwind @utility definitions for the class patterns that repeat across
-   every tab. Each replaces a multi-class blob that previously drifted
-   (same idea, slightly different values per file). Use these instead of
-   re-spelling borders/typography inline. */
 
-/* Inset tile: a card-inside-a-card row (device rows, profile chips). */
 @utility panel-inset {
   border-radius: var(--radius-xl);
   border: 1px solid var(--line);
   background: var(--panel-strong);
 }
 
-/* Hint text: the small dimmed annotations under labels and rows. */
 @utility hint {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -256,17 +170,12 @@ body {
   color: var(--text-faint);
 }
 
-/* Secondary text: 11px dimmed, truncates by default inside flex rows. */
 @utility text-dim-sm {
   font-size: 11px;
   line-height: 1.45;
   color: var(--text-faint);
 }
 
-/* Glow-hover affordance for quiet buttons: border and text warm on hover.
-   `fast` is the right register for a hover affordance on a 12px label — slow enough
-   to be felt, fast enough to answer the pointer. Kept on the scale rather than a
-   bare `150ms` so reduced-motion zeroes it with everything else.*/
 @utility hover-glow {
   transition-property: color, border-color;
   transition-duration: var(--motion-fast);
@@ -277,19 +186,6 @@ body {
   }
 }
 
-/* Keyboard focus affordance, the counterpart to `hover-glow`.
-
-   The primitives had each grown their own focus treatment: `Btn` had none and
-   fell back to the browser's default ring, `ICON_BTN` drew a 2px glow at 0.5,
-   `SwitchBtn` the same at 0.6 with an offset, and the overlay buttons a white
-   ring because they sit on artwork. Tabbing through a tab bar moved through
-   four different focus styles, which reads as four different apps.
-
-   One utility, so a new control inherits the house style by naming it instead
-   of inventing a ring. The offset is what separates the ring from the control's
-   own border; without it a 1px-bordered chip reads as having a 3px border on
-   focus. `--focus-offset` defaults to the panel it normally sits on and is
-   overridden for controls drawn over a surface of another colour. */
 @utility focus-glow {
   &:focus-visible {
     outline: none;
@@ -299,11 +195,6 @@ body {
   }
 }
 
-/* The shared tooltip, replacing the browser's own.
-
-   Deliberately quieter than a system tooltip: it sits over the app's own
-   chrome, so a solid black bubble would read as a modal. The glow tint marks
-   it as belonging to the accent-coloured controls it usually describes. */
 .tip {
   position: fixed;
   z-index: 200;
@@ -323,7 +214,6 @@ body {
   animation: tipIn var(--motion-fast) var(--ease-standard) both;
 }
 
-/* Callout note: glow-tinted inline explanation box (pairs with InfoNote). */
 @utility note-box {
   border-radius: var(--radius-lg);
   border: 1px solid rgb(var(--glow) / 0.25);
@@ -334,7 +224,6 @@ body {
   color: var(--text-dim);
 }
 
-/* kicker: technical section label */
 .kicker {
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -344,7 +233,6 @@ body {
   color: var(--text-faint);
 }
 
-/* LED readout style for live numbers */
 .lednum {
   font-family: var(--font-display);
   font-weight: 600;
@@ -352,7 +240,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* accent surfaces: flat fills, no outer bloom */
 .glow-fill {
   background: rgb(var(--glow));
   color: #0b0d10;
@@ -367,7 +254,6 @@ body {
   border-color: rgb(var(--glow) / 0.4);
 }
 
-/* ---------- controls ---------- */
 
 input[type="range"] {
   -webkit-appearance: none;
@@ -391,26 +277,11 @@ input[type="range"]::-webkit-slider-runnable-track {
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  /* Centres the 16px thumb on the 3px track: (3 - 16) / 2. */
   margin-top: -6.5px;
   height: 16px;
   width: 16px;
-  /* The scale's `sm`, not a literal 4px. A hardcoded radius here is why the
-     thumb looked unlike everything around it: every other 16px control in the
-     app rounds to a token, and 4px is not on the scale at all. */
   border-radius: var(--radius-sm);
-  /* `--text`, not `--accent-lift`. `accent-lift` is in the palette's
-     CODE_ONLY_TOKENS: it exists for the JavaScript accent-readability maths
-     and is never emitted as a CSS declaration, so `var(--accent-lift)` here
-     was invalid and the thumb rendered fully transparent — the switch
-     disappeared. `--text` is the theme foreground and genuinely declared, so
-     the thumb inverts with the theme. The literal fallback is deliberate: an
-     unresolved custom property makes a control *invisible* rather than
-     merely wrong, which is the worst way for this to fail. */
   background: var(--text, #ecedef);
-  /* A 1px ring rather than the 2px it wore before. At 2px it ate a quarter of
-     the thumb on each side, which read as a hollow outlined box rather than a
-     handle, and it doubled up with the glow underneath the track. */
   border: 1px solid rgb(var(--glow));
   box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.6);
   transition:
@@ -421,10 +292,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.12);
   box-shadow: 0 2px 10px -2px rgba(0, 0, 0, 0.7);
 }
-/* Keyboard focus, which `appearance: none` had erased entirely: Chromium
-   draws no default ring on a range input whose appearance is removed, so
-   tabbing through a settings page moved an invisible highlight. The ring is a
-   box-shadow rather than an outline so it follows the thumb's radius. */
 input[type="range"]:focus-visible::-webkit-slider-thumb {
   box-shadow:
     0 0 0 3px var(--panel-sunken),
@@ -456,7 +323,6 @@ input[type="range"]:focus-visible::-moz-range-thumb {
     0 0 0 5px rgb(var(--glow) / 0.7);
 }
 
-/* number input: hide spinners for cleanliness on compact readouts */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
@@ -467,7 +333,6 @@ input[type="number"] {
   appearance: textfield;
 }
 
-/* picker input (native colour) reset for the ColorInput swatch */
 input[type="color"] {
   -webkit-appearance: none;
   appearance: none;
@@ -483,16 +348,7 @@ input[type="color"]::-webkit-color-swatch {
   border-radius: 10px;
 }
 
-/* ---------- motion ---------- */
 
-/* Decorative looping pulses, shared so the boot splash, the dev badge, the app
-   mark, the chip dot and the sidebar live dot all breathe at the same rate and
-   easing instead of four inline Tailwind animation strings that differ by a tenth
-   of a second each. Duration is a per-context class so a boot pulse can be faster
-   than a chip dot without inventing a new keyframe.
-
-   ease-in-out on purpose: a looping opacity/scale pulse that eases-out would
-   per-cycle and eases-out reads as a series of starts rather than a steady beat. */
 @keyframes lpulse {
   0%,
   100% {
@@ -517,8 +373,6 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 
-/* A dot that pulses once on mount, then holds — for a status pill that has just
-   arrived at its on state and should not read as a static chip. */
 @keyframes pulse-on {
   from {
     opacity: 0;
@@ -530,21 +384,7 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 
-/* ---------- shared transition classes ----------
-   Callers pick one of these instead of a literal `duration-N` / `ease-...`. The
-   mapping is the same one in the @theme block above; the classes exist so a
-   component never reaches for `duration-200` / `ease-out` by habit.
 
-   Transitions (state changes):
-     t-fast     hover / press / focus feedback, icon-button hover, chip hover
-     t-base     panel border, card lift, switch track/knob, chevron rotate, dropdown arrow
-     t-slow     larger state moves: card hover translate, image reveal opacity, accordion body
-
-   Loops (decorative, infinite): pulses and breaths — see the per-context classes below.
-
-   Entrances (one-shot, `animation:`): the `*-enter` classes below. */
-
-/* state-change transitions */
 .t-fast {
   transition-property: color, background-color, border-color, transform, opacity, box-shadow;
   transition-duration: var(--motion-fast);
@@ -561,13 +401,10 @@ input[type="color"]::-webkit-color-swatch {
   transition-timing-function: var(--ease-standard);
 }
 
-/* Press feedback: a button's `active:scale-*` snap should move at the same 160ms everywhere.
-   Color/opacity/shadow are intentionally absent — a press only moves, it does not recolor. */
 .btn-active {
   transition: transform var(--motion-fast) var(--ease-standard);
 }
 
-/* A small icon nudge on hover (e.g. a jump-link chevron sliding 2px). Fast, an affordance not a move. */
 .chevron-slide {
   transition: transform var(--motion-fast) var(--ease-standard);
 }
@@ -605,15 +442,6 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 
-/* Wizard step motion. `lpage` is a vertical page enter, which says nothing
-   about which way you came — stepping back through a wizard and seeing the
-   new panel drift in from the same edge every time makes the two directions
-   feel identical. These translate on the X axis so the panel enters from the
-   side you are travelling towards.
-
-   Short on purpose. The motion is orientation, not decoration: anything long
-   enough to notice as a transition becomes something to wait for, and eight
-   steps of that would outlast the sixty seconds the flow is meant to take. */
 @keyframes lstepForward {
   from {
     opacity: 0;
@@ -673,30 +501,10 @@ input[type="color"]::-webkit-color-swatch {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(400%); }
 }
-/* `linear`, not an easing token: the sweep has no arrival to ease into, and
-   every eased version stalls at each end of a loop whose restart is already a
-   discontinuity. The duration stays on the scale -- it is the travel that has
-   no curve, on purpose. */
 .saving-bar {
   animation: saveSweep var(--motion-slower) linear infinite;
 }
 
-/* staggered reveal for card grids */
-/*
- * `backwards`, not `both`, and the difference is load-bearing.
- *
- * `lfade` animates a transform, which makes its element a stacking context for
- * as long as the animation applies. `both` keeps the *forwards* fill after the
- * animation ends, so every top-level block in a staggered tab kept a stacking
- * context forever at `z-index: auto`. An absolutely-positioned dropdown panel
- * then competed only inside its own block's context: a `z-30` menu opened under
- * a later sibling card and rendered behind it, with nothing on the page able to
- * lift it. The forwards fill was never needed -- the `to` frame is `opacity: 1;
- * transform: none`, which is already the element's resting state -- so dropping
- * it removes the stacking context with no visual change at all. `backwards` is
- * kept because it applies the `from` frame during the stagger delay, which is
- * what stops a card flashing before its turn.
- */
 .stagger > * {
   animation: lfade var(--motion-slower) var(--ease-standard) backwards;
 }
@@ -711,11 +519,7 @@ input[type="color"]::-webkit-color-swatch {
 .stagger > *:nth-child(9) { animation-delay: 0.34s; }
 .stagger > *:nth-child(10) { animation-delay: 0.38s; }
 
-/* ---------- vault ---------- */
 
-/* Tiles reveal as they approach the viewport rather than all at once. A
-   vault of a few hundred wallpapers animating together is a wall of noise, and
-   the ones you cannot see do not need to finish moving before you do. */
 .tile-reveal {
   opacity: 0;
   transform: translateY(6px);
@@ -723,32 +527,12 @@ input[type="color"]::-webkit-color-swatch {
 .tile-revealed {
   opacity: 1;
   transform: none;
-  /* The transform is kept short because the same property carries the hover
-     lift, and a hover that takes 450ms to answer reads as lag rather than
-     motion. box-shadow and border-color are listed so overriding the Tailwind
-     `transition-all` does not cost the rest of the tile its hover. */
   transition: opacity var(--motion-base) var(--ease-smooth),
     transform var(--motion-base) var(--ease-smooth),
     box-shadow var(--motion-base) ease,
     border-color var(--motion-base) ease;
 }
 
-/* Image hover scale — a deliberately slower, separate register from the state-change
-   scale above. Scaling a photograph by 1.05 reads as a reveal, and anything faster
-   than ~460ms feels like a jitter on the picture rather than a gesture. These are
-   the only transitions that sit outside the `--motion-*` register on purpose, and
-   they all go to the same place so the choice is a decision rather than a drift.
-
-   Tailwind emits the *static* part of the scale as `group-hover:scale-[1.05]` /
-   `group-hover:scale-[1.1]`; this class only supplies the *transition* that makes
-   that static value smooth, on the image register. The scale itself stays with the
-   caller's Tailwind class so it stays visible in the markup.
-
-   `img-scale` is the hover parent (the `group`): its transform children animate on
-   the slow register. `img-reveal` is the child that dissolves (an overlay scrub or
-   a still-cover that must fade as the image arrives). Both list themselves in the
-   reduced-motion block so the path is complete.
-*/
 .img-scale {
   transition: transform var(--motion-slow) var(--ease-smooth);
 }
@@ -756,13 +540,6 @@ input[type="color"]::-webkit-color-swatch {
   transition: opacity var(--motion-slow) var(--ease-smooth);
 }
 
-/* A body of content (a card's controls, a settings panel, an empty state) that
-   enters as a short cascade rather than all at once. Same motion as `.page-enter`
-   (`lfade`), but with a tighter per-child schedule so a paragraph of text does not
-   feel like it is loading. For body content, not for 28px tiles — those use `.stagger`.
-
-   `backwards`, not `both`: same reasoning as `.stagger` — `lfade` is a transform,
-   and the forwards fill would leave a stacking context behind forever. */
 .body-enter > * {
   animation: lfade var(--motion-slow) var(--ease-standard) backwards;
 }
@@ -795,8 +572,6 @@ input[type="color"]::-webkit-color-swatch {
   animation: starPop var(--motion-slower) var(--ease-standard) both;
 }
 
-/* The live pill and the rotation badge mount when an entry goes live, so the
-   animation reads as the wallpaper arriving rather than as chrome. */
 @keyframes livePop {
   0% {
     opacity: 0;
@@ -811,11 +586,6 @@ input[type="color"]::-webkit-color-swatch {
   animation: livePop var(--motion-base) var(--ease-emphasized) both;
 }
 
-/* The active rail row breathes rather than sits: a quiet, slow pulse in the
-   accent that keeps the selection visible without asserting itself. It is the
-   same idea as the engine's live dot — something is on — but scaled down to a
-   row that is already marked and one shade of accent shy of drawing the eye.
-   Slower than lpulse on purpose: a row is a resting state, not a beat. */
 @keyframes railGlow {
   0%,
   100% {
@@ -829,11 +599,6 @@ input[type="color"]::-webkit-color-swatch {
   animation: railGlow var(--motion-slower) ease-in-out infinite;
 }
 
-/* idle accent fan: a brief shimmer across the rail's accent edge when it folds
-   but the accent has not yet moved on. This is the only part of the collapse that
-   is about the accent itself rather than the rail — everything else is geometry.
-   The fan runs once and dies; if the accent keeps firing after it ends, that is fine
-   because the rail is gone and the eye is no longer on it. */
 @keyframes accentFan {
   0% {
     opacity: 0;
@@ -852,8 +617,6 @@ input[type="color"]::-webkit-color-swatch {
   animation: accentFan var(--motion-fast) var(--ease-exit) both;
 }
 
-/* A collection chip while a tile is in flight. Slow on purpose: this runs for
-   as long as the drag does, and anything faster reads as a glitch. */
 @keyframes dropArm {
   0%,
   100% {
@@ -867,7 +630,6 @@ input[type="color"]::-webkit-color-swatch {
   animation: dropArm var(--motion-slower) ease-in-out infinite;
 }
 
-/* ---------- command palette ---------- */
 
 @keyframes palOverlay {
   from { opacity: 0; }
@@ -903,9 +665,6 @@ input[type="color"]::-webkit-color-swatch {
     transform: none;
   }
 }
-/* The field spans the whole query band, so the global 2px focus ring draws a
-   box around the band instead of pointing at anything — the caret is the
-   focus signal here, and every button around the field keeps its ring. */
 .pal-panel input:focus-visible {
   outline: none;
 }
@@ -913,35 +672,17 @@ input[type="color"]::-webkit-color-swatch {
   animation: palOverlay var(--motion-fast) var(--ease-standard) both;
 }
 .pal-panel {
-  /* 160ms and a 6px rise — the palette's entry (and the rows below it) is
-     the one place this file meets the palette-motion numbers (150–200ms,
-     4–8px of travel) rather than the house 220ms/14px: on a panel this
-     small the longer travel read as lag, not weight. */
   animation: palPanel var(--motion-fast) var(--ease-standard) both;
 }
 .pal-swap {
   animation: palSwap var(--motion-base) var(--ease-standard) both;
 }
-/* `backwards`, not `both`: a forwards fill keeps pinning `transform: none`
-   over the row after it lands, and an animation origin beats normal
-   declarations — so `.pal-cmd:active`'s press-scale would silently never
-   fire. The wait-before-start half, which is all the delay needs, is exactly
-   what `backwards` provides.
-
-   `content-visibility` is the other half of surviving a big vault: a
-   thousand-row submenu paints only the rows near the viewport. The
-   intrinsic size keeps the scrollbar honest before a row has ever rendered,
-   and `auto` remembers the real height after. */
 .pal-row {
   animation: palRow var(--motion-fast) var(--ease-standard) backwards;
   content-visibility: auto;
   contain-intrinsic-size: auto 48px;
 }
 
-/* ---------- vault drawer ----------
-   A slide-over that covers the grid instead of taking width from it. The grid
-   underneath never reflows when a wallpaper is selected, so browsing a wide
-   vault does not shift under the pointer. */
 @keyframes drawerScrim {
   from {
     opacity: 0;
@@ -967,10 +708,6 @@ input[type="color"]::-webkit-color-swatch {
   animation: drawerSlide var(--motion-base) var(--ease-standard) both;
 }
 
-/* ---------- anchored popovers ----------
-   A popover that grows out of the control that opened it reads as attached to
-   it; the page-level enter animation, which rises from below, made a select
-   look like it was arriving from nowhere. */
 @keyframes menuPop {
   from {
     opacity: 0;
@@ -981,10 +718,6 @@ input[type="color"]::-webkit-color-swatch {
     transform: none;
   }
 }
-/* Exits are shorter than entrances. A popover that takes as long to leave as
-   it took to arrive feels like it is hesitating, and it holds the pointer's
-   attention on something already gone. Keep in step with CLOSE_MS in
-   usePopover.ts — that timer is what unmounts the panel. */
 @keyframes menuPopOut {
   from {
     opacity: 1;
@@ -1004,11 +737,6 @@ input[type="color"]::-webkit-color-swatch {
   will-change: opacity, transform;
 }
 
-/* ---------- modal ----------
-   One modal entrance for the whole app, matching the command palette's timing
-   so a dialog arriving from two different components still arrives the same
-   way. The row stagger is short on purpose — past about 20ms per row a
-   four-item list feels slow rather than considered. */
 @keyframes modalFade {
   from {
     opacity: 0;
@@ -1048,20 +776,16 @@ input[type="color"]::-webkit-color-swatch {
   animation: modalRow var(--motion-fast) var(--ease-standard) both;
 }
 
-/* selection ring: transitions instead of an instant class swap */
 .pal-cmd {
   transition: background-color var(--motion-instant) var(--ease-standard),
     color var(--motion-instant) var(--ease-standard),
     transform var(--motion-instant) var(--ease-standard);
 }
 .pal-cmd:active {
-  /* 0.99, the step the design guide assigns large list rows — 0.95 belongs to
-     small controls and reads as the row jumping away. */
   transform: scale(0.99);
 }
 
 @keyframes trackSwap {
-  /* flash the row bg with the accent, then fade it out */
   from {
     background-color: rgb(var(--glow) / 0.14);
   }
@@ -1071,7 +795,6 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 @keyframes trackSlide {
-  /* new title slides in from the right while fading up */
   from {
     opacity: 0;
     transform: translateX(14px);
@@ -1084,19 +807,7 @@ input[type="color"]::-webkit-color-swatch {
   animation: trackSwap var(--motion-slower) var(--ease-standard);
 }
 
-/* The newest segment of a system chart, arriving once a second.
-
-   A slide rather than a drawn-on stroke: the path carries
-   `vector-effect: non-scaling-stroke`, which puts its dash pattern in device
-   pixels, so a reveal animated with `stroke-dashoffset` needs a dash as long
-   as the segment is *on screen* -- a length that depends on the card's width
-   and is not knowable here. Measured in a browser: a dash far larger than the
-   path hides and shows it correctly, but animating the offset then crosses the
-   gap boundary in one step, so the segment pops rather than extends. Opacity
-   and a short nudge cannot disagree with how the stroke is computed. */
 @keyframes tipIn {
-  /* Fade and lift rather than scale: the tooltip is anchored to a control and
-     growing from a point would visibly detach from it. */
   from {
     opacity: 0;
     transform: translateY(2px);
@@ -1121,21 +832,6 @@ input[type="color"]::-webkit-color-swatch {
   animation: chartTail var(--motion-slow) var(--ease-standard) both;
 }
 
-/* ---------- collapsible detail ----------
-   An expand/collapse that grows to its content's height without measuring
-   anything.
-
-   `max-height` is the usual trick and it cannot be done correctly here: the
-   panel's height depends on the number of zones the device reports, so any
-   fixed ceiling is either a pop for a two-zone device or a wait for a
-   twelve-zone one, and picking a big enough number makes the animation crawl.
-
-   `grid-template-rows: 0fr -> 1fr` interpolates to the content's real height
-   because the row track is sized by the child inside it, and the child's
-   `min-height: 0` is what lets the track collapse to nothing instead of being
-   floored by the content. The child clips while it collapses; the fade is a
-   separate transition on the same wrapper so the two can disagree about
-   timing without either one fighting the other. */
 .disclose {
   display: grid;
   grid-template-rows: 1fr;
@@ -1157,7 +853,6 @@ input[type="color"]::-webkit-color-swatch {
   animation: trackSlide var(--motion-slower) var(--ease-emphasized) both;
 }
 
-/* live pulse / breath — per-context durations, shared keyframe */
 .pulse-slow {
   animation: lpulse var(--motion-slower) ease-in-out infinite;
 }
@@ -1168,13 +863,11 @@ input[type="color"]::-webkit-color-swatch {
   animation: lbreath var(--motion-slower) ease-in-out infinite;
 }
 
-/* A dot that pops in on mount and holds — for chips/marks that have just switched on. */
 .pop-on {
   animation: pulse-on var(--motion-base) var(--ease-emphasized) both;
 }
 
 @keyframes transportPulse {
-  /* expanding glow ring, like a press ripple radiating from the button */
   from {
     box-shadow: 0 0 0 0 rgb(var(--glow) / 0.45);
     border-color: rgb(var(--glow) / 0.6);
@@ -1185,7 +878,6 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 @keyframes iconSwap {
-  /* play/pause glyph morph: spin-and-shrink out, spin-and-grow in */
   0% {
     transform: rotate(-90deg) scale(0.4);
     opacity: 0;
@@ -1197,7 +889,6 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 @keyframes togglePop {
-  /* state flip on shuffle/repeat: a quick spring past 1 then settle */
   0% {
     transform: scale(0.7);
   }
@@ -1209,12 +900,10 @@ input[type="color"]::-webkit-color-swatch {
   }
 }
 
-/* Play/pause: re-keying the glyph replays the swap. */
 .player-icon-swap {
   animation: iconSwap var(--motion-base) var(--ease-emphasized) both;
 }
 
-/* Active toggle (shuffle on, repeat on, ...) pops its glyph on flip. */
 .player-toggle-pop {
   animation: togglePop var(--motion-base) var(--ease-emphasized) both;
 }
@@ -1223,19 +912,6 @@ input[type="color"]::-webkit-color-swatch {
   animation: transportPulse var(--motion-slow) var(--ease-standard) both;
 }
 
-/*
- * Animated icon normalisation.
- *
- * `@animateicons/react` wraps every glyph in a `<div class="inline-flex">` and
- * puts the caller's `className` on the wrapper, while the inner `<svg>` keeps a
- * fixed `width`/`height` attribute. So `className="h-4 w-4"` produced a 16px
- * box holding a 24px glyph, which overflowed onto whatever sat beside it.
- *
- * `max-*` rather than `width: 100%` because the wrapper is shrink-to-fit: an
- * SVG with an intrinsic size from its attributes resolves it without a
- * circular dependency, whereas `100%` would. `:where()` keeps this at element
- * specificity so any Tailwind sizing utility on the icon still wins.
- */
 :where(.ai) > svg {
   max-width: 100%;
   max-height: 100%;
@@ -1279,38 +955,21 @@ input[type="color"]::-webkit-color-swatch {
   .pop-on {
     animation: none !important;
   }
-  /* The reveal is a transition, and the wildcard above already collapses its
-     duration, but the start state still has to be released or every tile stays
-     invisible. */
   .tile-reveal,
   .img-reveal {
     opacity: 1;
     transform: none;
   }
-  /* The disclose collapses instantly rather than not at all. The wildcard above
-     already zeroes the transition duration, but the collapsed *state* has to be
-     released too or the panel stays visible for anyone who lands here with
-     `prefers-reduced-motion` set. */
   .disclose,
   .disclose-chevron {
     transition: none !important;
   }
-  /* The wildcard collapses durations, which stops the card lifting *smoothly*.
-     It does not stop the lift: `translateY(-1px)` on hover still applies, just
-     instantly, which is still movement to someone who asked for none. The
-     border-colour change above is fine to keep -- it has no displacement. */
   .card-surface:hover {
     transform: none;
   }
-  /* Same reasoning for the image hover scale: the transform still applies, just
-     instantly. Listing it here so the reduced-motion path is complete rather than
-     leaving one register live by accident. */
   .img-scale {
     transition: none !important;
   }
-  /* Body cascades and page/step enters are animations — the wildcard above kills
-     the timing, but the resting state still has to be the final frame, not the
-     `from`. Otherwise a reduced-motion user lands on a half-faded panel. */
   .body-enter > *,
   .page-enter,
   .page-enter-header,

@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { actionsFor, CONTEXT_BOOST, navDigit, SECTION_TAB, stepClamped, stepIndex, withContextBoost } from "./paletteActions";
 
-// Mirrors TabId in Sidebar.tsx. The module is typed against that union, so
-// this list is the runtime half of the same contract: if a tab is added or
-// renamed, one of the checks below fails rather than the palette quietly
-// navigating to an id the Shell does not know.
 const TABS = ["overview", "rgb", "wallpaper", "stickers", "general"];
 
 describe("SECTION_TAB", () => {
@@ -15,9 +11,9 @@ describe("SECTION_TAB", () => {
   });
 
   it("omits jumps that would be nonsense", () => {
-    expect(SECTION_TAB.navigate).toBeNull(); // it already is navigation
-    expect(SECTION_TAB.scene).toBeNull(); // profiles open from the avatar
-    expect(SECTION_TAB.app).toBeNull(); // quit and wipe leave the app
+    expect(SECTION_TAB.navigate).toBeNull();
+    expect(SECTION_TAB.scene).toBeNull();
+    expect(SECTION_TAB.app).toBeNull();
   });
 
   it("sends each owning section to its tab", () => {
@@ -111,8 +107,6 @@ describe("withContextBoost", () => {
   });
 
   it("is smaller than the scorer's smallest tier gap", () => {
-    // The tiers in paletteScore are 100+ apart; a bigger boost could pull a
-    // substring match past a prefix match and make typing lie.
     expect(CONTEXT_BOOST).toBeLessThan(100);
   });
 });

@@ -1,7 +1,3 @@
-//! Placement overlay windows: one transparent, topmost, click-through window
-//! per monitor shown while a sticker placement is armed. Gives the user
-//! explicit on-screen feedback (veil + cursor-following preview) on every
-//! display, above desktop icons and normal windows.
 
 #![cfg(windows)]
 
@@ -11,7 +7,6 @@ fn label(index: usize) -> String {
     format!("placement-{index}")
 }
 
-/// Show overlays on every monitor with the given placement media URL.
 pub fn show(app: &tauri::AppHandle, url: &str, name: &str) -> Result<(), String> {
     let mons = crate::win32::monitors();
     for (index, m) in mons.iter().enumerate() {
@@ -48,7 +43,6 @@ pub fn show(app: &tauri::AppHandle, url: &str, name: &str) -> Result<(), String>
     Ok(())
 }
 
-/// Hide and destroy all placement overlays.
 pub fn hide(app: &tauri::AppHandle) {
     crate::window_utils::close_by_prefix(app, "placement-");
 }

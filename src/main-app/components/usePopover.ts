@@ -1,16 +1,6 @@
-// Shared open/close machinery for the anchored popovers (currently Dropdown).
-//
-// The problem this exists to solve: React unmounts the panel the instant the
-// open flag clears, so a CSS entrance animation can play but an exit never
-// can — the menu snaps shut under the pointer. A "closing" phase keeps the
-// element mounted for the length of the exit, and the timer is what finally
-// unmounts it. Deliberately a timer and not `onAnimationEnd`: the
-// reduced-motion block sets `animation: none`, so no animation means no
-// animationend event, and the panel would never be removed.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/** Must match the `menuPopOut` duration in index.css. */
 const CLOSE_MS = 120;
 
 export type PopoverPhase = "closed" | "open" | "closing";
@@ -21,8 +11,6 @@ export function useAnchoredPopover() {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  // Guards focus restoration so mounting a closed popover never steals focus
-  // from whatever the page had.
   const wasOpen = useRef(false);
 
   const shown = phase !== "closed";
@@ -46,12 +34,6 @@ export function useAnchoredPopover() {
   useEffect(() => {
     if (!shown) return;
     const onDown = (e: MouseEvent) => {
-      // Both the trigger and the panel count as "inside".
-      //
-      // The panel is portalled to `document.body`, so `rootRef.contains` is false
-      // for every click on an option -- testing the root alone would treat the
-      // first mousedown of a click as a dismissal and close the menu under the
-      // pointer before `onPick` could run.
       const target = e.target as Node;
       const inRoot = rootRef.current?.contains(target) ?? false;
       const inPanel = panelRef.current?.contains(target) ?? false;
@@ -59,9 +41,6 @@ export function useAnchoredPopover() {
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      // stopImmediatePropagation, not stopPropagation: both this listener and
-      // any other document-level Escape handler would otherwise run, so a
-      // popover closing would also dismiss the surface behind it.
       e.stopImmediatePropagation();
       close();
       triggerRef.current?.focus();
@@ -74,10 +53,6 @@ export function useAnchoredPopover() {
     };
   }, [shown, close]);
 
-  // A menu that opens without moving focus into it is a menu a keyboard cannot
-  // use: Tab would walk out into the page behind it. Focus goes to the first
-  // item on open and returns to the trigger once the exit finishes, so the
-  // user's place in the page is the same whether they used the mouse or not.
   useEffect(() => {
     if (phase === "open") {
       wasOpen.current = true;
@@ -89,7 +64,6 @@ export function useAnchoredPopover() {
     }
   }, [phase]);
 
-  /** Arrow / Home / End between items, wrapping, skipping disabled ones. */
   const onPanelKeyDown = useCallback((e: React.KeyboardEvent) => {
     const items = itemRefs.current.filter(
       (el): el is HTMLButtonElement => !!el && !el.disabled,
@@ -114,7 +88,6 @@ export function useAnchoredPopover() {
         step(items.length - 1);
         break;
       case "Tab":
-        // Let focus move on, but do not leave an invisible panel behind it.
         setPhase("closing");
         break;
     }
@@ -138,7 +111,6 @@ export function useAnchoredPopover() {
     panelRef,
     registerItem,
     onPanelKeyDown,
-    /** The entrance class while opening, the exit class while closing. */
     animClass: phase === "closing" ? "menu-pop-out" : "menu-pop",
   };
 }

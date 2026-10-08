@@ -1,15 +1,9 @@
-//! Persistence model for LumenDeck settings, mirrored by src/shared/types.ts.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub const CONFIG_VERSION: u32 = 2;
 
-/// Migrate a config written by an older app version to the current schema.
-/// Serde's `default` fields already absorb additive changes; this hook is for
-/// *breaking* changes (renamed keys, moved data, semantic shifts). Bump
-/// `CONFIG_VERSION` and add a match arm per old version. `from` is the
-/// version read from the file — `None` means the file predates versioning.
 pub fn migrate(raw: &mut serde_json::Value, from: Option<u32>) -> Result<(), String> {
     let from = from.unwrap_or(if raw.get("version").is_some() {
         raw["version"].as_u64().ok_or("config version not a number")? as u32
@@ -21,9 +15,6 @@ pub fn migrate(raw: &mut serde_json::Value, from: Option<u32>) -> Result<(), Str
             "config was written by a newer app (schema v{from} > v{CONFIG_VERSION})"
         ));
     }
-    // v2: lighting-only profiles were replaced by whole-look configs, and
-    // every profile someone had saved became one. See
-    // `lighting_profiles_become_configs`.
     if from < 2 {
         lighting_profiles_become_configs(raw);
         rename_hotkey_key(raw, "nextScene", "nextProfile");
@@ -33,12 +24,6 @@ pub fn migrate(raw: &mut serde_json::Value, from: Option<u32>) -> Result<(), Str
     Ok(())
 }
 
-/// Carry a stored hotkey binding across a rename.
-///
-/// Written as a raw move rather than a serde alias because the pair has to
-/// move in the file too: the old key is removed, so the next write does not
-/// leave two spellings of one binding behind. A key that is absent is not an
-/// error — an unbound action has nothing to carry.
 fn rename_hotkey_key(raw: &mut serde_json::Value, from: &str, to: &str) {
     let Some(hotkeys) = raw
         .get_mut("general")
@@ -50,15 +35,9 @@ fn rename_hotkey_key(raw: &mut serde_json::Value, from: &str, to: &str) {
     let Some(value) = hotkeys.remove(from) else {
         return;
     };
-    // Refuses to clobber: if the new name is already bound, the old one is
-    // dropped instead, because two bindings for one action is worse than one.
     hotkeys.entry(to.to_string()).or_insert(value);
 }
 
-/// Milliseconds since the Unix epoch, for `created_ms`.
-///
-/// A named time source because two call sites writing the same four lines of
-/// `SystemTime` boilerplate is how one of them ends up truncating to seconds.
 pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -66,17 +45,6 @@ pub(crate) fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// v1 -> v2: every saved lighting profile becomes a whole-look config.
-///
-/// A profile captured only mode, colour and speed; a config captures a whole
-/// look. Each profile is therefore converted rather than dropped — it becomes
-/// the wallpaper and the stickers currently on screen plus its own lighting,
-/// which is what it meant in practice: a profile changed the lights and left
-/// the desktop alone.
-///
-/// Converting rather than discarding is the whole reason this exists. A user
-/// with eight saved profiles and no configs would otherwise come back from the
-/// upgrade to an empty Settings page with no way to find out why.
 fn lighting_profiles_become_configs(raw: &mut serde_json::Value) {
     let profiles = match raw.get("rgb").and_then(|rgb| rgb.get("profiles")) {
         Some(serde_json::Value::Array(list)) if !list.is_empty() => list.clone(),
@@ -84,8 +52,6 @@ fn lighting_profiles_become_configs(raw: &mut serde_json::Value) {
     };
     let base_rgb = raw.get("rgb").cloned().unwrap_or_else(|| serde_json::json!({}));
     let created_ms = now_ms();
-    // Migrated profiles land after the configs the user already has: they are
-    // the older thing, and the array order is the order the UI lists them in.
     let mut scenes: Vec<serde_json::Value> = match raw.get("scenes") {
         Some(serde_json::Value::Array(existing)) => existing.clone(),
         _ => Vec::new(),
@@ -101,10 +67,6 @@ fn lighting_profiles_become_configs(raw: &mut serde_json::Value) {
             .and_then(|n| n.as_str())
             .unwrap_or("Config")
             .to_string();
-        // Ids are how "apply this config" finds its target, so a migrated id
-        // that collided with a saved one would make two entries on the list
-        // land on the same config. Deterministic ids keep the migration
-        // testable; the suffix loop is what keeps them from overlapping.
         let mut id = format!("scene-from-profile-{i}");
         let mut bump = 1;
         while taken_ids.contains(&id) {
@@ -114,22 +76,16 @@ fn lighting_profiles_become_configs(raw: &mut serde_json::Value) {
         taken_ids.insert(id.clone());
         let mut rgb = base_rgb.clone();
         if let Some(obj) = rgb.as_object_mut() {
-            // Only the three knobs a profile ever captured. Everything else in
-            // the RGB config stays as this machine has it.
             for key in ["mode", "staticColor", "animationSpeed"] {
                 if let Some(v) = profile.get(key) {
                     obj.insert(key.to_string(), v.clone());
                 }
             }
-            // The list being migrated must not survive inside every copy of the
-            // RGB config, or recalling a config would resurrect it.
             obj.remove("profiles");
         }
         let mut scene = serde_json::Map::new();
         scene.insert("id".into(), serde_json::json!(id));
         scene.insert("name".into(), serde_json::json!(name));
-        // Inserted only when present, so a missing section falls back to the
-        // serde default instead of failing on an explicit null.
         if let Some(wallpaper) = raw.get("wallpaper") {
             scene.insert("wallpaper".into(), wallpaper.clone());
         }
@@ -148,7 +104,6 @@ fn lighting_profiles_become_configs(raw: &mut serde_json::Value) {
     log::info!("migrated {} lighting profile(s) to configs", profiles.len());
 }
 
-// ---------- General ----------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -162,151 +117,38 @@ pub enum ThemeMode {
 #[serde(rename_all = "camelCase", default)]
 pub struct GeneralConfig {
     pub autostart: bool,
-    /// Which palette to paint. Defaults to following the OS: an app that
-    /// fights the system theme on a light machine reads as broken, whatever
-    /// its own default once was. Only new configs are affected — anyone who
-    /// has already chosen keeps what they chose.
     pub theme: ThemeMode,
-    /// UI language: "auto" follows the Windows display language, anything
-    /// else is a locale tag this build may or may not ship. Defaults to
-    /// "auto" so a Spanish Windows gets a Spanish app without anyone
-    /// visiting Settings — the one thing nobody should have to configure.
     pub language: String,
-    /// User-chosen names for displays, keyed by the Windows device name
-    /// ("\.\DISPLAY1").
-    ///
-    /// The raw key is what identifies a display to Windows, but it is not a
-    /// name a person would use — the panel currently shows ".DISPLAY1" or
-    /// nothing at all. The alias is local to LumenDeck, and an absent or
-    /// blank entry means "fall back to the device name".
     #[serde(default)]
     pub screen_names: HashMap<String, String>,
     pub pause_on_battery_saver: bool,
     pub pause_on_fullscreen: bool,
     pub wallpaper_enabled: bool,
-    /// UI accent follows the live scene (wallpaper, then a device, then the static
-    /// color) rather than being frozen to the Windows accent or the static colour.
-    /// On by default so the dashboard reflects the wallpaper the user picked.
     pub accent_live: bool,
-    /// Decode wallpaper video in software (for machines whose hardware
-    /// decoder misbehaves). Costs CPU and destabilizes 4K pipelines — the
-    /// hardware path is the default. Read once at startup.
     pub software_video_decode: bool,
-    /// Sync the Windows accent color to the wallpaper's dominant color.
     pub accent_sync_enabled: bool,
-    /// Remember the user's pre-sync accent on first enable so it can be
-    /// restored when the toggle goes off again.
     pub accent_sync_armed: bool,
-    /// Apply wallpaper changes to the Windows lock screen too (off by
-    /// default: some users prefer keeping a personal lock image).
     pub lock_screen_follows_wallpaper: bool,
-    /// Remember the user's pre-sync lock screen on first enable so it can be
-    /// restored when the toggle goes off again. Without this the toggle is
-    /// one-way: nothing ever puts the user's own image back.
     pub lock_screen_armed: bool,
-    /// First-run onboarding wizard has been completed. False on fresh
-    /// installs; the dashboard shows a guided setup until it's done.
     pub onboarded: bool,
-    /// The profile the machine is currently running, or null when it is on
-    /// something no profile describes.
-    ///
-    /// Stored rather than re-derived by matching the config against every
-    /// profile, because two profiles can describe the same state and only the
-    /// id says which one the user picked. The match is still the fallback: a
-    /// config written before this field existed has no id, and its profiles
-    /// should still light up. While it is set, every config write re-captures
-    /// that profile (see `config_store::sync_active_profile`).
     pub active_profile_id: Option<String>,
-    /// Dashboard accent auto-shade: how strongly the UI lifts/darkens a
-    /// source color until it is legible on the theme surface. 0.0 = off
-    /// (raw colors, may be hard to read), 1.0 = full adjustment to clear
-    /// the contrast floor. Hardware colors are unaffected either way.
     pub accent_auto_shade: f64,
-    /// AMOLED mode: true-black surfaces in dark theme (pixels fully off on
-    /// OLED panels). Ignored in light theme.
     pub amoled: bool,
-    /// Show the `#RRGGBB` readout beside colour swatches.
-    ///
-    /// The default here is `true`, and that is load-bearing rather than
-    /// incidental: this value is what serde substitutes for a stored config
-    /// written before the field existed, so it means "what an existing user
-    /// keeps seeing". Changing it would silently change the UI for everyone who
-    /// upgrades.
-    ///
-    /// New installs get the opposite, from `config_store::first_run_defaults` —
-    /// a machine with no history has no reason to be shown something the
-    /// product no longer considers the default. The split lives there because
-    /// that is the only place that can tell a first run from an upgrade.
-    ///
-    /// Either way the swatch still shows the colour and the picker's own hex
-    /// field is unaffected; only the readout label goes.
     pub show_color_hex: bool,
-    /// The titlebar minimize button hides the dashboard into the notification
-    /// area instead of parking it on the taskbar. Wallpapers and lighting
-    /// keep running either way; the tray icon brings the window back.
     pub minimize_to_tray: bool,
-    /// A launch-at-login start shows the dashboard instead of coming up in
-    /// the tray. Off by default: the wallpaper and lights are the point of
-    /// an autostart, and a window popping up over a freshly booted desktop
-    /// is not. Ignored when `autostart` is off — a manual start always
-    /// shows the window.
     pub show_dashboard_on_login: bool,
-    /// Internal: the one-time "running in the background" tray balloon has
-    /// been shown, so a quiet login start is explained exactly once.
     pub startup_hint_shown: bool,
-    /// Internal: the last version whose release notes were opened in the
-    /// dashboard. Empty = never read. Drives the "what's new" marker.
     pub changelog_seen_version: String,
-    /// Master switch for system-wide key bindings. False releases every
-    /// binding the OS is holding, which is the emergency off-ramp when a
-    /// combo misbehaves. Defaults to true: a fresh install binds nothing
-    /// anyway (every action ships unbound), so this costs no privacy on
-    /// first run, and starting false would silently break the bindings of
-    /// anyone who had already configured some.
     pub hotkeys_enabled: bool,
-    /// System-wide key bindings, applied by `crate::hotkeys` from the tray
-    /// process so they keep working while the dashboard is hidden.
     pub hotkeys: HotkeyConfig,
-    /// Blink the keyboard backlight when a binding fires, so a combo can be
-    /// confirmed with your eyes on the wallpaper rather than the tray. 0 =
-    /// disabled; otherwise the total blink duration in milliseconds
-    /// (150..1000). Ignored while `hotkeys_enabled` is false — nothing can
-    /// fire to trigger it.
     #[serde(default = "default_hotkey_blink_ms")]
     pub hotkey_blink_ms: u64,
-    /// Colour of that blink. White by default because it reads against any
-    /// wallpaper accent; a hue can vanish into a room lit that colour.
     #[serde(default = "default_hotkey_blink_color")]
     pub hotkey_blink_color: [u8; 3],
-    /// How often a running dashboard looks for a new release, in minutes.
-    ///
-    /// Zero means no automatic checking at all: the dashboard then waits for the
-    /// user to press Check for updates, and stops checking on a timer *and* on
-    /// the window returning. Leaving the visibility trigger running would have
-    /// made "manual" a lie, since alt-tabbing back checks more often than any
-    /// interval here.
-    ///
-    /// It does not govern the manual Check for updates button, which is a
-    /// question and not a poll.
-    ///
-    /// Hours by default, which is what a signed latest.json deserves: a few
-    /// kilobytes, but still a round trip on someone's connection. A user who
-    /// wants release-day notifications sooner can lower it; the dashboard
-    /// clamps the value to something a server would thank us for.
-    ///
-    /// Safe for zero to mean "off" because this is `serde(default)`: a config
-    /// written before the field existed becomes the default hour, never a zero.
     #[serde(default = "default_update_check_minutes")]
     pub update_check_minutes: u32,
 }
 
-/// One configurable system-wide shortcut.
-///
-/// `accelerator` uses the Tauri/`global-hotkey` grammar, e.g.
-/// `"Ctrl+Alt+M"`. An empty string means "not bound" — bindings default to
-/// unbound on purpose: registering OS-wide key grabs the user never asked for
-/// is the fastest way to make an ambient app feel hostile. The dashboard shows
-/// a suggested combo per action and the user opts in.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HotkeyBinding {
@@ -325,37 +167,23 @@ impl HotkeyBinding {
     }
 }
 
-/// Every action a hotkey can trigger, each with its own (possibly empty)
-/// binding. Adding a field here is additive: older config files deserialize
-/// with the field defaulted, and the action shows up unbound in the UI.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HotkeyConfig {
-    /// Show the dashboard if hidden, hide it if visible.
     pub toggle_dashboard: HotkeyBinding,
     pub play_pause: HotkeyBinding,
     pub next_track: HotkeyBinding,
     pub prev_track: HotkeyBinding,
-    /// Mute/unmute the system output device.
     pub toggle_mute: HotkeyBinding,
-    /// System volume up/down by 5%.
     pub volume_up: HotkeyBinding,
     pub volume_down: HotkeyBinding,
-    /// Pause/resume the live wallpaper.
     pub toggle_wallpaper: HotkeyBinding,
-    /// Step to the next lighting mode (same order as the tray menu).
     pub cycle_lighting_mode: HotkeyBinding,
-    /// Apply the next saved profile. Renamed from `next_scene`; the migration
-    /// carries an existing binding across rather than leaving a user who had
-    /// set one with nothing bound after the upgrade.
     pub next_profile: HotkeyBinding,
-    /// Advance the active playlist / gallery to the next entry.
     pub next_wallpaper: HotkeyBinding,
 }
 
 impl HotkeyConfig {
-    /// `(action id, binding)` pairs, in a stable order. The ids match the
-    /// frontend's `HotkeyAction` union and the tray's dispatch table.
     pub fn entries(&self) -> [(&'static str, &HotkeyBinding); 11] {
         [
             ("toggleDashboard", &self.toggle_dashboard),
@@ -380,9 +208,6 @@ impl Default for GeneralConfig {
             theme: ThemeMode::System,
             language: "auto".to_string(),
             screen_names: HashMap::new(),
-            // Off by default: a laptop user's first run should show a live
-            // wallpaper, not a frozen frame just because the charger is
-            // unplugged. Opt in from the General tab.
             pause_on_battery_saver: false,
             pause_on_fullscreen: true,
             wallpaper_enabled: true,
@@ -396,16 +221,11 @@ impl Default for GeneralConfig {
             active_profile_id: None,
             accent_auto_shade: 1.0,
             amoled: false,
-            // The fallback for configs predating the field, so existing users
-            // keep the readout they have always had. First runs override this.
             show_color_hex: true,
-            // Tray, not taskbar: a taskbar button for a window that only
-            // shows a wallpaper would be the app's most visible feature.
             minimize_to_tray: true,
             show_dashboard_on_login: false,
             startup_hint_shown: false,
             changelog_seen_version: String::new(),
-            // Unbound by default; see HotkeyBinding.
             hotkeys: HotkeyConfig::default(),
             hotkeys_enabled: true,
             hotkey_blink_ms: default_hotkey_blink_ms(),
@@ -415,7 +235,6 @@ impl Default for GeneralConfig {
     }
 }
 
-// ---------- Wallpaper ----------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -449,44 +268,16 @@ impl Default for SlideshowConfig {
 #[serde(rename_all = "camelCase", default)]
 pub struct WallpaperConfig {
     pub kind: WallpaperKind,
-    /// media:// URL or absolute path for video/image, URL for web, preset id for shader.
     pub source: String,
     pub volume: f64,
     pub slideshow: SlideshowConfig,
-    /// How video fills each monitor: "cover" (fill, crop), "contain"
-    /// (letterbox, aspect-correct), "fill" (stretch), or "auto" (cover when
-    /// the video aspect is within 10% of the display, else contain).
     pub video_fit: String,
-    /// Video playback rate (1.0 = normal). Clamped in the runtime to 0.1..8.
     pub video_speed: f32,
-    /// Video color grading: multiplier on brightness (1 = unchanged).
     pub video_brightness: f32,
-    /// Video color grading: saturation multiplier (1 = unchanged, 0 = gray).
     pub video_saturation: f32,
-    /// Video color grading: hue rotation in degrees (-180..180).
     pub video_hue: f32,
-    /// Per-display wallpaper overrides, keyed by monitor device string
-    /// (e.g. "\.\DISPLAY1"). A display with no entry uses the global
-    /// wallpaper config. Only kind+source are overridden there; per-entry
-    /// playback options (see EntryOptions) are layered on afterwards.
     pub per_monitor: std::collections::BTreeMap<String, PerMonitorWallpaper>,
-    /// Whether importing a wallpaper also puts it on the displays.
-    ///
-    /// On by default, because for a single file that is almost always what you
-    /// meant. It is wrong for a folder: importing sixty files then leaves the
-    /// sixtieth one on your desktop, which is never the intent.
     pub apply_after_import: bool,
-    /// Whether an import measures what it brought in (resolution, length).
-    ///
-    /// The vault index is what makes "sort by 4K" and "only the long ones"
-    /// answerable, and until it is built a freshly imported file has no
-    /// measurements at all. On by default for every existing config too, not
-    /// just new ones: there is no history to preserve, the work is bounded to
-    /// what was just added, and an upgrade is not a moment to start doing less.
-    ///
-    /// Off is for the person who imports a few hundred files and would rather
-    /// not pay for measuring them — the toolbar's "Index vault" button stays
-    /// there either way.
     pub index_after_import: bool,
 }
 
@@ -516,7 +307,6 @@ impl Default for WallpaperConfig {
     }
 }
 
-// ---------- RGB ----------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -525,21 +315,14 @@ pub enum RgbMode {
     Zone,
     Pulse,
     Static,
-    /// Rainbow gradient marching along the LED strip (per-LED).
     Wave,
-    /// Enture device cycles through hues over time (per-LED, uniform).
     Cycle,
-    /// Smooth brightness breathing on the static color.
     Breathe,
-    /// LEDs pulse in sync with system audio.
     #[serde(rename = "audioReactive")]
     AudioReactive,
 }
 
 impl RgbMode {
-    /// Pure animation modes generate their own frames and don't wait for
-    /// wallpaper samples. They also want a faster push cadence than the
-    /// reactive modes so motion looks fluid.
     pub fn is_animation(&self) -> bool {
         matches!(
             self,
@@ -552,10 +335,8 @@ impl RgbMode {
 #[serde(rename_all = "camelCase", default)]
 pub struct RgbMixer {
     pub brightness: f64,
-    /// 0 = grayscale, 1 = normal, >1 boosted.
     pub saturation: f64,
     pub gamma: f64,
-    /// 0 = snap, 1 = very slow easing.
     pub smoothing: f64,
 }
 
@@ -575,7 +356,6 @@ impl Default for RgbMixer {
 pub struct ZoneDef {
     pub id: String,
     pub name: String,
-    /// Normalized rect within the wallpaper (0..1).
     pub x: f64,
     pub y: f64,
     pub w: f64,
@@ -595,60 +375,32 @@ pub struct RgbConfig {
     pub mixer: RgbMixer,
     pub min_update_ms: u64,
     pub excluded_devices: Vec<u32>,
-    /// User-chosen names for devices, keyed by OpenRGB device id.
-    ///
-    /// OpenRGB reports whatever the driver called the device, which is often a
-    /// model string repeated across a desk ("LEDStrip1", "LEDStrip2") and
-    /// never localised. The alias is local to LumenDeck — OpenRGB owns the
-    /// real name — and an absent or blank entry means "use the driver's".
     #[serde(default)]
     pub device_names: HashMap<u32, String>,
-    /// Animation playback speed multiplier (0.1..5, 1 = normal).
     pub animation_speed: f64,
-    /// Seconds of inactivity before lights turn off (0 = disabled, min 30).
     pub idle_timeout_sec: u64,
-    /// How often (seconds) to check for idle state (1..60).
     pub idle_check_interval_sec: u64,
-    /// Device driving the dashboard accent color (None = auto, Some(-1) = static).
     pub accent_device: Option<u32>,
-    /// Audio-reactive sensitivity (0.1..3, 1 = normal).
     pub audio_sensitivity: f64,
-    /// Audio-reactive smoothing (0 = snap, 1 = very slow).
     pub audio_smoothing: f64,
-    /// Audio capture source: "system" (WASAPI loopback) or "microphone" (WASAPI capture).
     pub audio_source: String,
-    /// Wave mode travel direction: 1 = forward, -1 = reverse.
     pub wave_direction: i32,
-    /// Cycle mode rainbow spread across the strip in degrees (30..720).
     pub cycle_spread: f64,
-    /// Night dimming: between `night_start` and `night_end` (local "hh:mm",
-    /// may wrap midnight), device brightness is capped at `night_brightness`
-    /// (0..1). Empty strings = disabled.
     pub night_start: String,
     pub night_end: String,
-    /// Brightness cap during the night window (0..1).
     pub night_brightness: f64,
-    /// Flash all devices white-ish for a beat when the OS media session's
-    /// track changes (SMTC). 0 = disabled; otherwise the flash duration in
-    /// milliseconds (150..1000).
     #[serde(default)]
     pub track_flash_ms: u64,
 }
 
-/// Blink length for a fresh install. Not zero: confirming that a hotkey fired
-/// is the whole point, and nothing else on screen is visible while the
-/// dashboard is closed.
 fn default_hotkey_blink_ms() -> u64 {
     450
 }
 
-/// How often a running dashboard checks for a release. See the field's doc.
 fn default_update_check_minutes() -> u32 {
     60
 }
 
-/// Blink colour for a fresh install. Also the fallback for a config saved
-/// before the blink colour was user-settable.
 fn default_hotkey_blink_color() -> [u8; 3] {
     crate::tokens::hotkey_blink()
 }
@@ -683,7 +435,6 @@ impl Default for RgbConfig {
     }
 }
 
-// ---------- Stickers ----------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -699,7 +450,6 @@ pub struct StickerDef {
     pub id: String,
     pub name: String,
     pub url: String,
-    /// Virtual-screen coordinates (px).
     pub x: i32,
     pub y: i32,
     pub w: u32,
@@ -708,8 +458,6 @@ pub struct StickerDef {
     pub opacity: f64,
     pub muted: bool,
     pub visible: bool,
-    /// Render in a topmost OS window above all applications instead of the
-    /// wallpaper layer (which sits behind desktop icons).
     #[serde(default)]
     pub on_top: bool,
 }
@@ -733,10 +481,7 @@ impl Default for StickerDef {
     }
 }
 
-// ---------- Sticker snapping ----------
 
-/// Snap behavior for the on-wallpaper sticker editor. Guides = alignment
-/// against other stickers and monitor edges/centers; grid = quantum snap.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct StickerSnap {
@@ -755,16 +500,11 @@ impl Default for StickerSnap {
     }
 }
 
-// ---------- Sticker behavior ----------
 
-/// Sticker behavior settings.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct StickerConfig {
-    /// Remove flat background at placement time (transparent PNG/APNG).
     pub remove_background: bool,
-    /// Mirror every wallpaper-layer sticker onto all monitors instead of
-    /// showing it only at its placed virtual-screen position.
     pub all_monitors: bool,
 }
 
@@ -777,51 +517,29 @@ impl Default for StickerConfig {
     }
 }
 
-// ---------- Gallery ----------
 
-/// One saved wallpaper in the gallery. Videos/images persist by absolute path;
-/// web/shader presets are also allowed so everything appears in one grid.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GalleryEntry {
     pub id: String,
     pub name: String,
     pub kind: WallpaperKind,
-    /// Absolute path (video/image), URL (web), or preset id (shader).
     pub source: String,
-    /// Milliseconds since epoch (added time; drives ordering).
     pub added_ms: u64,
-    /// Small JPEG data-URL preview captured client-side (optional).
     pub thumb: Option<String>,
-    /// Per-entry playback overrides. `None` on every field means "inherit the
-    /// global setting", which is what keeps a vault saved before this field
-    /// existed rendering exactly as it always did.
     #[serde(default)]
     pub opts: Option<EntryOptions>,
-    /// Starred by hand. Not a collection: a collection is a named membership
-    /// list you set up deliberately, this is the one-click "I like this one".
     #[serde(default)]
     pub favorite: bool,
-    /// When this entry was last put on a display, for the "recently used" sort.
-    /// `None` has never been applied, which is different from applied at epoch.
     #[serde(default)]
     pub last_applied_ms: Option<u64>,
 }
 
-/// Playback overrides for one vault entry.
-///
-/// Every field is an `Option` because "inherit" and "set to the same value as
-/// the global" are different things: inheriting is what lets the global setting
-/// keep applying to the other four hundred clips when you change it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct EntryOptions {
-    /// "cover" | "contain" | "fill" | "auto".
     pub fit: Option<String>,
-    /// Playback rate; the runtime clamps to 0.1..8.
     pub speed: Option<f32>,
-    /// Audio volume for this entry only. A clip with a soundtrack can be muted
-    /// without muting the app.
     pub volume: Option<f64>,
     pub brightness: Option<f32>,
     pub saturation: Option<f32>,
@@ -829,8 +547,6 @@ pub struct EntryOptions {
 }
 
 impl EntryOptions {
-    /// True when nothing is set, so the caller can drop the whole object
-    /// instead of persisting an empty bag of nulls.
     pub fn is_empty(&self) -> bool {
         self.fit.is_none()
             && self.speed.is_none()
@@ -840,7 +556,6 @@ impl EntryOptions {
             && self.hue.is_none()
     }
 
-    /// Overlay these overrides onto the global wallpaper config.
     pub fn apply_to(&self, cfg: &mut WallpaperConfig) {
         if let Some(v) = &self.fit {
             cfg.video_fit = v.clone();
@@ -863,14 +578,11 @@ impl EntryOptions {
     }
 }
 
-/// A named group of vault entries. Entries keep their global vault ids;
-/// collections are just membership lists, so an entry can live in several.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WallpaperCollection {
     pub id: String,
     pub name: String,
-    /// Gallery entry ids, in display order.
     pub entry_ids: Vec<String>,
 }
 
@@ -884,23 +596,15 @@ impl Default for WallpaperCollection {
     }
 }
 
-/// A playlist: rotation source over a collection (or the whole vault) that
-/// switches the active wallpaper on a schedule.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WallpaperPlaylist {
     pub id: String,
     pub name: String,
-    /// `collection:<id>` or `all` for the whole vault.
     pub source: String,
-    /// Ordered time-of-day rules; first rule whose start <= now wins.
-    /// Empty = interval/shuffle mode only.
     pub rules: Vec<PlaylistRule>,
-    /// Shuffle to a different entry every N minutes (0 = off).
     pub shuffle_min: u32,
-    /// Crossfade seconds between playlist transitions (0 = instant cut).
     pub crossfade_sec: f64,
-    /// True when the playlist is the active rotation.
     pub enabled: bool,
 }
 
@@ -918,15 +622,10 @@ impl Default for WallpaperPlaylist {
     }
 }
 
-/// One time-of-day rule: from `hh:mm` the playlist applies its own shuffle
-/// within the given filter (a collection id, or `all`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PlaylistRule {
-    /// Start time "hh:mm" (local, 24h). The last rule before midnight wins
-    /// until the next day's first rule.
     pub start: String,
-    /// `collection:<id>` or `all`.
     pub source: String,
 }
 
@@ -940,7 +639,6 @@ impl Default for PlaylistRule {
 }
 
 impl PlaylistRule {
-    /// Parse "hh:mm" into minutes-of-day; None when malformed.
     pub fn start_minutes(&self) -> Option<u32> {
         let (h, m) = self.start.split_once(':')?;
         let h: u32 = h.trim().parse().ok()?;
@@ -952,46 +650,16 @@ impl PlaylistRule {
     }
 }
 
-// ---------- Scenes ----------
 
-/// Full-look snapshot: everything that defines the machine's vibe right now.
-/// Recall restores the entire snapshot in one command.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SceneProfile {
     pub id: String,
     pub name: String,
-    /// Whole-wallpaper config (kind/source/videoFit/fx/per-monitor overrides).
     pub wallpaper: WallpaperConfig,
-    /// Whole-RGB config (mode/mixer/zones/accents and the rest).
     pub rgb: RgbConfig,
-    /// Sticker placements, so a recall restores the whole arrangement.
-    ///
-    /// This reverses an earlier decision to leave stickers alone as
-    /// "positional, not mood". A desk with three different sticker layouts and
-    /// three different wallpapers is one setup saved three times, which is the
-    /// thing a config is for. `#[serde(default)]` matters more here than on the
-    /// other fields: a scene stored before this existed deserialises to an
-    /// empty list, and recall then clears the desktop rather than failing.
-    ///
-    /// That is the sharp edge of restoring stickers and it is why the
-    /// confirmation is the user's to give, not ours to assume either way.
-    ///
-    /// No `#[serde(default)]` here on purpose: the struct already carries one,
-    /// and mutation proved a field-level copy changes nothing — the test still
-    /// passed with it removed. Two attributes reading as load-bearing when only
-    /// the outer one is is how the next person deletes the one that matters.
     pub stickers: Vec<StickerDef>,
-    /// Absolute path to the avatar image, when the user chose one.
-    ///
-    /// A copy in the app's own media directory rather than the path they
-    /// picked: a config is the one thing here that is meant to still work in a
-    /// year, and the file behind "Next to my Downloads" is the first thing that
-    /// gets tidied away. `None` is the ordinary case and means "draw the
-    /// initial", which is also what every config written before this field
-    /// existed reads as.
     pub logo: Option<String>,
-    /// Snapshot timestamp (ms) for the UI.
     pub created_ms: u64,
 }
 
@@ -1009,7 +677,6 @@ impl Default for SceneProfile {
     }
 }
 
-// ---------- Root ----------
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -1020,15 +687,9 @@ pub struct Config {
     pub rgb: RgbConfig,
     pub stickers: Vec<StickerDef>,
     pub gallery: Vec<GalleryEntry>,
-    /// Walk the vault in random order instead of display order.
-    ///
-    /// False is what every existing config resolves to, so upgrading does not
-    /// change how the next-wallpaper key behaves for anyone already using it.
     pub gallery_shuffle: bool,
     pub collections: Vec<WallpaperCollection>,
     pub playlists: Vec<WallpaperPlaylist>,
-    /// Scene profiles: full-look snapshots (wallpaper + RGB + per-monitor
-    /// overrides) with instant recall — one click switches the entire vibe.
     pub scenes: Vec<SceneProfile>,
     pub sticker_snap: StickerSnap,
     pub sticker: StickerConfig,
@@ -1059,9 +720,6 @@ mod device_name_tests {
 
     #[test]
     fn a_config_without_device_names_still_loads() {
-        // Renaming shipped after the first release, so every config already on
-        // disk predates the field. Serde's `default` is what keeps those from
-        // failing to parse, and it is the one thing here that must not regress.
         let raw = serde_json::json!({ "version": CONFIG_VERSION, "rgb": {} });
         let cfg: Config = serde_json::from_value(raw).expect("an older config parses");
         assert!(cfg.rgb.device_names.is_empty());
@@ -1075,7 +733,6 @@ mod device_name_tests {
         rgb.device_names = names;
 
         let json = serde_json::to_value(&rgb).expect("serialises");
-        // JSON object keys are strings, so serde writes the id as "4".
         assert_eq!(json["deviceNames"]["4"], "Desk strip");
         let back: RgbConfig = serde_json::from_value(json).expect("deserialises");
         assert_eq!(back.device_names.get(&4).map(String::as_str), Some("Desk strip"));
@@ -1095,9 +752,6 @@ mod device_name_tests {
 
     #[test]
     fn screen_names_survive_a_round_trip() {
-        // The key is the Windows device name, backslashes and all: JSON has no
-        // escaping problem here, but getting the key wrong would silently
-        // orphan every alias the user has set.
         let mut names = HashMap::new();
         names.insert(r"\.\DISPLAY2".to_string(), "Desk".to_string());
         let mut general = GeneralConfig::default();
@@ -1146,14 +800,6 @@ mod playlist_tests {
         assert!(cfg.playlists.is_empty());
     }
 
-    /// A config stored before scenes carried stickers must still load.
-    ///
-    /// This is the migration that matters: `SceneProfile` carries a
-    /// struct-level `#[serde(default)]`, so an old scene deserialises to an
-    /// empty sticker list rather than failing the whole config read. Without it
-    /// every existing user's app would fail to start on upgrade, which is the
-    /// failure mode a `default` attribute exists to prevent and the one worth a
-    /// test rather than a comment.
     #[test]
     fn an_old_scene_without_stickers_still_deserializes() {
         let old = r#"{
@@ -1197,8 +843,6 @@ mod playlist_tests {
 
     #[test]
     fn saved_lighting_profiles_become_configs_on_load() {
-        // The one test that matters for the v1 -> v2 migration: a user who
-        // saved profiles must come back to configs, not to an empty page.
         let old = serde_json::json!({
             "version": 1,
             "wallpaper": { "kind": "video", "source": "media://a.mp4" },
@@ -1222,21 +866,15 @@ mod playlist_tests {
         assert_eq!(cfg.scenes[0].name, "Chill");
         assert_eq!(cfg.scenes[1].name, "Rage");
 
-        // The three knobs the profile captured come from the profile...
         assert_eq!(cfg.scenes[0].rgb.mode, RgbMode::Ambient);
         assert_eq!(cfg.scenes[0].rgb.static_color, [0, 0, 255]);
         assert_eq!(cfg.scenes[0].rgb.animation_speed, 0.5);
         assert_eq!(cfg.scenes[1].rgb.mode, RgbMode::Wave);
-        // ...and everything else the profile never knew about stays as the
-        // machine had it.
         assert!(!cfg.scenes[0].rgb.enabled, "unrelated RGB settings must survive");
-        // The desktop a profile was used against is the one it now carries.
         assert_eq!(cfg.scenes[0].wallpaper.kind, WallpaperKind::Video);
         assert_eq!(cfg.scenes[0].wallpaper.source, "media://a.mp4");
         assert_eq!(cfg.scenes[0].stickers.len(), 1);
 
-        // The list must not survive inside the migrated copies, or recalling a
-        // config would bring the retired profiles back.
         assert!(raw["rgb"].get("profiles").is_none());
         assert!(raw["scenes"][0]["rgb"].get("profiles").is_none());
     }
@@ -1259,9 +897,6 @@ mod playlist_tests {
             .map(|s| s["id"].as_str().expect("every config has an id").to_string())
             .collect();
         assert_eq!(ids.len(), 2);
-        // Two configs answering to one id is the failure that makes "apply this
-        // config" land on the wrong one, so the migration has to move out of
-        // the way of ids it could collide with.
         assert_ne!(
             ids[0], ids[1],
             "a migrated config must not reuse a stored id"
@@ -1319,7 +954,6 @@ mod playlist_tests {
         assert!(json.contains("\"shuffleMin\":30"));
     }
 
-    // ---------- Hotkeys ----------
 
     #[test]
     fn hotkeys_default_to_unbound() {
@@ -1356,10 +990,6 @@ mod playlist_tests {
 
     #[test]
     fn hotkeys_survive_an_old_config_without_the_section() {
-        // A config written before hotkeys existed must still load, with the
-        // whole section defaulted rather than the file being rejected. The
-        // master switch has to default to on here, or upgrading would
-        // silently kill bindings the user had already set up.
         let old = serde_json::json!({ "version": 1, "general": { "theme": "dark" } });
         let cfg: Config = serde_json::from_value(old).expect("pre-hotkey config must parse");
         assert!(cfg.general.hotkeys.entries().iter().all(|(_, b)| b.is_empty()));
@@ -1371,10 +1001,6 @@ mod playlist_tests {
 
     #[test]
     fn blink_settings_survive_an_old_config_without_them() {
-        // A config written before the blink existed has neither the duration
-        // nor the colour. Both must default rather than fail the parse: the
-        // duration to on (the blink is the useful default) and the colour to
-        // white, which reads against any wallpaper accent.
         let old = serde_json::json!({ "version": 1, "general": { "theme": "dark" } });
         let cfg: Config = serde_json::from_value(old).expect("pre-blink config must parse");
         assert_eq!(cfg.general.hotkey_blink_ms, default_hotkey_blink_ms());
@@ -1383,18 +1009,12 @@ mod playlist_tests {
 
     #[test]
     fn a_new_config_follows_the_system_theme() {
-        // Light machines should not get a dark app they never asked for. The
-        // frontend resolves "system" against prefers-color-scheme, so the
-        // default has to be System rather than a hard palette.
         assert_eq!(GeneralConfig::default().theme, ThemeMode::System);
         assert_eq!(Config::default().general.theme, ThemeMode::System);
     }
 
     #[test]
     fn an_explicit_theme_from_an_older_config_is_still_honoured() {
-        // Flipping the default must not reach forward and overwrite someone
-        // who already picked a palette: their config.json still says what it
-        // always said, and it has to win.
         let old = serde_json::json!({ "version": 1, "general": { "theme": "dark" } });
         let cfg: Config = serde_json::from_value(old).expect("pre-system config must parse");
         assert_eq!(cfg.general.theme, ThemeMode::Dark);
@@ -1411,12 +1031,6 @@ mod playlist_tests {
 
     #[test]
     fn the_update_interval_is_stored_under_the_name_the_dashboard_sends() {
-        // `GeneralConfig` is `rename_all = "camelCase"`, so the JSON key is
-        // `updateCheckMinutes` -- which is what `GeneralTab`'s dropdown writes and
-        // what the hand-maintained TypeScript interface calls the field. Nothing
-        // in the compiler connects those three: a rename on either side would
-        // leave the control saving a key the backend drops, and the interval
-        // would silently stay at the default forever.
         let cfg = Config::default();
         let json = serde_json::to_string(&cfg).unwrap();
         assert!(
@@ -1451,7 +1065,6 @@ mod playlist_tests {
     }
 }
 
-/// Per-entry playback overrides, and the promise they make to an existing vault.
 #[cfg(test)]
 mod entry_options_tests {
     use super::{EntryOptions, GalleryEntry, WallpaperConfig, WallpaperKind};
@@ -1470,9 +1083,6 @@ mod entry_options_tests {
         }
     }
 
-    /// A config file written before this field existed has no `opts` key at all.
-    /// If that failed to parse, every existing user would open the app to a
-    /// reset vault.
     #[test]
     fn an_entry_without_the_field_still_parses() {
         let json = r#"{"id":"g1","name":"clip","kind":"video","source":"C:/clip.mp4","addedMs":0}"#;
@@ -1480,8 +1090,6 @@ mod entry_options_tests {
         assert!(e.opts.is_none());
     }
 
-    /// And one that has it round-trips, so a per-entry speed survives a restart
-    /// rather than quietly reverting to the global value.
     #[test]
     fn a_set_option_survives_the_round_trip() {
         let e = GalleryEntry {
@@ -1498,9 +1106,6 @@ mod entry_options_tests {
         assert_eq!(back.opts.as_ref().unwrap().fit.as_deref(), Some("contain"));
     }
 
-    /// "Inherit" and "set to the same value as the global" are different things.
-    /// An empty bag must leave the config completely alone, or changing the
-    /// global speed would stop affecting a wallpaper the user had touched.
     #[test]
     fn an_empty_bag_changes_nothing() {
         let mut w = WallpaperConfig::default();
@@ -1522,8 +1127,6 @@ mod entry_options_tests {
             ..Default::default()
         };
         opts.apply_to(&mut w);
-        // Muted is a real value here, not "unset": an entry with a soundtrack
-        // has to be silenceable without muting the app.
         assert_eq!(w.volume, 0.0);
         assert_eq!(w.video_fit, "cover", "an unset field must not be reset");
         assert_eq!(w.video_speed, 1.0);

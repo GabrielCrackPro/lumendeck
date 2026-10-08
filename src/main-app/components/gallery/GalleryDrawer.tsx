@@ -15,7 +15,6 @@ export interface GalleryDrawerProps {
   monitors: MonitorEntry[];
   screenNames: Record<string, string>;
   perMonitor: Record<string, { kind: string; source: string } | undefined>;
-  /** The globally applied entry, so the drawer can say what "live" means. */
   activeEntry: GalleryEntry | null;
   url: string;
   preview: ReactNode;
@@ -31,14 +30,11 @@ export interface GalleryDrawerProps {
   onToggleCollection: (collectionId: string) => void;
   onRemove: () => void;
   onClose: () => void;
-  /** "missing" when the file is gone, "duplicate" when another entry is the
-   *  same file. Null when the entry is fine. */
   health: Unhealthy | null;
   onSetOpts: (patch: Partial<EntryOptions>) => void;
   onResetOpts: () => void;
   onReveal: () => void;
   onRegenerateThumb: () => void;
-  /** The global values the entry would go back to, for the "inherits" hints. */
   globalOpts: { fit: string; speed: number; volume: number };
 }
 
@@ -56,7 +52,6 @@ function useMediaMeta(url: string, entry: GalleryEntry): MediaMeta | null {
   return meta;
 }
 
-/** One label/value cell of the facts grid. */
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
@@ -66,26 +61,6 @@ function Fact({ label, value }: { label: string; value: string }) {
   );
 }
 
-/**
- * The detail view for one vault entry, as a slide-over drawer.
- *
- * It covers the right edge of the grid instead of taking width from it. The
- * earlier version was a permanent 320px column that appeared on selection, so
- * every time you picked something to look at, the vault you were browsing
- * reflowed sideways underneath you. An overlay leaves the grid exactly where it
- * was, which is the whole point of a browsing surface.
- *
- * Inside, the name is pinned to a header that never scrolls away — it is what
- * you are reading the rest of the panel about — the media facts sit in a grid
- * where you can compare them at a glance, and the two groups below are plain
- * labelled blocks. The collapsible sections they replaced were two short lists
- * behind two chevrons: the interaction cost more than the space it saved.
- *
- * Portalled to <body> for the same reason the modal is: the vault `Card` has a
- * `backdrop-filter`, which makes it a containing block for `position: fixed`.
- * Written in place, the scrim would cover only the card and the drawer would be
- * pinned to the card's right edge and height rather than the window's.
- */
 export function GalleryDrawer({
   entry,
   collections,
@@ -121,15 +96,9 @@ export function GalleryDrawer({
   const mine = collectionsOf(entry, collections);
   const isActive = activeEntry?.id === entry.id;
   const opts = entry.opts ?? {};
-  // An override that equals the global value is not an override; leaving it set
-  // would mean the entry stopped following the global setting the moment the
-  // global setting was changed, which is the opposite of what the user meant.
   const hasOverrides = Object.keys(opts).length > 0;
   const isPlayable = entry.kind === "video" || entry.kind === "image";
 
-  // The grid's Escape already closes the drawer, but Escape must also work when
-  // focus has moved into it, which is where it usually is once you rename or
-  // pick a display.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -138,8 +107,6 @@ export function GalleryDrawer({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Move focus in so the drawer's controls are reachable by Tab, and hand it
-  // back to the grid when it closes.
   useEffect(() => {
     panelRef.current?.focus();
   }, []);

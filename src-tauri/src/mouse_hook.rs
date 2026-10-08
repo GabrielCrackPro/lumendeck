@@ -1,11 +1,3 @@
-//! Low-level global mouse hook (WH_MOUSE_LL): lets the user place stickers by
-//! clicking directly on the desktop — no overlay window involved. Also powers
-//! the on-wallpaper sticker editor (drag/resize) while editor mode is on.
-//! A dedicated thread installs the hook once and pumps messages; the callback
-//! stays installed forever.
-//!
-//! Events are observed, never swallowed: clicks still reach whatever is
-//! underneath (harmless — the wallpaper layer has no interactive content).
 
 #![cfg(windows)]
 
@@ -13,41 +5,25 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 static ARMED: AtomicBool = AtomicBool::new(false);
-/// Editor mode: stream all mouse activity to the wallpaper webviews.
 static EDITOR_MODE: AtomicBool = AtomicBool::new(false);
 static WAITER: Mutex<Option<tokio::sync::oneshot::Sender<ClickResult>>> = Mutex::new(None);
 
-/// Timestamp (ms since epoch) of the last user input (mouse or keyboard).
-///
-/// Zero means "no input seen yet", which is indistinguishable from "input in
-/// 1970" to anything doing arithmetic on it — the idle watcher read a literal
-/// 1790755853423ms out of this on startup. `arm()` seeds it with the current
-/// time before the hook is installed, so "never seen" becomes "seen just now".
 static LAST_INPUT_MS: AtomicU64 = AtomicU64::new(0);
 
-/// Treat startup as "the user was here a moment ago" rather than as 56 years of
-/// silence.
-///
-/// Named for what it does to the idle clock, and deliberately *not* `arm` —
-/// that name is already taken by the click-placement arming below, and the two
-/// have nothing to do with each other.
 pub fn mark_input_now() {
     touch_input();
 }
 
-/// Returns the last time any input activity was observed.
 pub fn last_input_ms() -> u64 {
     LAST_INPUT_MS.load(Ordering::Relaxed)
 }
 
-/// Record input activity with the current timestamp.
 fn touch_input() {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     LAST_INPUT_MS.store(now, Ordering::Relaxed);
-    // Wake the RGB engine immediately if it was sleeping due to idle.
     crate::rgb::wake_if_sleeping();
 }
 
@@ -57,39 +33,30 @@ pub enum ClickResult {
     Cancel,
 }
 
-/// ESC pressed while an interactive session (placement/editor) is active.
-/// The keyboard hook sets this; the editor forwarder drains it.
 pub static ESC_PRESSED: AtomicBool = AtomicBool::new(false);
 
-/// True when the last keyboard event was Escape with no other key held.
 fn is_escape(vk: u32) -> bool {
-    vk == 0x1B // VK_ESCAPE
+    vk == 0x1B
 }
 
-/// Arm the hook. The next left click resolves the pending waiter with
-/// `Place`; a right click resolves it with `Cancel`.
 pub fn arm() {
     ARMED.store(true, Ordering::SeqCst);
 }
 
-/// Disarm and resolve any pending waiter as `Cancel` (UI cancel button).
 pub fn disarm() {
     ARMED.store(false, Ordering::SeqCst);
     fire(ClickResult::Cancel);
 }
 
-/// Resolve the armed placement at a specific point (corner quick-place).
 pub fn resolve_place_at(x: i32, y: i32) {
     ARMED.store(false, Ordering::SeqCst);
     log::info!("[mouse-hook] place via corner zone at ({x}, {y})");
     fire(ClickResult::Place(x, y));
 }
 
-/// Await the next armed click (must be called from a Tauri async command).
 pub async fn wait() -> ClickResult {
     let (tx, rx) = tokio::sync::oneshot::channel();
     if WAITER.lock().expect("waiter poisoned").replace(tx).is_some() {
-        // A previous waiter never resolved — resolve it as cancelled.
     }
     ARMED.store(true, Ordering::SeqCst);
     rx.await.unwrap_or(ClickResult::Cancel)
@@ -101,7 +68,6 @@ fn fire(result: ClickResult) {
     }
 }
 
-/// Editor mode on/off (streamed via CURSOR_TX with button states).
 pub fn set_editor_mode(on: bool) {
     EDITOR_MODE.store(on, Ordering::SeqCst);
 }
@@ -110,14 +76,10 @@ pub fn editor_mode_on() -> bool {
     EDITOR_MODE.load(Ordering::SeqCst)
 }
 
-/// Install the hook on a dedicated thread with a message pump. Call once at
-/// startup; the hook lives for the process lifetime.
 pub fn spawn() {
     std::thread::Builder::new()
         .name("sticker-mouse-hook".into())
         .spawn(|| {
-            // Seed before installing, so the idle watcher has a real timestamp
-            // to subtract from even if the user has not touched anything yet.
             mark_input_now();
             unsafe {
                 let hook = match install() {
@@ -128,12 +90,10 @@ pub fn spawn() {
                     }
                 };
                 log::info!("[mouse-hook] installed");
-                // Message pump keeps the hook thread alive.
                 let mut msg = windows::Win32::UI::WindowsAndMessaging::MSG::default();
                 while windows::Win32::UI::WindowsAndMessaging::GetMessageW(&mut msg, None, 0, 0)
                     .as_bool()
                 {
-                    // No window: nothing to translate/dispatch.
                 }
                 let _ = windows::Win32::UI::WindowsAndMessaging::UnhookWindowsHookEx(hook);
             }
@@ -148,10 +108,8 @@ unsafe fn install() -> windows::core::Result<windows::Win32::UI::WindowsAndMessa
     SetWindowsHookExW(WH_MOUSE_LL, Some(hook_proc), Some(hmod.into()), 0)
 }
 
-/// One streamed mouse observation: position + button state.
-pub type MouseEv = (i32, i32, bool, bool); // x, y, left-down, right-down
+pub type MouseEv = (i32, i32, bool, bool);
 
-/// Wheel deltas streamed while placement is armed (positive = up/zoom in).
 pub static WHEEL_TX: Mutex<Option<tokio::sync::mpsc::UnboundedSender<i32>>> = Mutex::new(None);
 
 unsafe extern "system" fn hook_proc(
@@ -171,7 +129,6 @@ unsafe extern "system" fn hook_proc(
         touch_input();
 
         if ARMED.load(Ordering::SeqCst) {
-            // Placement: stream cursor movement so the wallpaper can preview.
             if msg == WM_MOUSEMOVE {
                 let _ = CURSOR_TX.lock().map(|tx| {
                     if let Some(tx) = tx.as_ref() {
@@ -180,7 +137,6 @@ unsafe extern "system" fn hook_proc(
                 });
             }
             if msg == WM_MOUSEWHEEL {
-                // HIWORD of mouseData: positive when scrolled up.
                 let delta = (info.mouseData as u16 as i32) >> 16;
                 let _ = WHEEL_TX.lock().map(|tx| {
                     if let Some(tx) = tx.as_ref() {
@@ -198,7 +154,6 @@ unsafe extern "system" fn hook_proc(
                 fire(ClickResult::Cancel);
             }
         } else if EDITOR_MODE.load(Ordering::SeqCst) {
-            // Editor: stream moves + button edges with post-update button state.
             let event = match msg {
                 WM_MOUSEMOVE => Some((info.pt.x, info.pt.y, L_DOWN.load(Ordering::Relaxed), R_DOWN.load(Ordering::Relaxed))),
                 WM_LBUTTONDOWN => {
@@ -226,20 +181,12 @@ unsafe extern "system" fn hook_proc(
                     }
                 });
             }
-            // Swallow button events while editing so clicks don't reach desktop
-            // icons/windows underneath — EXCEPT clicks over LumenDeck's own
-            // windows (the dashboard's "Done" button must stay clickable).
-            // Moves always pass. (If this process dies, Windows removes the
-            // hook automatically — no lock-out.)
             if msg == WM_LBUTTONDOWN
                 || msg == WM_LBUTTONUP
                 || msg == WM_RBUTTONDOWN
                 || msg == WM_RBUTTONUP
             {
                 if crate::win32::point_over_own_window(info.pt.x, info.pt.y) {
-                    // Let our own UI receive the click normally. Also reset
-                    // tracked button state so the editor doesn't think a drag
-                    // is in progress when the click was on the dashboard.
                     if msg == WM_LBUTTONDOWN {
                         L_DOWN.store(false, Ordering::Relaxed);
                     } else if msg == WM_RBUTTONDOWN {
@@ -254,15 +201,11 @@ unsafe extern "system" fn hook_proc(
     CallNextHookEx(None, code, wparam, lparam)
 }
 
-// Button state tracked for the editor stream (moves carry current buttons).
 static L_DOWN: AtomicBool = AtomicBool::new(false);
 static R_DOWN: AtomicBool = AtomicBool::new(false);
 
-/// Sender side of the live cursor/editor stream.
 static CURSOR_TX: Mutex<Option<tokio::sync::mpsc::UnboundedSender<MouseEv>>> = Mutex::new(None);
 
-/// Take over the cursor stream (placement or editor). The forwarder task in
-/// the command/setup broadcasts observations as events.
 pub fn take_cursor_stream() -> Option<tokio::sync::mpsc::UnboundedReceiver<MouseEv>> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     CURSOR_TX
@@ -272,25 +215,17 @@ pub fn take_cursor_stream() -> Option<tokio::sync::mpsc::UnboundedReceiver<Mouse
     Some(rx)
 }
 
-/// Release the cursor stream (placement finished / editor closed).
 pub fn release_cursor_stream() {
     CURSOR_TX.lock().expect("cursor tx poisoned").take();
     L_DOWN.store(false, Ordering::Relaxed);
     R_DOWN.store(false, Ordering::Relaxed);
 }
 
-// ---------------------------------------------------------------------------
-// Keyboard hook (WH_KEYBOARD_LL) — tracks input activity for idle detection.
-// ---------------------------------------------------------------------------
 
-/// Install a low-level keyboard hook on a dedicated thread. Observes all key
-/// events and updates `LAST_INPUT_MS` so the idle timer resets on typing.
 pub fn spawn_keyboard_hook() {
     std::thread::Builder::new()
         .name("sticker-keyboard-hook".into())
         .spawn(|| {
-            // Same reason as the mouse hook: the idle timer needs a real
-            // starting timestamp even if this installs first.
             mark_input_now();
             unsafe {
                 let hook = match install_keyboard_hook() {
@@ -329,9 +264,6 @@ unsafe extern "system" fn keyboard_hook_proc(
 
     if code >= 0 {
         touch_input();
-        // Interactive sessions end on ESC (same convention as Wallpaper
-        // Engine / Lively use for their placement flows). Observed, never
-        // swallowed — the focused app gets its normal ESC handling too.
         let msg = wparam.0 as u32;
         if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
             && (editor_mode_on() || ARMED.load(Ordering::SeqCst))

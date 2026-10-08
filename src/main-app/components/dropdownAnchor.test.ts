@@ -9,7 +9,6 @@ import {
   type Rect,
 } from "./dropdownAnchor";
 
-/** A trigger at a given top-left. */
 const trigger = (top: number, left = 100, w = 120, h = 32): Rect => ({
   top,
   left,
@@ -31,16 +30,12 @@ describe("placeDropdown", () => {
   });
 
   it("flips above when below would not fit", () => {
-    // Trigger near the bottom: 200px of panel cannot go under it.
     const p = placeDropdown(trigger(760), 200, VIEW_W, VIEW_H);
     expect(p.side).toBe("above");
     expect(p.top).toBeLessThan(760);
   });
 
   it("caps the height to the room available rather than overflowing", () => {
-    // A trigger low in a tall window, with a panel taller than the cap. It opens
-    // below because `above` is the larger space, and the cap holds the panel to
-    // what actually fits -- so it scrolls rather than running off the window.
     const p = placeDropdown(trigger(700), PANEL_MAX_H, VIEW_W, VIEW_H);
     expect(p.side).toBe("above");
     expect(p.maxHeight).toBe(PANEL_MAX_H);
@@ -68,29 +63,23 @@ describe("placeDropdown", () => {
   });
 
   it("does not go negative when the trigger is off-screen above", () => {
-    // A trigger scrolled partly out of view: `top` can be negative.
     const p = placeDropdown(trigger(-40), 200, VIEW_W, VIEW_H);
     expect(p.top).toBeGreaterThanOrEqual(EDGE);
     expect(Number.isFinite(p.top)).toBe(true);
   });
 
   it("prefers below when both sides would fit", () => {
-    // Mid-window: either side has room, and the old CSS always opened below.
     const p = placeDropdown(trigger(380), 100, VIEW_W, VIEW_H);
     expect(p.side).toBe("below");
   });
 
   it("gives a non-zero height even when the trigger is at the very bottom", () => {
-    // The degenerate case the keyboard preview hit. A maxHeight of 0 would render
-    // an invisible panel, which is worse than a short one.
     const p = placeDropdown(trigger(790), 200, VIEW_W, VIEW_H);
     expect(p.side).toBe("above");
     expect(p.maxHeight).toBeGreaterThan(0);
   });
 
   it("returns finite coordinates for every trigger position", () => {
-    // A fuzz over the whole viewport, because a NaN here becomes a panel at an
-    // unreachable place with no error anywhere.
     for (let top = -100; top <= VIEW_H; top += 37) {
       for (const left of [-50, 0, 500, VIEW_W - 10]) {
         const p = placeDropdown(trigger(top, left), 200, VIEW_W, VIEW_H);
@@ -118,13 +107,9 @@ describe("panelStyle", () => {
 
 describe("UNMEASURED", () => {
   it("is off-screen, so an unplaced panel cannot flash at the origin", () => {
-    // The failure this guards: `position: fixed` with no coordinates lands at the
-    // viewport's top-left corner, which on every open is a visible flicker.
     expect(UNMEASURED).toBeLessThan(0);
   });
 });
-// The per-card action menu hangs off the trailing half of a chip, so it aligns
-// by its right edge. Left-aligning that one pushes it past a narrow window.
 describe("alignment", () => {
   const t = trigger(100, 600, 120, 32);
 
@@ -137,13 +122,10 @@ describe("alignment", () => {
   it("aligns by the right edge when asked", () => {
     const p = placeDropdown(t, 200, VIEW_W, VIEW_H, "right", 144);
     expect(p.align).toBe("right");
-    // Right edges line up: 600 + 120 - 144.
     expect(p.left + 144).toBe(t.right);
   });
 
   it("clamps rather than hanging off when right alignment does not fit", () => {
-    // Trigger hard against the left edge: `right - width` is negative, and
-    // honouring it would put the menu off-screen.
     const edge = trigger(100, 8, 120, 32);
     const p = placeDropdown(edge, 200, VIEW_W, VIEW_H, "right", 144);
     expect(p.left).toBe(EDGE);
@@ -155,7 +137,6 @@ describe("alignment", () => {
   });
 
   it("carries width into the style only when measured", () => {
-    // An unmeasured panel must not be pinned to width 0, which would collapse it.
     expect(panelStyle(placeDropdown(t, 200, VIEW_W, VIEW_H))).not.toHaveProperty(
       "width",
     );

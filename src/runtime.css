@@ -1,4 +1,3 @@
-/* Shared base for the runtime pages (wallpaper, sticker, placement). */
 @import "tailwindcss";
 
 html,
@@ -19,7 +18,6 @@ iframe {
   display: block;
 }
 
-/* Paused badge: slow-breathing status dot (runs in the wallpaper webview). */
 @keyframes lumen-breathe {
   0%,
   100% {

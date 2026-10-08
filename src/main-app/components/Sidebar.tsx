@@ -21,13 +21,9 @@ export interface NavDef {
   label: string;
   blurb: string;
   icon: Glyph;
-  /** Ctrl+N — the shortcuts overlay's rows come from here, not from index. */
   hotkey: number;
 }
 
-// Labels and blurbs are catalog keys, resolved at render. The command palette
-// and the shortcut overlay both read this same list, so a tab cannot be called
-// "Lighting" in the rail and "Iluminación" in the palette — there is one key.
 export const TABS: NavDef[] = [
   { id: "overview", label: "nav.overview", blurb: "nav.at-a-glance", icon: IconZap, hotkey: 1 },
   { id: "rgb", label: "nav.lighting", blurb: "nav.rgb-engine", icon: IconBulb, hotkey: 2 },
@@ -43,82 +39,30 @@ export const SETTINGS_TAB: NavDef = {
   hotkey: 5,
 };
 
-/**
- * Every tab the dashboard can show, settings last.
- *
- * TABS alone is not the whole set, which is the trap: SETTINGS_TAB is kept out
- * of it so the rail can render it after a hairline. Anything asking "is this a
- * tab?" -- the update toast's navigation guard, above all -- has to look here.
- */
 export const ALL_TABS: NavDef[] = [...TABS, SETTINGS_TAB];
 
-/**
- * Whether a string names a tab, as a type guard.
- *
- * The store holds the nav request as a plain string because a module-level
- * toast cannot reach Shell's local state, so something has to narrow it before
- * it becomes the rendered pane. Without this, an unknown id blanks the
- * dashboard with no error anywhere.
- */
 export function isTabId(id: string): id is TabId {
   return ALL_TABS.some((tab) => tab.id === id);
 }
 
-/**
- * The anchors each tab publishes, so a module with no reference to any tab
- * component can still name one.
- *
- * Declared rather than inferred from the markup because a typo is otherwise
- * invisible: `navigateTo("rgb", "devicez")` would switch tab and quietly scroll
- * nowhere, which looks exactly like the feature not working. The list is the
- * contract, and the test that reads it is what makes adding an anchor a
- * deliberate act.
- */
 export const TAB_ANCHORS: Record<TabId, readonly string[]> = {
   overview: [],
   rgb: ["devices", "automation", "lighting-mode"],
-  // The gallery, its toolbar and grid together, is one card on the wallpaper
-  // tab -- there is no gallery tab.
   wallpaper: ["vault"],
   stickers: [],
   general: [],
 };
 
-/**
- * How many frames the Shell will wait for a pane to render before giving up on
- * an anchor.
- *
- * Every tab is `lazy()`, so a switch renders a Suspense skeleton first. Sixty
- * frames is about a second: long enough for a chunk that has been fetched once
- * before, short enough that an anchor which does not exist does not leave a frame
- * loop running behind an open window.
- */
 export const ANCHOR_FRAMES = 60;
 
-/** Every anchor on the app, as `tab/anchor`. Stable enough to log. */
 export const ALL_ANCHORS: readonly string[] = ALL_TABS.flatMap((tab) =>
   TAB_ANCHORS[tab.id].map((a) => `${tab.id}/${a}`),
 );
 
-/**
- * Whether `anchor` is something this tab actually has.
- *
- * A tab switch with an anchor that does not exist is still worth doing — landing
- * on the right screen beats staying put — but the scroll is dropped rather than
- * attempted, so nothing appears to hang.
- */
 export function isAnchorFor(tab: TabId, anchor: string): boolean {
   return TAB_ANCHORS[tab].includes(anchor);
 }
 
-/**
- * The selector that finds an anchor element.
- *
- * Quotes the value because the attribute is interpolated: an unquoted
- * `[data-anchor=a b]` is a syntax error that throws inside `querySelector`, and
- * an id with a quote in it would otherwise select something else entirely. The
- * registry keeps ids to slugs, so this is belt and braces rather than the guard.
- */
 export function anchorSelector(anchor: string): string {
   return `[data-anchor="${anchor.replace(/["\\]/g, "\\$&")}"]`;
 }
@@ -129,20 +73,11 @@ type EngineState = {
   detail: string;
 };
 
-/**
- * The one piece of state the rail carries. A dot alone would be ambiguous, so
- * the label stays — but it lives on a hover, not on the face of the rail: the
- * header already says live/paused and every tab states its own health, so a
- * third always-on caption was noise. The click target stays because "why is
- * that dot red?" always ends in the Lighting tab.
- */
 function useEngineState(): EngineState {
   const enabled = useStore((s) => s.cfg?.rgb.enabled ?? false);
   const connected = useStore((s) => s.rgb.connected);
   const lastError = useStore((s) => s.rgb.lastError);
   const devices = useStore((s) => s.rgb.devices.length);
-  // Primitive on purpose: read ~30x/s by the RGB frame stream, so it must only
-  // wake React when the answer actually changes.
   const lit = useStore((s) => {
     for (const c of Object.values(s.deviceColors)) {
       if (c.rgb.some((v) => v > 0)) return true;
@@ -184,14 +119,6 @@ const ENGINE_DOT: Record<EngineState["tone"], string> = {
   live: "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] pulse-base",
 };
 
-/** One rail row. Labels are the only permanent content — everything else is a
- *  hover, so a five-item rail reads as five items and nothing else.
- *
- *  The label stays mounted when the rail folds and fades out of the way, and
- *  the icon keeps the first flex cell in both states, so nothing jumps: the
- *  rows used to re-center their icons the instant the width transition began,
- *  which is exactly the kind of reflow that makes a collapse feel cheap. The
- *  per-row delay staggers the fade into a short cascade. */
 function NavItem({
   item,
   index,
@@ -200,7 +127,6 @@ function NavItem({
   onClick,
 }: {
   item: NavDef;
-  /** Position in the rail, used only to stagger the collapse animation. */
   index: number;
   active: boolean;
   collapsed: boolean;
@@ -208,12 +134,6 @@ function NavItem({
 }) {
   const Icon = item.icon;
   const IconAdapted = anim(Icon, "rail");
-  // Collapsed, the label is gone — so the tooltip has to carry it. It used to
-  // show only the blurb ("At a glance"), which told a hovering user nothing
-  // about which of five identical icons they were pointing at.
-  // Labels stay English in the nav model and are translated where they are
-  // shown, so the model keeps working as data (hotkey numbers, tooltips) and
-  // one dictionary entry covers both the rail and the shortcut sheet.
   const title = collapsed ? `${t(item.label)} — ${t(item.blurb)}` : t(item.blurb);
   return (
     <button
@@ -229,7 +149,7 @@ function NavItem({
           : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
       }`}
     >
-      {/* active marker: full-height accent bar on the left edge */}
+      { }
       {active && (
         <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r-sm bg-[rgb(var(--glow))]" />
       )}
@@ -248,9 +168,6 @@ function NavItem({
   );
 }
 
-/** Search trigger. Same command as Ctrl+K, always on screen. One button in
- *  both states: the glyph never moves, only the text and the shortcut hint
- *  dissolve, so the field narrows with the rail instead of swapping shapes. */
 function SearchButton({
   collapsed,
   onClick,
@@ -278,23 +195,15 @@ function SearchButton({
           collapsed ? "opacity-0" : "opacity-100"
         }`}
       >
-        {/* The hint comes from the catalog as one string; both catalogs use a
-            separator between the two tokens, so either spelling splits into
-            one cap per key instead of one cap holding both. */}
+        {
+
+ }
         <ComboCaps keys={t("nav.ctrl-k").split(/[+\s]+/)} />
       </span>
     </button>
   );
 }
 
-/**
- * Status bar: engine heartbeat, shortcut sheet, and the one collapse toggle.
- *
- * The toggle used to live in the header and swap places with the rail's
- * layout when it folded (row one way, column the other), which shoved the app
- * mark sideways mid-animation. One row, one home, no reflow — the header is
- * now identity only.
- */
 function RailFooter({
   collapsed,
   onShortcuts,
@@ -309,9 +218,9 @@ function RailFooter({
   const engine = useEngineState();
   return (
     <div className="flex items-center gap-1 border-t border-[var(--line)] px-1.5 py-1.5">
-      {/* Dot only: the header already says live/paused and every tab states its
-          own health, so a caption here was a third copy of the same fact. The
-          tooltip and the click-through to Lighting carry the meaning. */}
+      {
+
+ }
       <button
         onClick={onOpenLighting}
         data-tip={t(engine.detail)}
@@ -320,13 +229,13 @@ function RailFooter({
       >
         <span className={`h-2 w-2 shrink-0 rounded-full ${ENGINE_DOT[engine.tone]}`} />
       </button>
-      {/* Collapsed there is no room for a third control; "?" still opens it.
+      {
 
-          The tip is dropped rather than faded with the rest. A `w-0` button is
-          not a zero-width hit area — the glyph keeps its own width, measured
-          16px — so a tooltip stayed reachable and anchored itself over the empty
-          rail, naming a control the pointer was not on. `undefined` removes the
-          attribute, and the delegated handler's `closest` then finds nothing. */}
+
+
+
+
+ }
       <button
         onClick={onShortcuts}
         data-tip={collapsed ? undefined : t("nav.keyboard-shortcuts")}
@@ -361,7 +270,6 @@ function RailFooter({
   );
 }
 
-/** The app's floating glass rail: identity, search, five rows, a status bar. */
 export default function Sidebar({
   tab,
   onNavigate,
@@ -377,9 +285,6 @@ export default function Sidebar({
   onSearch: () => void;
   onShortcuts: () => void;
 }) {
-  // Settings is not one of the things you customize — it is the app itself,
-  // so one hairline separates it. Three uppercase headings to introduce five
-  // rows was the loudest thing in a rail this small.
   const rows = ALL_TABS;
   return (
     <nav
@@ -388,10 +293,10 @@ export default function Sidebar({
         collapsed ? "w-[58px]" : "w-[200px]"
       }`}
     >
-      {/* Identity only — the collapse toggle lives in the status bar, so this
-          row is one flex line in both states and the mark never gets shoved
-          sideways while the rail folds. The lockup is the shared AppMark /
-          AppWordmark pair, the same one the title bar and both splashes use. */}
+      {
+
+
+ }
       <div
         className={`flex items-center border-b border-[var(--line)] px-2.5 py-2.5 ${
           collapsed ? "justify-center" : "gap-2"
@@ -412,10 +317,6 @@ export default function Sidebar({
 
       <div className="flex flex-col gap-0.5 px-2 py-2">
         {rows.map((item, i) => (
-          // Named, not `i === 4`. The index happened to be right while there
-            // were four tabs and settings last, and would have quietly drawn the
-            // hairline under the wrong row the moment either changed — a
-            // decorative bug with no error and nothing to grep for.
             <div
               key={item.id}
               className={
@@ -435,8 +336,8 @@ export default function Sidebar({
         ))}
       </div>
 
-      {/* The rail's body stays empty on purpose: nav is a short list, and a
-          card-sized gap below it reads as space, not as a missing module. */}
+      {
+ }
       <div className="flex-1" />
 
       <RailFooter
@@ -449,15 +350,6 @@ export default function Sidebar({
   );
 }
 
-/**
- * Rows for the "?" sheet and the Overview card, kept beside the numbers that
- * produce them.
- *
- * `what` is a catalog key rather than copy, because the Overview card renders
- * the same list: English literals here would put an untranslated "Command
- * palette" on the dashboard for every user whose machine is Spanish. The
- * tab rows already resolved `t()` for exactly this reason.
- */
 export function shortcutRows(): { keys: string[]; what: string }[] {
   return [
     { keys: ["Ctrl", "K"], what: t("common.command-palette") },

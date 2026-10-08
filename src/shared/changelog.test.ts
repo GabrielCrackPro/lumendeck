@@ -83,11 +83,6 @@ describe("the bundled changelog", () => {
   });
 
   it("has at least one release with user-facing content", () => {
-    // Deliberately not the *newest* release. A release made only of tooling and
-    // documentation commits has no user-facing sections at all — v0.2.30 was
-    // exactly that — and the parser drops the internal-count footer, so such a
-    // release legitimately parses to zero of them. What has to hold is that the
-    // file parses and carries real notes somewhere.
     expect(CHANGELOG.some((release) => release.sections.length > 0)).toBe(true);
   });
 });
@@ -108,7 +103,6 @@ describe("lookup", () => {
   });
 
   it("resolves the running build against the bundled changelog", () => {
-    // The app looks this up on every boot; it must not throw or miss.
     expect(() => currentRelease(__APP_VERSION__)).not.toThrow();
   });
 });

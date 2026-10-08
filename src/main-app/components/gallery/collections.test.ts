@@ -16,13 +16,10 @@ const entry = (over: Partial<GalleryEntry> & { id: string }): GalleryEntry => ({
   ...over,
 });
 
-// What the backend actually stores: a finished URL, not a path.
 const THUMB = "http://media.localhost/C:/Users/x/AppData/Roaming/LumenDeck/thumbs/a.jpg";
 
 describe("isReadyUrl", () => {
   it("recognises a URL the backend already built", () => {
-    // The regression: this value was being run through convertFileSrc again,
-    // which prefixes a second protocol onto a complete URL.
     expect(isReadyUrl(THUMB)).toBe(true);
     expect(isReadyUrl("media://localhost/C:/x.jpg")).toBe(true);
     expect(isReadyUrl("//cdn/x.jpg")).toBe(true);
@@ -48,9 +45,6 @@ describe("coverFor", () => {
   });
 
   it("skips members whose file was deleted", () => {
-    // The id stays in entryIds forever, so a removed first entry would
-    // otherwise leave the collection showing nothing while its second member
-    // sits right there.
     const c = coverFor(
       { entryIds: ["gone", "here"] },
       [entry({ id: "here", thumb: THUMB })],
@@ -94,8 +88,6 @@ describe("coverFor", () => {
   });
 
   it("gives a web wallpaper an icon, not a nonsense file path", () => {
-    // source is a URL here. Treating it as a path produces a request for a
-    // file called "https:" and shows an empty frame.
     const c = coverFor(
       { entryIds: ["w"] },
       [entry({ id: "w", kind: "web", source: "https://example.com/x.mp4" })],
@@ -140,7 +132,6 @@ describe("membershipDiff", () => {
   });
 
   it("collapses a repeated id so it is not toggled twice", () => {
-    // Two toggles of the same entry is a removal, not an add.
     const d = membershipDiff({ entryIds: [] }, ["a", "a", "a"]);
     expect(d.toAdd).toEqual(["a"]);
   });
@@ -175,8 +166,6 @@ describe("visibleSelection", () => {
   });
 
   it("reports a fully hidden selection rather than pretending it is empty", () => {
-    // This is the bug: the bar reads "5 selected" over a grid showing none of
-    // them, and the bulk delete acts on all five.
     const r = visibleSelection(new Set(["a", "b"]), ["x", "y"]);
     expect(r.visible).toEqual([]);
     expect(r.hiddenCount).toBe(2);

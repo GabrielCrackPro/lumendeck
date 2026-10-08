@@ -1,6 +1,3 @@
-// The spinner is only honest if it tracks something real. These cases are the
-// ones where a player does *not* do what it was asked, which is exactly when a
-// naive implementation either hangs forever or stops spinning too early.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CONFIRM_TIMEOUT_MS,
@@ -32,8 +29,6 @@ describe("isWatchable", () => {
   });
 
   it("does not wait on a control the sender does not expose", () => {
-    // Nothing can ever change, so spinning for the whole timeout on every
-    // press of a button the player ignores is the bug this guards.
     expect(isWatchable("shuffle", { ...base, shuffle: null })).toBe(false);
     expect(isWatchable("repeat", { ...base, repeat: null })).toBe(false);
     expect(isWatchable("shuffle", { ...base, shuffle: undefined })).toBe(false);
@@ -48,7 +43,6 @@ describe("isWatchable", () => {
 describe("isSatisfied", () => {
   it("confirms a toggle on the play state flipping, not on any other change", () => {
     expect(isSatisfied("toggle", base, { ...base, playing: false })).toBe(true);
-    // The track rolling on by itself must not make the pause button look done.
     expect(isSatisfied("toggle", base, { ...base, trackKey: "Other" })).toBe(false);
   });
 
@@ -58,9 +52,6 @@ describe("isSatisfied", () => {
   });
 
   it("does not let a track change confirm a shuffle request", () => {
-    // The failure this whole module exists to prevent: the 1 Hz poll lands
-    // mid-request carrying an unrelated change, and the spinner clears while
-    // the command the user pressed is still unacknowledged.
     expect(isSatisfied("shuffle", base, { ...base, trackKey: "Other" })).toBe(false);
     expect(isSatisfied("shuffle", base, { ...base, shuffle: true })).toBe(true);
   });
@@ -86,8 +77,6 @@ describe("waitForChange", () => {
   });
 
   it("gives up on the backstop when the sender ignores the command", async () => {
-    // The whole reason for the timeout: a player that silently drops the
-    // request would otherwise leave the control spinning forever.
     vi.useFakeTimers();
     const promise = waitForChange("next", base, () => base, CONFIRM_TIMEOUT_MS);
     await vi.advanceTimersByTimeAsync(CONFIRM_TIMEOUT_MS + 200);
@@ -95,12 +84,6 @@ describe("waitForChange", () => {
   });
 
   it("does not wait at all for a control the sender never reports", async () => {
-    // Asserted as "no timer was ever scheduled", not as a wall-clock delta.
-    // This used to measure the elapsed milliseconds and expect zero, which
-    // passes on a fast machine and fails on a loaded one purely because the
-    // microtask turn crossed a millisecond boundary -- a flake with nothing to
-    // do with the code. Scheduling a timer is the actual difference between
-    // short-circuiting and polling.
     const timer = vi.spyOn(globalThis, "setTimeout");
     try {
       await expect(
@@ -116,11 +99,8 @@ describe("waitForChange", () => {
     vi.useFakeTimers();
     let current: MediaSnapshot = { ...base, trackKey: "unrelated" };
     const promise = waitForChange("shuffle", base, () => current);
-    // Half the backstop passes with the track changed and shuffle untouched: the
-    // unrelated change must not have ended the wait.
     await vi.advanceTimersByTimeAsync(CONFIRM_TIMEOUT_MS / 2);
     current = { ...current, shuffle: true };
-    // One more poll interval, which is all it takes to notice.
     await vi.advanceTimersByTimeAsync(200);
     await expect(promise).resolves.toBe(true);
   });

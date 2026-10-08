@@ -1,23 +1,16 @@
-//! Dev-only watchdog: when the Vite dev server dies (port conflict, crash),
-//! runtime webviews show WebView2's dark error page forever. This watchdog
-//! notices the server coming back and reloads every webview so the app
-//! self-heals. Compiled out of release builds.
 
 #![cfg(debug_assertions)]
 
 use std::time::Duration;
 
-/// Extract the dev-server port from the Tauri build config (devUrl).
 fn dev_server_port(app: &tauri::AppHandle) -> Option<u16> {
     let dev_url = app.config().build.dev_url.as_ref()?;
     let s = serde_json::to_value(dev_url).ok()?.as_str()?.to_string();
-    // "http://localhost:1420/" -> digits after the last colon.
     let after = s.rsplit(':').next()?;
     let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
     digits.parse().ok()
 }
 
-/// Poll the dev server; on a down->up transition, reload every webview.
 pub fn spawn(app: tauri::AppHandle) {
     std::thread::Builder::new()
         .name("dev-watchdog".into())
@@ -26,7 +19,7 @@ pub fn spawn(app: tauri::AppHandle) {
             loop {
                 std::thread::sleep(Duration::from_secs(2));
                 let Some(port) = dev_server_port(&app) else {
-                    return; // not a dev build config; nothing to watch
+                    return;
                 };
                 let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
                 let up = std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(500))

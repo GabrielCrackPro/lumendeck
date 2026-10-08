@@ -9,8 +9,6 @@ import {
   STICKER_MIN_SIZE,
 } from "./tokens";
 
-// The Rust side has its own copy of these assertions in src-tauri/src/tokens.rs.
-// Both exist because either one alone can be satisfied by editing the test.
 
 describe("shared tokens", () => {
   it("are the documented values", () => {
@@ -23,10 +21,6 @@ describe("shared tokens", () => {
   });
 
   it("expose the colours as three-element tuples, not arrays", () => {
-    // JSON has no tuple type, so `rgb()` in tokens.ts is what turns the
-    // inferred `number[]` into something indexable at a fixed length. Without
-    // that check a two-element colour would typecheck and then render
-    // `rgb(255 255)` at runtime.
     for (const c of [DEFAULT_GLOW, HOTKEY_BLINK_COLOR]) {
       expect(c).toHaveLength(3);
       for (const channel of c) {
@@ -38,9 +32,6 @@ describe("shared tokens", () => {
   });
 
   it("keeps the sticker default inside the resize bounds", () => {
-    // The overlay previews and offers the default; the backend creates it. If
-    // the default were outside the bounds, the first frame and the placed
-    // sticker would disagree before the user touched anything.
     expect(STICKER_DEFAULT_W).toBeGreaterThanOrEqual(STICKER_MIN_SIZE);
     expect(STICKER_DEFAULT_H).toBeGreaterThanOrEqual(STICKER_MIN_SIZE);
     expect(STICKER_DEFAULT_W).toBeLessThanOrEqual(STICKER_MAX_SIZE);
@@ -48,7 +39,6 @@ describe("shared tokens", () => {
   });
 
   it("reads every value out of the shared file rather than declaring its own", () => {
-    // If someone adds a literal back into tokens.ts, this is where it shows.
     expect(DEFAULT_GLOW).toEqual(raw.defaultGlow);
     expect(HOTKEY_BLINK_COLOR).toEqual(raw.hotkeyBlink);
     expect(STICKER_DEFAULT_W).toBe(raw.stickerDefaultW);

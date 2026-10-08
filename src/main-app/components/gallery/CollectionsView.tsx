@@ -1,16 +1,3 @@
-// The collections view: a grid of collection cards.
-//
-// This used to have no way to rename or delete anything, so the only controls
-// lived on the filter chips — a 16px `×` that appeared on hover, inside a
-// collapsible panel. Managing a collection from the screen that exists to show
-// collections was not possible.
-//
-// The cover used to run `convertFileSrc` over `entry.thumb`, which the backend
-// already stores as a finished `http://media.localhost/...` URL. That produced
-// a request for a file that cannot exist, so every collection whose members had
-// thumbnails — which is every collection — rendered as "empty". The cover
-// decision now lives in `collections.ts` and travels with whether the value
-// needs converting.
 
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState, type ReactElement } from "react";
@@ -26,13 +13,10 @@ export interface CollectionsViewProps {
   entries: GalleryEntry[];
   onOpen: (id: string) => void;
   onNewCollection: () => void;
-  /** Omitted when the caller has no handlers — the controls hide rather than
-   *  render as buttons that do nothing. */
   onRename?: (c: WallpaperCollection) => void;
   onDelete?: (c: WallpaperCollection) => void;
 }
 
-/** One card's overflow menu. Closes on outside click and on Escape. */
 function CardMenu({
   c,
   onRename,
@@ -68,8 +52,6 @@ function CardMenu({
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        // 24px rather than the old 16px: a control you have to hit precisely
-        // is not one you can rely on finding.
         className={`${OVERLAY_ICON_BTN} font-bold`}
       >
         ⋯
@@ -153,8 +135,6 @@ export function CollectionsView({
                     decoding="async"                     className="h-full w-full object-cover transition-transform duration-[var(--motion-slow)] ease-[var(--ease-standard)] group-hover/col:scale-[1.05]"
                   />
                 ) : cover.kind === "shader" ? (
-                  // A shader preset has no file behind it — the gradient is the
-                  // wallpaper. Requesting an image for it gives a broken frame.
                   <div                     className="h-full w-full transition-transform duration-[var(--motion-slow)] ease-[var(--ease-standard)] group-hover/col:scale-[1.05]"
                     style={{ background: cover.art }}
                   />
@@ -172,9 +152,9 @@ export function CollectionsView({
                 <div className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--text)]">
                   {c.name}
                 </div>
-                {/* The live count, not the stored one: a member whose file was
-                    deleted stays in entryIds forever, so the old number drifted
-                    away from what the collection actually holds. */}
+                {
+
+ }
                 <span
                   className="shrink-0 font-mono text-[10px] tabular-nums text-[var(--text-faint)]"
                   data-tip={stale ? t("gallery.count-includes-missing-files") : undefined}

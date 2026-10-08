@@ -20,13 +20,10 @@ describe("deviceName", () => {
 
   it("falls back to the driver name when no alias exists", () => {
     expect(deviceName(device(), {})).toBe("LEDStrip1");
-    // An alias for a different device must not leak onto this one.
     expect(deviceName(device(), { "2": "Monitor" })).toBe("LEDStrip1");
   });
 
   it("treats a blank alias as no alias", () => {
-    // Emptying the rename box is how a user forgets a name, so whitespace and
-    // the empty string both have to fall through rather than render as nothing.
     expect(deviceName(device(), { "1": "" })).toBe("LEDStrip1");
     expect(deviceName(device(), { "1": "   " })).toBe("LEDStrip1");
   });
@@ -50,14 +47,10 @@ describe("deviceName", () => {
 
 describe("deviceTypeLabel", () => {
   it("names a keyboard in the catalog rather than echoing the driver", () => {
-    // OpenRGB type names are English and come from the driver, so a card that
-    // printed them raw would read as English to everyone.
     expect(deviceTypeLabel("Keyboard")).toBe("Keyboard");
   });
 
   it("collapses a driver's type name onto the same word a person uses", () => {
-    // The number suffix and camel case are how the driver says it; nobody
-    // calls their RAM "DRAM3".
     expect(deviceTypeLabel("LEDStrip2")).toBe("LED strip");
     expect(deviceTypeLabel("DRAM")).toBe("Memory");
   });
@@ -68,8 +61,6 @@ describe("deviceTypeLabel", () => {
   });
 
   it("falls back to the driver's own words for an unknown device", () => {
-    // "Other" is right for a glyph and wrong for a label: a user with hardware
-    // the app has never heard of needs to see what it called itself.
     expect(deviceTypeLabel("TeslaCoil3")).toBe("Tesla coil");
   });
 

@@ -1,7 +1,3 @@
-// Command palette (Ctrl+K): keyboard-first access to navigation, wallpaper
-// switching, pause, scenes and lighting modes. The dashboard is often used
-// beside games/media where the mouse is busy — this mirrors the Ctrl+1..5
-// tab flow with a searchable superset.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -52,19 +48,11 @@ import type { GalleryEntry } from "@shared/types";
 import { GALLERY_KIND_LABEL } from "./gallery/kindLabels";
 import { wallpaperSourceLabel } from "./configPicker";
 
-const PINNED_KEY = "palette-pinned"; // string[] of command ids
-const FRECENCY_KEY = "palette-frecency"; // FrecencyStore: { s, t } per command id
-// Pins cap at eight: a palette that remembers everything has no room for what
-// matters now — and the pin cap says so out loud when it drops one.
+const PINNED_KEY = "palette-pinned";
+const FRECENCY_KEY = "palette-frecency";
 const PIN_CAP = 8;
-// One press of a knob arrow: five percent.
 const ADJUST_STEP = 0.05;
 
-/**
- * "Do the thing, toast the outcome" — the shape every palette command that
- * awaits the backend shares, so the wiring lives in one place instead of
- * beside each command that uses it.
- */
 const runCmd = (
   fn: Promise<unknown>,
   okMsg: string,
@@ -97,32 +85,19 @@ function writeFrecency(store: FrecencyStore) {
 interface Command {
   id: string;
   label: string;
-  /** Short category shown on the right, e.g. "wallpaper" / "rgb". */
   group: string;
   icon: Glyph;
   keywords?: string;
-  /** Optional thumbnail URL — rendered instead of the icon when present. */
   thumb?: string | null;
-  /** Marks the currently-active entry (e.g. the live wallpaper). */
   active?: boolean;
-  /**
-   * Why the row is inert, when it is. Present = greyed, non-running: a
-   * setting that vanishes when unavailable teaches "this feature does not
-   * exist", so the row stays with its reason instead of hiding.
-   */
   disabledReason?: string;
-  /** Swaps the list instead of closing the palette — the "…" entries. */
   keepOpen?: boolean;
-  /** Key hint drawn at the row's right edge, e.g. Enter on an action. */
   hint?: string;
-  /** Global shortcut this row mirrors, drawn as key caps ("Ctrl+2"). */
   hotkey?: string;
-  /** A live knob: Shift+↑/↓ nudges it instead of moving the selection. */
   adjust?: { pct: number; nudge: (dir: 1 | -1) => void };
   run: () => void;
 }
 
-/** Section display order + header label keys for the palette list. */
 const GROUP_ORDER: [string, string][] = [
   ["navigate", "palette.group-navigate"],
   ["playback", "palette.group-playback"],
@@ -135,27 +110,19 @@ const GROUP_ORDER: [string, string][] = [
 ];
 const groupLabel = (g: string) => t(GROUP_ORDER.find(([id]) => id === g)?.[1] ?? g);
 
-/** The palette's one level down: pick a thing rather than run a verb. */
 type SubMenu = PaletteSubmenu;
 
-// The placeholder is also the field's accessible name — nothing else labels
-// it — so both reads come from one `_KEYS` map. The i18n checker resolves
-// maps by name; the literals of a ternary would be invisible to it, and its
-// keys would come back reported as dead.
 const SEARCH_PLACEHOLDER_KEYS: Record<string, string> = {
   root: "palette.type-a-command",
   wallpapers: "palette.search-wallpapers",
   scenes: "palette.search-profiles",
   rgb: "palette.search-modes",
-  // A prefix in the field *is* the mode; the placeholder confirms it, so the
-  // two cannot drift into saying different things about what is searched.
   "mode-#": "palette.mode-wallpapers",
   "mode-@": "palette.mode-profiles",
 };
 const searchPlaceholderKey = (sub: SubMenu | null, prefix: QueryPrefix | null): string =>
   SEARCH_PLACEHOLDER_KEYS[prefix ? `mode-${prefix}` : sub ?? "root"]!;
 
-/** The label with the matched letters picked out; the rest is untouched. */
 function MatchedLabel({ text, ranges }: { text: string; ranges: Range[] }) {
   if (ranges.length === 0) return <>{text}</>;
   const parts: ReactNode[] = [];
@@ -163,8 +130,6 @@ function MatchedLabel({ text, ranges }: { text: string; ranges: Range[] }) {
   ranges.forEach(([start, end], i) => {
     if (start > at) parts.push(text.slice(at, start));
     parts.push(
-      // The accent is the one colour that reads the same on a resting row and
-      // a selected one, so the match never needs a second treatment.
       <span key={i} className="text-[rgb(var(--glow))]">
         {text.slice(start, end)}
       </span>,
@@ -183,7 +148,6 @@ const NAV_TABS: [string, string, Glyph][] = [
   ["general", "palette.go-settings", IconGear],
 ];
 
-// Same keys the lighting card uses, so the palette never drifts from it.
 const RGB_MODES: [string, string, Glyph][] = [
   ["static", "lighting.static", IconSliders],
   ["cycle", "lighting.color-cycle", IconWave],
@@ -202,13 +166,9 @@ export default function CommandPalette({
   open: boolean;
   onClose: () => void;
   onNavigate: (tab: string) => void;
-  /** Opens the shortcuts overlay — Shell owns that state, not the palette. */
   onShowShortcuts: () => void;
-  /** Where the user already is: its section gets a small ranking boost. */
   currentTab: string | null;
 }) {
-  // Command labels are resolved with `t`, so the palette has to rebuild them
-  // when the language changes under it.
   const locale = useLocale();
   const { cfg, rgb, wallpaperPaused, save, toast } = useStore(
     useShallow((s) => ({
@@ -222,7 +182,6 @@ export default function CommandPalette({
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
   const [pinned, setPinned] = useState<string[]>(() => readIdList(PINNED_KEY));
-  /** Run history: strength + timestamp per id — what the idle list ranks by. */
   const [frec, setFrec] = useState<FrecencyStore>(() => {
     try {
       return parseFrecency(localStorage.getItem(FRECENCY_KEY));
@@ -230,26 +189,13 @@ export default function CommandPalette({
       return {};
     }
   });
-  /** Active submenu ("wallpapers" = gallery picker), null = root list. */
   const [sub, setSub] = useState<SubMenu | null>(null);
-  /** The command whose actions are listed, by id; null = the normal list. */
   const [actionsId, setActionsId] = useState<string | null>(null);
-  /** The factory-reset word is being typed; the list is a confirm panel. */
   const [confirmWipe, setConfirmWipe] = useState(false);
-  /** The "what can I type here?" menu hanging off the query band. */
   const [modesOpen, setModesOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  /**
-   * Whether the last thing the user did was travel with the pointer.
-   *
-   * The list re-sorts under the cursor as the query narrows, and a browser
-   * fires mouse-enter on whatever row lands beneath a *stationary* pointer —
-   * so typing with the mouse parked over the results would yank the selection
-   * off the best match on every keystroke. Hover counts only while the
-   * pointer is genuinely moving; any key press takes control back.
-   */
   const pointerMoving = useRef(false);
   const modesBtnRef = useRef<HTMLButtonElement>(null);
   const modesMenuRef = useRef<HTMLDivElement>(null);
@@ -257,8 +203,6 @@ export default function CommandPalette({
 
   const togglePin = (id: string) => {
     const wasPinned = pinned.includes(id);
-    // Said before the write: to make room the cap drops the oldest pin, and
-    // a list that forgets one silently is a list the user cannot trust.
     if (!wasPinned && pinned.length >= PIN_CAP) {
       toast("info", t("palette.pin-limit-reached-oldest-unpinned"));
     }
@@ -284,8 +228,6 @@ export default function CommandPalette({
       setSub(null);
       setActionsId(null);
       setConfirmWipe(false);
-      // Focus after the overlay mounts. Remember what had it first so the
-      // palette hands focus back instead of dropping it on <body>.
       previousFocus.current =
         document.activeElement instanceof HTMLElement
           ? document.activeElement
@@ -297,11 +239,6 @@ export default function CommandPalette({
     }
   }, [open]);
 
-  // Keys the palette owns at the document level. The overlay is modal, so
-  // Tab must not wander into the dashboard — and the Escape ladder has to
-  // work however focus arrived: clicking a pin or the chevron moves it off
-  // the field, and a handler bound to the input alone goes dead exactly when
-  // a pointer user needs it.
   useEffect(() => {
     if (!open) return;
     const panel = panelRef.current;
@@ -325,9 +262,6 @@ export default function CommandPalette({
         return;
       }
       if (e.defaultPrevented) return;
-      // One step per press, deepest level first: the wipe confirm, then the
-      // actions view, then the submenu, then the palette itself. Stopping
-      // propagation keeps Shell's window-level handlers out of the ladder.
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
@@ -338,8 +272,6 @@ export default function CommandPalette({
         else onClose();
         return;
       }
-      // Backspace on an empty field steps up one level — nothing is left in
-      // the field to delete, so the only reading is "back".
       if (e.key === "Backspace" && !query) {
         if (modesOpen) {
           e.preventDefault();
@@ -364,11 +296,6 @@ export default function CommandPalette({
     return () => document.removeEventListener("keydown", onKey, true);
   }, [open, confirmWipe, actionsId, sub, query, modesOpen, onClose]);
 
-  // The modes menu is a glance, not a place to live: it closes the moment the
-  // field's context moves — typing, entering a view, the wipe prompt opening —
-  // and when the pointer lands anywhere outside it. Closing on context (rather
-  // than only on pick) is what keeps a stale menu from sitting over a submenu
-  // where its prefixes do not apply.
   useEffect(() => setModesOpen(false), [query, sub, actionsId, confirmWipe, open]);
   useEffect(() => {
     if (!modesOpen) return;
@@ -384,9 +311,6 @@ export default function CommandPalette({
     return () => document.removeEventListener("pointerdown", onDown);
   }, [modesOpen]);
 
-  // Gallery entry currently set as the (global) wallpaper: the active marker
-  // in the wallpapers list, and the anchor "next wallpaper" cycles from. Above
-  // the command list because that cycle is built inside it.
   const activeWpId = useMemo(() => {
     if (!cfg) return null;
     return cfg.gallery.find((g) => g.source === cfg.wallpaper.source)?.id ?? null;
@@ -396,17 +320,11 @@ export default function CommandPalette({
     if (!cfg) return [];
     const cmds: Command[] = [];
 
-    // A global binding mirrored onto the row that does the same job, so a
-    // person who came to click leaves knowing the key. Held only while the
-    // master switch holds it: a cap for a released key teaches a chord that
-    // does nothing. The nav rows' Ctrl+N is a window binding, unrelated.
     const accel = (action: HotkeyActionId): string | undefined =>
       cfg.general.hotkeysEnabled ?? true
         ? cfg.general.hotkeys[action]?.accelerator || undefined
         : undefined;
 
-    // Navigation. The digit is read from the same TABS list the Shell binds,
-    // so a cap that shows "Ctrl+2" names the key that will actually fire.
     for (const [id, label, icon] of NAV_TABS) {
       const digit = navDigit(id);
       cmds.push({
@@ -420,7 +338,6 @@ export default function CommandPalette({
       });
     }
 
-    // Playback
     cmds.push({
       id: "toggle-pause",
       label: t(wallpaperPaused ? "palette.resume-wallpaper" : "palette.pause-wallpaper"),
@@ -443,9 +360,6 @@ export default function CommandPalette({
       hotkey: accel("toggleWallpaper"),
       run: () => save((c) => { c.general.wallpaperEnabled = !c.general.wallpaperEnabled; }),
     });
-    // Third route to the master switch, after the settings card and the tray.
-    // Worth having: a binding that misbehaves should be killable without
-    // hunting for the right tab.
     cmds.push({
       id: "toggle-hotkeys",
       label: t(
@@ -459,9 +373,6 @@ export default function CommandPalette({
       run: () => save((c) => { c.general.hotkeysEnabled = !(c.general.hotkeysEnabled ?? true); }),
     });
 
-    // Live knobs: Shift+↑/↓ nudges the value while the row stays selected —
-    // plain arrows keep moving the selection, so a knob can never trap the
-    // keyboard, and the readout updates from save()'s optimistic cfg.
     cmds.push({
       id: "adjust-rgb-brightness",
       label: t("palette.adjust-rgb-brightness"),
@@ -476,12 +387,8 @@ export default function CommandPalette({
             c.rgb.mixer.brightness = stepClamped(c.rgb.mixer.brightness, dir, ADJUST_STEP, 0, 1);
           }),
       },
-      // The value is already live; Enter just leaves.
       run: () => {},
     });
-    // The other half of the colour controls, with the same range the
-    // Lighting tab's slider uses (0–200%) so the knob and the slider can
-    // never disagree about where the ends are.
     cmds.push({
       id: "adjust-rgb-saturation",
       label: t("palette.adjust-rgb-saturation"),
@@ -498,10 +405,6 @@ export default function CommandPalette({
       },
       run: () => {},
     });
-    // Volume is a video-only control — on a shader it would be a knob that
-    // silently does nothing. The row still appears otherwise, greyed with its
-    // reason, because a setting that vanishes is a setting the user believes
-    // was never there.
     if (cfg.wallpaper.kind === "video") {
       cmds.push({
         id: "adjust-wallpaper-volume",
@@ -525,9 +428,6 @@ export default function CommandPalette({
         },
         run: () => {},
       });
-      // Rate is video-only for the same reason volume is: a shader has no
-      // playback to speed up. Range and step mirror the Wallpaper tab's
-      // slider (0.25×–3×) for the same reason as the saturation knob.
       cmds.push({
         id: "adjust-playback-speed",
         label: t("palette.adjust-playback-speed"),
@@ -542,7 +442,6 @@ export default function CommandPalette({
               c.wallpaper.videoSpeed = stepClamped(c.wallpaper.videoSpeed, dir, ADJUST_STEP, 0.25, 3);
             }),
         },
-        // Enter just leaves: save() already wrote the new rate.
         run: () => {},
       });
     } else {
@@ -558,10 +457,6 @@ export default function CommandPalette({
       });
     }
 
-    // Wallpaper: a submenu entry instead of dumping every gallery item into
-    // the root list — selecting it swaps the palette into the wallpapers list.
-    // With an empty vault the row stays, greyed with its reason: vanishing
-    // would read as "LumenDeck has no wallpaper feature at all".
     if (cfg.gallery.length > 0) {
       cmds.push({
         id: "wp-set",
@@ -572,8 +467,6 @@ export default function CommandPalette({
         keepOpen: true,
         run: () => setSub("wallpapers"),
       });
-      // The nextWallpaper hotkey's mirror: the cycle needs no new IPC, the
-      // palette already holds the list and the id of what is showing.
       cmds.push({
         id: "next-wallpaper",
         label: t("palette.next-wallpaper"),
@@ -605,7 +498,6 @@ export default function CommandPalette({
       });
     }
 
-    // Lighting: submenu entry — mode list lives one level down.
     cmds.push({
       id: "rgb-mode-set",
       label: t("palette.set-lighting"),
@@ -615,9 +507,6 @@ export default function CommandPalette({
       keepOpen: true,
       run: () => setSub("rgb"),
     });
-    // The cycleLightingMode hotkey's mirror. Steps through the same five
-    // modes the submenu offers — the palette cycles what the palette shows,
-    // not every mode the config can name.
     cmds.push({
       id: "cycle-lighting-mode",
       label: t("palette.cycle-lighting-mode"),
@@ -632,7 +521,6 @@ export default function CommandPalette({
       },
     });
 
-    // OpenRGB: reconnect / rescan devices.
     cmds.push({
       id: "rgb-refresh",
       label: t(rgb.connected ? "palette.rescan-devices" : "palette.reconnect-openrgb"),
@@ -642,9 +530,6 @@ export default function CommandPalette({
       run: () => runCmd(api.rgbRefresh(), t("palette.rgb-devices-rescanned"), toast),
     });
 
-    // Scenes: submenu entry mirroring Set wallpaper… — the full scene list
-    // lives one level down instead of cluttering the root. Same disabled-row
-    // rule as the gallery entry when there are no profiles yet.
     if (cfg.scenes.length > 0) {
       cmds.push({
         id: "scene-set",
@@ -655,8 +540,6 @@ export default function CommandPalette({
         keepOpen: true,
         run: () => setSub("scenes"),
       });
-      // The nextProfile hotkey's mirror, anchored on the profile the backend
-      // says is running (no active profile starts at the first).
       cmds.push({
         id: "next-profile",
         label: t("palette.next-profile"),
@@ -690,7 +573,6 @@ export default function CommandPalette({
       });
     }
 
-    // Config: reload from disk (picks up manual edits instantly).
     cmds.push({
       id: "config-reload",
       label: t("palette.reload-config"),
@@ -708,36 +590,28 @@ export default function CommandPalette({
       },
     });
 
-    // Help: the same overlay "?" opens, reachable so a person who never
-    // thinks to press "?" still finds the bindings.
     cmds.push({
       id: "show-shortcuts",
       label: t("shell.keyboard-shortcuts"),
       group: "config",
       icon: IconKeyboard,
       keywords: "shortcuts keys hotkeys help reference combos bindings",
-      // The Shell's own binding, mirrored like the nav rows' Ctrl+N caps.
       hotkey: "?",
       run: () => onShowShortcuts(),
     });
 
-    // App: quit (real exit — closing the window only hides to tray).
     cmds.push({
       id: "app-quit",
       label: t("palette.quit-app"),
       group: "app",
       icon: IconGear,
       keywords: "exit close shutdown",
-      // Said before the call, not after: a toast confirming a close would
-      // race the shutdown and usually never be seen.
       run: () => {
         toast("info", t("palette.closing-lumendeck"));
         api.quit().catch((e: unknown) => toast("error", truncateError(e)));
       },
     });
 
-    // App: factory reset — opens the palette's own typed confirmation
-    // instead of the browser's prompt, the last native dialog this flow had.
     cmds.push({
       id: "app-wipe",
       label: t("palette.wipe-app-data"),
@@ -748,8 +622,6 @@ export default function CommandPalette({
       run: () => setConfirmWipe(true),
     });
 
-    // App: forget the run history — the one piece of palette state that is
-    // purely local, so it is the one thing here that is safe to reset.
     if (Object.keys(frec).length > 0) {
       cmds.push({
         id: "clear-recents",
@@ -809,8 +681,6 @@ export default function CommandPalette({
     }));
   }, [cfg, save, locale]);
 
-  // Every list flattened by id, so the actions view can still name its
-  // command after a language switch rebuilt the arrays underneath it.
   const byId = useMemo(() => {
     const m = new Map<string, Command>();
     for (const c of [...commands, ...wpCommands, ...sceneCommands, ...rgbCommands]) m.set(c.id, c);
@@ -818,9 +688,6 @@ export default function CommandPalette({
   }, [commands, wpCommands, sceneCommands, rgbCommands]);
   const actionsCmd = actionsId ? (byId.get(actionsId) ?? null) : null;
 
-  // The actions view's rows are ordinary commands wearing a different hat:
-  // the same list pipeline scores and runs them, while the view itself draws
-  // no pin button or section chip — it *is* the "more" menu.
   const actionItems = useMemo<Command[]>(() => {
     if (!actionsCmd) return [];
     const cmd = actionsCmd;
@@ -836,9 +703,6 @@ export default function CommandPalette({
           hint: "↵",
           keepOpen: cmd.keepOpen,
           run: () => {
-            // Recorded here rather than by execute(): an `act-*` id must
-            // never reach recents, and this is the one action that actually
-            // uses the command behind the menu.
             recordUse(cmd.id);
             setActionsId(null);
             cmd.run();
@@ -846,13 +710,10 @@ export default function CommandPalette({
         });
       } else if (id === "pin" || id === "unpin") {
         items.push({
-          // One stable id for both states: the row's label flips in place,
-          // and a changing key would remount it and replay its animation.
           id: "act-pin",
           label: t(id === "pin" ? "common.pin" : "common.unpin"),
           group: cmd.group,
           icon: IconPin,
-          // Stays open: the label flipping to "Unpin" is the confirmation.
           keepOpen: true,
           run: () => togglePin(cmd.id),
         });
@@ -873,9 +734,6 @@ export default function CommandPalette({
     return items;
   }, [actionsCmd, pinned, onNavigate]);
 
-  // Which list a query searches. Prefixes are a root-only idea: inside a
-  // submenu or the actions view the pool is already chosen, and a leading
-  // `#` there is just a character the user typed.
   const parsed = useMemo<ParsedQuery>(
     () => (!sub && !actionsCmd && !confirmWipe ? parseQuery(query) : { prefix: null, term: query }),
     [query, sub, actionsCmd, confirmWipe],
@@ -898,13 +756,8 @@ export default function CommandPalette({
   }, [commands, wpCommands, sceneCommands, rgbCommands, actionItems, parsed, pinned, frec, sub, actionsCmd, currentTab, locale]);
 
   const results = ranked.items;
-  // Report the uncapped count in the footer.
   const matchTotal = ranked.total;
 
-  // The wallpapers list is the one place in the palette where the choice is a
-  // picture, so the selected entry travels *beside* it: thumbnail, name, and
-  // the facts the vault holds. Derived from the selection rather than its own
-  // state, so the pane can never fall out of step with the row it describes.
   const selectedId = results[sel]?.c.id ?? null;
   const previewEntry: GalleryEntry | null =
     !confirmWipe &&
@@ -915,12 +768,6 @@ export default function CommandPalette({
       ? cfg.gallery.find((g) => `wp-${g.id}` === selectedId) ?? null
       : null;
 
-  // One flat list: every row now carries its own section as a second line,
-  // so the header rows that used to group the idle view — and vanished the
-  // moment a query narrowed it — are no longer the thing that says where a
-  // row lives. The actions view still leads with its command's name, so the
-  // menu always says what it is a menu *for* — but only when there are rows
-  // to lead, or the empty state could not render alone.
   const rows = useMemo(() => {
     const flat = results.map((r, i) => ({ kind: "cmd" as const, r, i }));
     if (!actionsCmd || !flat.length) return flat;
@@ -938,14 +785,8 @@ export default function CommandPalette({
   const execute = (i: number) => {
     const item = results[i];
     if (!item) return;
-    // A greyed row states its reason and does nothing else — recording a
-    // "use" for a command that never ran would rank a failure.
     if (item.c.disabledReason) return;
-    // The actions view records through its own closures: pinning or jumping
-    // is not "using" the command, and an `act-*` id must never reach recents.
     if (!actionsCmd) recordUse(item.c.id);
-    // The "…" entries swap the list instead of leaving the palette; they
-    // say so themselves rather than being sniffed by their id's suffix.
     if (item.c.keepOpen) {
       item.c.run();
       return;
@@ -960,13 +801,10 @@ export default function CommandPalette({
     rgb: { title: t("palette.group-lighting"), crumb: t("palette.set-lighting-crumb") },
   };
 
-  /** What the field says about itself — placeholder and accessible name. */
   const fieldLabel = confirmWipe
     ? t("palette.type-{word}-to-confirm", { word: t("palette.confirm-word") })
     : t(actionsCmd ? "palette.type-an-action" : searchPlaceholderKey(sub, parsed.prefix));
 
-  // What the empty state says it failed to find: the kind of list being
-  // searched, named so the message can offer the right way out.
   const emptyKind = t(
     actionsCmd
       ? "palette.kind-actions"
@@ -992,11 +830,11 @@ export default function CommandPalette({
         aria-modal="true"
         aria-label={t("palette.command-palette")}
       >
-        {/* Sunken query band, the same treatment as the modal header: the
-            field is chrome, the list below it is the surface. */}
+        {
+ }
         <div className="relative flex items-center gap-2 border-b border-[var(--line)] bg-[var(--panel-sunken)] px-4 py-3">
-          {/* Breadcrumb: which level you are in, click = back. The actions
-              view wins the slot — its title is the command being acted on. */}
+          {
+ }
           {actionsCmd ? (
             <button
               type="button"
@@ -1018,10 +856,10 @@ export default function CommandPalette({
               {SUB_META[sub].crumb}
             </button>
           ) : null}
-          {/* Root gets the mode chip — the prefix the user typed, capped, so
-              the mode is confirmed beside the placeholder that names it — or
-              the familiar search mark when no prefix is active. A breadcrumb
-              already says where you are everywhere else. */}
+          {
+
+
+ }
           {!sub && !actionsCmd &&
             (parsed.prefix ? (
               <KeyCap>{parsed.prefix}</KeyCap>
@@ -1033,23 +871,16 @@ export default function CommandPalette({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              // A keystroke ends pointer intent — see `pointerMoving`.
               pointerMoving.current = false;
               const knob = confirmWipe ? undefined : results[sel]?.c.adjust;
-              // Shift+arrows nudge the selected knob; plain arrows always
-              // move the selection, so a knob can never trap the keyboard.
               if (knob && e.shiftKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
                 e.preventDefault();
                 knob.nudge(e.key === "ArrowDown" ? -1 : 1);
                 return;
               }
-              // Arrows wrap: the list is short and closed, so running into
-              // the end and sticking is worse than coming back around.
               if (e.key === "ArrowDown") { e.preventDefault(); setSel((v) => (results.length ? (v + 1) % results.length : 0)); }
               else if (e.key === "ArrowUp") { e.preventDefault(); setSel((v) => (results.length ? (v - 1 + results.length) % results.length : 0)); }
               else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                // Raycast's "what else can I do with this" — the same door
-                // as the row's chevron, for hands that never leave the keys.
                 e.preventDefault();
                 const item = results[sel];
                 if (item && !actionsCmd && !confirmWipe && !item.c.disabledReason) setActionsId(item.c.id);
@@ -1057,9 +888,6 @@ export default function CommandPalette({
               else if (e.key === "Enter") {
                 e.preventDefault();
                 if (confirmWipe) {
-                  // The word is localized (WIPE / BORRAR) and accepted in any
-                  // case; anything else does nothing — the panel states the
-                  // word, and a wrong one is its own feedback.
                   if (query.trim().toUpperCase() === t("palette.confirm-word").toUpperCase()) {
                     toast("info", t("palette.app-data-wiped-closing-lumendeck"));
                     api.factoryReset().catch((err: unknown) => toast("error", truncateError(err)));
@@ -1067,8 +895,6 @@ export default function CommandPalette({
                   }
                 } else execute(sel);
               }
-              // Escape and Backspace belong to the document-level ladder —
-              // they have to work when focus sits on a pin or the chevron.
             }}
             placeholder={fieldLabel}
             aria-label={fieldLabel}
@@ -1093,11 +919,11 @@ export default function CommandPalette({
               <IconClose className="h-3 w-3" />
             </button>
           )}
-          {/* The discoverability button: prefixes are invisible until someone
-              tells you about them, so the field carries its own legend. Focus
-              never leaves the input — mousedown is suppressed, like the pin
-              and chevron buttons — and the menu is a glance overlay inside
-              the panel, so nothing here can trap the keyboard. */}
+          {
+
+
+
+ }
           {!confirmWipe && (
             <button
               ref={modesBtnRef}
@@ -1126,8 +952,6 @@ export default function CommandPalette({
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
-                  // One press lands at the root with the mode armed: a prefix
-                  // is a root idea, so it steps out of whatever view is open.
                   setConfirmWipe(false);
                   setActionsId(null);
                   setSub(null);
@@ -1191,9 +1015,6 @@ export default function CommandPalette({
           className="pal-swap flex items-stretch overflow-hidden p-2"
         >
           {confirmWipe ? (
-            /* The browser's prompt is gone: the confirmation is this panel,
-               the field above it, and Enter — the same furniture as every
-               other view, so the danger flow never leaves the palette. */
             <div className="flex min-w-0 flex-1 flex-col items-center gap-3 px-6 py-8 text-center">
               <IconBox size="md" variant="amber">
                 <IconAlert />
@@ -1212,13 +1033,12 @@ export default function CommandPalette({
             role="listbox"
             aria-label={t("palette.command-palette")}
             className="min-w-0 flex-1 overflow-y-auto max-h-[440px]"
-            // Real movement re-arms hover — layout changes alone never fire it.
             onMouseMove={() => { pointerMoving.current = true; }}
           >
-            {/* A recovery path, not a dead end: the message names what was
-                searched (the query when there is one), and the exits are
-                buttons — clear is one press here even though Backspace does
-                it too, and back walks out of the level that came up empty. */}
+            {
+
+
+ }
             {rows.length === 0 && (
               <div className="flex flex-col items-center gap-3 px-3 py-10 text-center">
                 <IconSearch className="h-5 w-5 text-[var(--text-faint)]" />
@@ -1262,11 +1082,6 @@ export default function CommandPalette({
               row.kind === "header" ? (
                 <div
                   key={`h-${row.label}`}
-                  // Presentational: the subject line is for the eye, and the
-                  // listbox's option-only children stay clean for a reader.
-                  // Sentence case, not `kicker`: this can be a person's own
-                  // wallpaper name, and tracked-out uppercase reads as
-                  // shouting a name they chose.
                   role="presentation"
                   className="px-3 pb-1 pt-3 text-[11px] font-medium text-[var(--text-dim)]"
                 >
@@ -1281,7 +1096,6 @@ export default function CommandPalette({
                 aria-disabled={row.r.c.disabledReason ? true : undefined}
                 data-idx={row.i}
                 onClick={() => { if (!row.r.c.disabledReason) execute(row.i); }}
-                // Gated on pointer intent so a re-sort can't steal the selection.
                 onMouseEnter={() => { if (pointerMoving.current) setSel(row.i); }}
                 className={`pal-cmd pal-row group/pin relative flex w-full select-none items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm ${
                   row.r.c.disabledReason
@@ -1292,13 +1106,9 @@ export default function CommandPalette({
                     ? "bg-[rgb(var(--glow)/0.10)] text-[var(--text)]"
                     : "text-[var(--text-dim)] hover:bg-[var(--panel-strong)] hover:text-[var(--text)]"
                 }`}
-                // The stagger is for the list arriving, not for every
-                // keystroke: with text in the field the delay goes, so a row
-                // that re-sorts into place cannot sit invisible. Step and cap
-                // are shared with the wallpaper lists.
                 style={{ animationDelay: query ? "0ms" : `${staggerDelay(row.i)}ms` }}
               >
-                {/* left selection bar (slides in with the row's glow bg) */}
+                { }
                 <span
                   className={`absolute inset-y-1 left-0 w-[2.5px] rounded-full bg-[rgb(var(--glow))] transition-opacity ${
                     row.i === sel ? "opacity-100" : "opacity-0"
@@ -1317,8 +1127,6 @@ export default function CommandPalette({
                   (() => {
                     const Icon: Glyph = row.r.c.icon;
                     return (
-                      // A framed well, not a bare glyph: the same IconBox the
-                      // cards use, tinted by the row's own selection state.
                       <IconBox size="sm" variant={row.i === sel ? "glow" : "neutral"}>
                         <Icon className="h-4 w-4" />
                       </IconBox>
@@ -1329,11 +1137,11 @@ export default function CommandPalette({
                   <span className="block truncate">
                     <MatchedLabel text={row.r.c.label} ranges={row.r.ranges} />
                   </span>
-                  {/* The section travels with the row instead of sitting in a
-                      header above it: a row far from its header still says
-                      where it lives, and a narrowed list loses nothing. Root
-                      view only — a submenu's rows all share one section, and
-                      repeating it on every row would be noise. */}
+                  {
+
+
+
+ }
                   {!sub && !actionsCmd && (
                     <span
                       className={`mt-0.5 block truncate text-[11px] leading-tight ${
@@ -1348,9 +1156,9 @@ export default function CommandPalette({
                     </span>
                   )}
                 </span>
-                {/* Hints sit at 60% until the row is selected: full contrast on
-                    the active row is enough emphasis, and always-loud caps
-                    compete with the label they support. */}
+                {
+
+ }
                 {row.r.c.hotkey && (
                   <span
                     className={`shrink-0 transition-opacity duration-[var(--motion-fast)] ${
@@ -1390,8 +1198,6 @@ export default function CommandPalette({
                       title={t(pinned.includes(row.r.c.id) ? "common.unpin" : "common.pin")}
                       aria-label={t(pinned.includes(row.r.c.id) ? "common.unpin" : "common.pin")}
                       aria-pressed={pinned.includes(row.r.c.id)}
-                      // Focus stays in the field: pressing this must not cost the
-                      // user their next keystroke to a button that swallowed it.
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1406,9 +1212,9 @@ export default function CommandPalette({
                     >
                       <IconPin filled={pinned.includes(row.r.c.id)} className="h-3 w-3" />
                     </button>
-                    {/* The door to the actions view: always shown on the
-                        selected row so the menu is findable without a
-                        pointer, revealed with the rest on hover. */}
+                    {
+
+ }
                     <button
                       type="button"
                       title={t("palette.actions")}
@@ -1435,12 +1241,12 @@ export default function CommandPalette({
             )}
           </div>
           )}
-          {/* The side pane: a right-hand column, not a band under the list —
-              beside it the thumbnail and the facts stay visible while the
-              arrow keys walk the rows, which is the whole point of a preview.
-              Sunken like the query and status bands, so the list remains the
-              only open surface between them. No key on this element: re-keying
-              per selection would replay the slide on every arrow press. */}
+          {
+
+
+
+
+ }
           {previewEntry && (
             <aside
               aria-label={previewEntry.name}
@@ -1457,7 +1263,7 @@ export default function CommandPalette({
                   <IconImage className="h-5 w-5 text-[var(--text-faint)]" />
                 </div>
               )}
-              {/* The row already names it; here it is the pane's title. */}
+              { }
               <div
                 className="truncate text-[13px] font-medium text-[var(--text)]"
                 title={previewEntry.name}
@@ -1518,8 +1324,8 @@ export default function CommandPalette({
             </aside>
           )}
         </div>
-        {/* Sunken status band, mirroring the query band above: chrome at
-            both edges, the list as the only open surface between them. */}
+        {
+ }
         <div className="flex items-center gap-3 border-t border-[var(--line)] bg-[var(--panel-sunken)] px-4 py-2.5 font-mono text-[10px] text-[var(--text-faint)]">
           <span className="flex items-center gap-1.5">
             <KeyCap>↑↓</KeyCap>
@@ -1534,13 +1340,11 @@ export default function CommandPalette({
             {t(actionsCmd || sub || confirmWipe ? "palette.back" : "palette.close")}
           </span>
           {(query || (sub && !actionsCmd)) && (
-            // Live region so a screen reader hears the count settle as the
-            // query narrows, not just the rows moving under it.
             <span aria-live="polite" className="ml-auto tabular-nums">{t("palette.{n}-results", { n: matchTotal })}</span>
           )}
-          {/* Hints only in the idle root view: beside a count they do not
-              fit, and inside the actions or confirm views they would be
-              stale — neither shows the rows they describe. */}
+          {
+
+ }
           {!actionsCmd && !query && !sub && !confirmWipe && (
             <span className="ml-auto flex items-center gap-3">
               <span className="flex items-center gap-1.5">

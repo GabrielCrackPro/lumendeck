@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { isServedUrl, toMediaSrc } from "./mediaSrc";
 
-/** Stands in for the real `convertFileSrc`, which needs a Tauri IPC host. */
 const convert = (path: string) => `http://media.localhost/${encodeURIComponent(path)}`;
 
 describe("isServedUrl", () => {
@@ -14,8 +13,6 @@ describe("isServedUrl", () => {
   });
 
   it("does not mistake a Windows path for a URL", () => {
-    // The trap: "C://" contains "//" and a colon, so a loose check would treat
-    // every path on the drive as an already-served URL and skip converting it.
     expect(isServedUrl("C:\\Users\\GB\\a.png")).toBe(false);
     expect(isServedUrl("D:/Wallpapers/a.png")).toBe(false);
   });
@@ -34,15 +31,11 @@ describe("toMediaSrc", () => {
   });
 
   it("leaves an already-served URL alone", () => {
-    // The bug this exists for: converting a URL wraps it a second time and
-    // yields a path that does not exist, so the thumbnail is simply blank.
     const served = "http://media.localhost/D%3A/Pics/a.png";
     expect(toMediaSrc(served, convert)).toBe(served);
   });
 
   it("never calls the converter for a served URL", () => {
-    // Asserting the output alone would still pass if the converter were called
-    // and happened to return its input, so the call itself is counted.
     let calls = 0;
     const counting = (path: string) => {
       calls++;
@@ -62,8 +55,6 @@ describe("toMediaSrc", () => {
   });
 
   it("leaves blank alone rather than converting it", () => {
-    // Converting "" would produce a URL for the root, which is a confusing way
-    // to draw "nothing selected".
     expect(toMediaSrc("", convert)).toBe("");
   });
 });

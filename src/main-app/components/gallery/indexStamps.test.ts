@@ -16,8 +16,6 @@ describe("sameStamp", () => {
   });
 
   it("rejects a changed mtime even at the same size", () => {
-    // The re-encode case that motivated all of this: same path, same byte
-    // count by coincidence, different content.
     expect(sameStamp(measured(100, 5), stamp(200, 5))).toBe(false);
   });
 
@@ -46,14 +44,10 @@ describe("isStale", () => {
   });
 
   it("a measurement with no recorded stamp is stale, not trusted", () => {
-    // A cache written before this feature existed has no stamp. Assuming it is
-    // current would keep every stale number forever, which is the bug.
     expect(isStale(true, undefined, stamp(100, 5))).toBe(true);
   });
 
   it("a missing file is not stale, because there is nothing to probe", () => {
-    // Otherwise one deleted file keeps the index permanently "not ready" and
-    // the minimum-resolution control never reappears.
     expect(isStale(false, undefined, undefined)).toBe(false);
     expect(isStale(true, measured(100, 5), undefined)).toBe(false);
   });
@@ -65,8 +59,8 @@ describe("partitionByFreshness", () => {
   it("sorts entries into pending, fresh and missing", () => {
     const measuredMap: Record<string, boolean> = { a: true, b: true, c: true, d: false };
     const stamps: Record<string, MeasuredAt> = {
-      a: measured(100, 5), // unchanged
-      b: measured(100, 5), // file replaced
+      a: measured(100, 5),
+      b: measured(100, 5),
       c: measured(100, 5), // unchanged
     };
     const current = {
@@ -83,8 +77,6 @@ describe("partitionByFreshness", () => {
   });
 
   it("a never-measured entry whose file is gone is missing, not pending", () => {
-    // d above is unmeasured. Probing it would fail forever and the progress
-    // bar would never finish, so "no file" has to win over "no measurement".
     const out = partitionByFreshness(["d"], { d: false }, () => undefined, {});
     expect(out.pending).toEqual([]);
     expect(out.missing).toBe(1);
@@ -105,8 +97,6 @@ describe("partitionByFreshness", () => {
   });
 
   it("preserves vault order in the pending list", () => {
-    // The list drives the order of progress messages, so it should follow the
-    // vault rather than the map's iteration order.
     const measuredMap: Record<string, boolean> = { z: true, m: true, a: true };
     const out = partitionByFreshness(
       ["z", "m", "a"],
@@ -118,8 +108,6 @@ describe("partitionByFreshness", () => {
   });
 
   it("a vault of only missing files reports nothing pending", () => {
-    // The whole vault deleted. Probing would fail on every entry forever and
-    // the progress bar would never reach 100%.
     const out = partitionByFreshness(
       ["a", "b"],
       { a: true, b: true },

@@ -21,7 +21,6 @@ describe("applySnap — alignment guides", () => {
   });
 
   it("snaps right edge to another sticker's right edge", () => {
-    // Neighbor spans 500..700; rect right edge 704 → snap left onto 700.
     const others = [at(500, 300, 200, 100)];
     const { rect, guides } = applySnap(at(609, 100, 95, 100), { ...base, others });
     expect(rect.x).toBe(605);
@@ -29,7 +28,7 @@ describe("applySnap — alignment guides", () => {
   });
 
   it("snaps left edge to another sticker's center line", () => {
-    const others = [at(500, 300, 200, 100)]; // lines: 500, 600, 700
+    const others = [at(500, 300, 200, 100)];
     const { rect, guides } = applySnap(at(594, 100), { ...base, others });
     expect(rect.x).toBe(600);
     expect(guides).toContainEqual({ axis: "v", pos: 600 });
@@ -48,7 +47,6 @@ describe("applySnap — alignment guides", () => {
 
   it("snaps to monitor edges and centers", () => {
     const monitors = [at(0, 0, 1920, 1080)];
-    // Center line x=960; rect left edge at 956.
     const { rect, guides } = applySnap(at(956, 100), { ...base, monitors });
     expect(rect.x).toBe(960);
     expect(guides).toContainEqual({ axis: "v", pos: 960 });
@@ -64,7 +62,6 @@ describe("applySnap — alignment guides", () => {
   it("picks the closest matching line", () => {
     const others = [at(500, 300), at(506, 300)];
     const { rect } = applySnap(at(510, 100), { ...base, others });
-    // 510: |500-510|=10 (no), |506-510|=4 (yes) → x=506
     expect(rect.x).toBe(506);
   });
 });
@@ -79,9 +76,6 @@ describe("applySnap — grid", () => {
   });
 
   it("alignment guides win over the grid", () => {
-    // Line 500 vs grid 480/512: rect.x=498 → grid delta +2 (512-498=14? |480-498|=18, |512-498|=14)
-    // grid would snap to 512 (delta 14 > threshold 8 → actually no grid snap),
-    // but alignment 500 is 2 away → wins.
     const { rect, guides } = applySnap(at(498, 0), { ...grid, others: [at(500, 0)] });
     expect(rect.x).toBe(500);
     expect(guides).toContainEqual({ axis: "v", pos: 500 });
@@ -98,28 +92,28 @@ describe("applySnap — grid", () => {
 describe("snapResizeAxis", () => {
   it("snaps the moving right edge to a neighbor's edge", () => {
     const o = { ...base, others: [at(500, 0)] };
-    const r = snapResizeAxis(504, 400, true, 24, o); // right edge near 500
+    const r = snapResizeAxis(504, 400, true, 24, o);
     expect(r.edge).toBe(500);
     expect(r.size).toBe(100);
     expect(r.guide).toBe(500);
   });
 
   it("keeps the fixed edge when resizing from the left", () => {
-    const o = { ...base, others: [at(100, 0)] }; // line at 100
-    const r = snapResizeAxis(104, 200, true, 24, o); // moving left edge near 100
+    const o = { ...base, others: [at(100, 0)] };
+    const r = snapResizeAxis(104, 200, true, 24, o);
     expect(r.edge).toBe(100);
-    expect(r.size).toBe(100); // fixed(200) - snapped(100)
+    expect(r.size).toBe(100);
     expect(r.guide).toBe(100);
   });
 
   it("enforces minimum size after snapping (moving edge right of fixed)", () => {
-    const r = snapResizeAxis(103, 100, true, 24, base); // size would be 3
+    const r = snapResizeAxis(103, 100, true, 24, base);
     expect(r.size).toBe(24);
     expect(r.edge).toBe(124);
   });
 
   it("enforces minimum size after snapping (moving edge left of fixed)", () => {
-    const r = snapResizeAxis(94, 100, true, 24, base); // size would be 6
+    const r = snapResizeAxis(94, 100, true, 24, base);
     expect(r.size).toBe(24);
     expect(r.edge).toBe(76);
   });

@@ -15,8 +15,6 @@ describe("versionLabel", () => {
   });
 
   it("returns nothing for an absent version", () => {
-    // The report builder skips empty values, and a lone `v` on the badge would
-    // read as a truncated string rather than as missing information.
     expect(versionLabel("")).toBe("");
     expect(versionLabel("   ")).toBe("");
   });
@@ -33,8 +31,6 @@ describe("versionDisagreement", () => {
   });
 
   it("is false when they differ only in the v prefix", () => {
-    // The same number. Flagging this would train the reader to ignore the
-    // warning, which is the failure mode a warning exists to avoid.
     expect(versionDisagreement("0.2.7", "v0.2.7")).toBe(false);
     expect(versionDisagreement("v0.2.7", "0.2.7")).toBe(false);
   });
@@ -44,8 +40,6 @@ describe("versionDisagreement", () => {
   });
 
   it("is false when either side is missing", () => {
-    // Absent data is not a conflict, and the panel cannot substantiate a
-    // mismatch it has only half of.
     expect(versionDisagreement("", "0.2.7")).toBe(false);
     expect(versionDisagreement("0.2.7", "")).toBe(false);
     expect(versionDisagreement("", "")).toBe(false);

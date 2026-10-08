@@ -1,6 +1,3 @@
-// Topmost sticker window runtime: renders one sticker's media, full-bleed,
-// in a transparent always-on-top OS window. Receives the sticker def from
-// config-change events (matched by window label).
 import { createRoot } from "react-dom/client";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -10,13 +7,9 @@ import { installContextMenuSuppression } from "@shared/contextMenu";
 import type { StickerDef } from "@shared/types";
 import "../runtime.css";
 
-// A property of the webview rather than of a component: a sticker is a
-// transparent overlay showing media, and Reload or View source on it describes
-// nothing about the picture.
 installContextMenuSuppression();
 
 function stickerIdFromLabel(): string {
-  // window.__TAURI_INTERNALS__ exposes the label; fallback to parsing.
   const t = (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } })
     .__TAURI_INTERNALS__;
   const label = t?.metadata?.currentWindow?.label ?? "";

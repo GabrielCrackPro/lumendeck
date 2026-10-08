@@ -2,7 +2,6 @@ import { withContextBoost } from "./paletteActions";
 import { rankFrecency, type FrecencyStore } from "./paletteFrecency";
 import { matchRanges, scoreCommand, withPinnedRecents, type QueryPrefix } from "./paletteScore";
 
-// See skills/gallery-palette-rationale/SKILL.md for ranking and pool-priority contracts.
 export type PaletteSubmenu = "wallpapers" | "scenes" | "rgb";
 
 const RESULT_CAP = 12;

@@ -1,5 +1,3 @@
-//! RGB engine: palette math, zone mapping, and the sample drain loop.
-//! The OpenRGB connection itself lives in `openrgb_client`.
 
 pub mod audio;
 pub mod openrgb_client;
@@ -13,111 +11,62 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-/// One sample of a zone or the full-screen dominant color.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ZoneSample {
     pub id: String,
     pub rgb: [u8; 3],
-    /// Relative brightness 0..1, used by pulse mode.
     pub luma: f64,
-    /// Monitor device string the sample came from (multi-monitor: each
-    /// wallpaper webview samples its own display). Empty = unknown.
     #[serde(default)]
     pub monitor: String,
-    /// True when sampled on the primary display — ambient/pulse follow this
-    /// one so the lighting reflects the "main" wallpaper, not whichever
-    /// webview pushed last.
     #[serde(default)]
     pub primary: bool,
-    /// Arrival timestamp (ms) stamped by the IPC boundary; used to expire
-    /// samples from displays that stopped pushing.
     #[serde(default, skip_deserializing, skip_serializing)]
     pub received_ms: u64,
 }
 
-/// Shared inbox for zone samples coming from the wallpaper webview.
 pub type SampleTx = mpsc::Sender<ZoneSample>;
 
-/// Per-device color actually pushed to OpenRGB, for UI previews.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceColor {
     pub id: u32,
-    /// Representative color (LED 0 or the device flat color).
     pub rgb: [u8; 3],
-    /// Per-LED colors (animation preview). Empty for flat/reactive modes.
-    /// Capped so the RGB_FRAME event stays small even for huge strips.
     pub led_colors: Vec<[u8; 3]>,
 }
 
-/// Maximum per-LED colors forwarded to the UI in one rgb-frame event.
 const MAX_LED_PREVIEW: usize = 96;
 
-/// When true, the engine pushes black (off) to all devices instead of normal
-/// output. Toggled by the idle timer on inactivity.
 static SLEEPING: AtomicBool = AtomicBool::new(false);
 
-/// A global hotkey fired and wants the backlight blinked. A plain flag, not a
-/// channel: the engine ticks at 25ms and coalescing is exactly right — several
-/// keys mashed in a row should read as one blink, not a stutter of them.
 static HOTKEY_BLINK_PENDING: AtomicBool = AtomicBool::new(false);
 
-/// Ambient frames pushed per device, for restoring the lighting after a blink.
 static LAST_FRAMES: LastFrames = LastFrames::new();
 
-/// Number of on/off pulses a single hotkey press is drawn as.
 const HOTKEY_BLINK_PULSES: u64 = 3;
 
-/// Ask for a hotkey blink. Called from the hotkey dispatcher, so it must be
-/// cheap and non-blocking — the engine loop picks it up on its next tick.
 pub fn request_hotkey_blink() {
     HOTKEY_BLINK_PENDING.store(true, Ordering::Relaxed);
 }
 
-/// Consume a pending blink request. One press, one blink.
 fn take_hotkey_blink() -> bool {
     HOTKEY_BLINK_PENDING.swap(false, Ordering::Relaxed)
 }
 
-/// Is the blink's on-phase showing at `elapsed_ms` into a `total_ms` blink?
-///
-/// Pure so it can be tested without a clock. Duty cycle is 50%: short enough
-/// to read as a blink rather than a fade, long enough that a dropped frame
-/// does not swallow a whole pulse.
 fn blink_is_on(elapsed_ms: u64, total_ms: u64) -> bool {
     let period = (total_ms / HOTKEY_BLINK_PULSES).max(1);
     (elapsed_ms % period) * 2 < period
 }
 
-/// Should this device take part in a hotkey blink?
-///
-/// Only keyboards. The blink exists to acknowledge a keypress on the thing
-/// your fingers are on, so a headset, a light strip, or a laptop's dedicated
-/// mode key keeps showing its ambient colour instead of strobing along with
-/// something the user never touched.
 fn is_keyboard(dev: &DeviceInfo) -> bool {
     dev.type_name.contains("Keyboard")
 }
 
-/// The last ambient frame pushed to each device.
-///
-/// This is what makes "the lights come back" true. A blink overwrites the
-/// hardware, and an LED holds whatever was last written to it, so the engine
-/// needs to remember what the lighting looked like *before* the blink in order
-/// to put it back if the ambient path cannot produce a frame of its own (a
-/// reactive mode whose wallpaper samples have expired, say).
-///
-/// Blink frames are deliberately never recorded, so what is always in here is
-/// the real lighting state and never the flash.
 #[derive(Default)]
 struct LastFrames {
-    // A Vec rather than a map: there are a handful of devices, and `Vec::new`
-    // is const so this can live in a `static` without lazy initialisation.
     inner: std::sync::Mutex<Vec<(u32, Vec<[u8; 3]>)>>,
 }
 
 impl LastFrames {
-    /// `const` so the store can live in a `static` without lazy init.
     const fn new() -> Self {
         Self {
             inner: std::sync::Mutex::new(Vec::new()),
@@ -137,8 +86,6 @@ impl LastFrames {
         m.iter().find(|(k, _)| *k == id).map(|(_, v)| v.clone())
     }
 
-    /// Drop devices that have gone away, so a long uptime with hotplugged gear
-    /// does not accumulate frames forever.
     fn retain(&self, live: &[u32]) {
         if let Ok(mut m) = self.inner.lock() {
             m.retain(|(id, _)| live.contains(id));
@@ -146,13 +93,6 @@ impl LastFrames {
     }
 }
 
-/// The frame to push when the ambient path had nothing, during a blink.
-///
-/// Reuses the remembered frame at the device's current LED count — a
-/// reconnected keyboard may report a different number of LEDs than the one
-/// that was recorded — and falls back to black when there is nothing to go
-/// back to. Black is the safe failure: an unlit key is never mistaken for a
-/// stuck flash.
 fn restore_frame(saved: Option<&[[u8; 3]]>, leds: usize) -> Vec<[u8; 3]> {
     let mut out = vec![[0u8; 3]; leds];
     if let Some(saved) = saved {
@@ -163,15 +103,10 @@ fn restore_frame(saved: Option<&[[u8; 3]]>, leds: usize) -> Vec<[u8; 3]> {
     out
 }
 
-/// (ms, color) of the last wallpaper-color broadcast: at most 1/sec and only
-/// on meaningful shifts, so UI glow + OS accent don't chase every frame.
 static LAST_UI_COLOR: std::sync::Mutex<Option<(u64, [u8; 3])>> = std::sync::Mutex::new(None);
 
-/// Device ids whose exclusion state changed since the last engine tick, so a
-/// farewell sweep can play on the hardware as it's switched off/on.
 
 
-/// Current LED count for a device (0 when unknown).
 fn status_len(client: &RgbClientHandle, device_id: u32) -> usize {
     client
         .status()
@@ -182,49 +117,24 @@ fn status_len(client: &RgbClientHandle, device_id: u32) -> usize {
         .unwrap_or(0)
 }
 
-/// Set the idle-sleep state. When `true`, the engine immediately starts
-/// pushing black to all devices; when `false`, normal output resumes.
-///
-/// Reports at debug, and only when the state actually moves.
-///
-/// Three modules reach this: the idle poller, the input hook and the hotkey
-/// handler. At info level each of them logged the same transition, and because
-/// the idle poller runs on a 2s tick while the hook fires immediately, one
-/// physical wake produced three lines — "rgb engine wake", "rgb engine sleep:
-/// false" and "idle: input activity detected". In a 43-hour log that was 299
-/// of 1,754 lines saying one thing three times over, all of them ahead of the
-/// error a person opened the log to find.
-///
-/// The callers still narrate at info, and in context: the idle poller knows
-/// how long the machine was idle, the hook knows it was a keystroke. This is a
-/// low-level setter whose job is to be called unconditionally, so it keeps the
-/// line for `RUST_LOG=debug` and leaves the story to its callers.
 pub fn set_sleeping(v: bool) {
     if SLEEPING.swap(v, Ordering::Relaxed) != v {
         log::debug!("rgb engine sleep: {v}");
     }
 }
 
-/// Wake the RGB engine if it is currently sleeping. Called from input hooks
-/// for instant wake on user activity (no log spam when already awake).
-///
-/// Same reasoning as [set_sleeping]: the swap already gates this on a real
-/// transition, and the caller that noticed the activity has already logged it.
 pub fn wake_if_sleeping() {
     if SLEEPING.swap(false, Ordering::Relaxed) {
         log::debug!("rgb engine wake (input activity)");
     }
 }
 
-/// Trim a LED frame to the preview cap while keeping the first and last
-/// samples so gradient animations still read correctly at the ends.
 fn cap_leds(leds: &[[u8; 3]]) -> Vec<[u8; 3]> {
     if leds.len() <= MAX_LED_PREVIEW {
         return leds.to_vec();
     }
     let mut out = Vec::with_capacity(MAX_LED_PREVIEW);
     for i in 0..MAX_LED_PREVIEW {
-        // Sample evenly across the strip (don't just truncate the tail).
         let idx = (i as f64 / (MAX_LED_PREVIEW.saturating_sub(1)) as f64
             * (leds.len().saturating_sub(1)) as f64)
             .round() as usize;
@@ -239,7 +149,6 @@ pub struct EngineState {
 }
 
 impl EngineState {
-    /// Spawns the engine loop; call once at startup, then hand to `.manage()`.
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel::<ZoneSample>(64);
         let client = RgbClientHandle::new();
@@ -249,8 +158,6 @@ impl EngineState {
     }
 }
 
-/// Brightness cap (0..1) when the local time is inside the configured night
-/// window, else None. Handles windows that wrap midnight (e.g. 22:00-07:00).
 pub fn night_cap(cfg: &RgbConfig) -> Option<f64> {
     let (start, end) = (cfg.night_start.trim(), cfg.night_end.trim());
     if start.is_empty() || end.is_empty() {
@@ -267,8 +174,6 @@ pub fn night_cap(cfg: &RgbConfig) -> Option<f64> {
     inside.then(|| cfg.night_brightness.clamp(0.0, 1.0))
 }
 
-/// Compute the target color for one device from config + latest samples.
-/// Reactive modes only — animation modes own the frame generator instead.
 pub fn target_color_for_device(device_id: u32, cfg: &RgbConfig, samples: &[ZoneSample]) -> Option<[u8; 3]> {
     if !cfg.enabled || cfg.excluded_devices.contains(&device_id) {
         return None;
@@ -279,11 +184,6 @@ pub fn target_color_for_device(device_id: u32, cfg: &RgbConfig, samples: &[ZoneS
     let mixed = |c: [u8; 3]| {
         palette::apply_mixer(c, cfg.mixer.brightness, cfg.mixer.saturation, cfg.mixer.gamma)
     };
-    // The full-frame sample of the PRIMARY monitor. Multi-monitor setups have
-    // one "all" sample per display; ambient/pulse follow the primary's
-    // wallpaper color and only fall back to another display (or the zone
-    // average) when no primary sample exists. Zone samples overlap the same
-    // pixels, so averaging them into ambient/pulse would double-count regions.
     let full = ||
         samples
             .iter()
@@ -294,8 +194,6 @@ pub fn target_color_for_device(device_id: u32, cfg: &RgbConfig, samples: &[ZoneS
         RgbMode::Ambient => full()
             .map(|s| s.rgb)
             .or_else(|| palette::dominant_over_samples(samples))
-            // A mild saturation boost keeps wallpaper-derived colors from
-            // reading muddy on wide-spectrum RGB hardware.
             .map(|c| palette::saturate(c, 1.25))
             .map(mixed),
         RgbMode::Pulse => {
@@ -307,8 +205,6 @@ pub fn target_color_for_device(device_id: u32, cfg: &RgbConfig, samples: &[ZoneS
                 .unwrap_or_else(|| {
                     samples.iter().map(|s| s.luma).sum::<f64>() / samples.len().max(1) as f64
                 });
-            // Perceptual curve: floor at 35% so the device never fully dies,
-            // lift midtones (pow < 1) so scene changes read as bold swells.
             let factor = 0.35 + 0.65 * luma.clamp(0.0, 1.0).powf(0.8);
             Some(mixed(palette::scale_luma(dom, factor)))
         }
@@ -317,9 +213,6 @@ pub fn target_color_for_device(device_id: u32, cfg: &RgbConfig, samples: &[ZoneS
                 .zones
                 .iter()
                 .find(|z| z.device_ids.contains(&device_id))?;
-            // Every monitor with this zone contributes its own sample; the
-            // average across displays is stable, while latest-wins would
-            // flicker between monitors at their different push rates.
             let matching: Vec<&ZoneSample> = samples
                 .iter()
                 .filter(|s| s.id == zone.id)
@@ -339,11 +232,6 @@ pub fn target_color_for_device(device_id: u32, cfg: &RgbConfig, samples: &[ZoneS
     }
 }
 
-/// Generate one animated frame for a device's LED strip. Returns a
-/// representative color (LED 0 / the current phase) for the UI plus the full
-/// per-LED frame, with the mixer's saturation/brightness baked in. Reactive
-/// modes return `None` — they are driven by wallpaper samples instead.
-/// Hue (0..1) -> RGB, for sweep colors in animation modes.
 fn hsl_to_rgb(h: f32) -> [u8; 3] {
     let c = |n: f32| {
         let k = (n + h * 6.0) % 6.0;
@@ -352,9 +240,6 @@ fn hsl_to_rgb(h: f32) -> [u8; 3] {
     [c(5.0), c(3.0), c(1.0)]
 }
 
-/// The color an on/off or device-exclusion sweep plays in: static-family
-/// modes use the chosen color, reactive modes the latest wallpaper sample,
-/// and animation modes a mid-rainbow hue.
 fn sweep_base(cfg: &RgbConfig, latest: &[ZoneSample]) -> [u8; 3] {
     match cfg.mode {
         RgbMode::Static | RgbMode::Breathe | RgbMode::AudioReactive => cfg.static_color,
@@ -363,9 +248,6 @@ fn sweep_base(cfg: &RgbConfig, latest: &[ZoneSample]) -> [u8; 3] {
     }
 }
 
-/// Build one device's sweep: a brightness wave across `led_count` LEDs in
-/// `base`, with `direction` mapping strip position (0..1) to brightness so
-/// callers express on/off/exclude as a one-line closure.
 fn sweep_colors(
     base: [u8; 3],
     led_count: usize,
@@ -374,8 +256,6 @@ fn sweep_colors(
     (0..led_count)
         .map(|i| {
             let f = i as f32 / (led_count as f32 - 1.0).max(1.0);
-            // Triangle window: 0 at the edges, 1 in the middle, so the wave
-            // reads as traveling rather than fading.
             let w = ((f * 2.0 - 1.0).abs() * 3.0 - 1.0).clamp(0.0, 1.0);
             let v = direction(w);
             Color {
@@ -397,17 +277,11 @@ pub fn animation_frame(
         return None;
     }
     let speed = cfg.animation_speed.max(0.05);
-    // Mixer saturation/brightness behave like "intensity" for the generated
-    // hues. Gamma is ignored here; animating a gamma pipeline per frame at
-    // 60 fps isn't worth the cost and would muddy the motion.
     let sat = cfg.mixer.saturation.clamp(0.0, 1.0);
     let val = cfg.mixer.brightness.clamp(0.0, 1.0);
 
     match cfg.mode {
         RgbMode::Cycle => {
-            // Spectrum stretched across the strip per `cycle_spread`, the
-            // rainbow sliding along the device; every LED shows a different
-            // hue. Spread > 360 wraps the wheel; < 360 shows a partial arc.
             let spread = cfg.cycle_spread.clamp(30.0, 720.0);
             let frame = (0..led_count)
                 .map(|i| {
@@ -422,8 +296,6 @@ pub fn animation_frame(
             Some((frame[0], frame))
         }
         RgbMode::Wave => {
-            // Two hue gradients marching along the strip (direction from
-            // config), each LED dimmed by a travelling comet pulse.
             let repeats = 2.0;
             let dir = if cfg.wave_direction < 0 { -1.0 } else { 1.0 };
             let frame = (0..led_count)
@@ -441,11 +313,9 @@ pub fn animation_frame(
             Some((frame[0], frame))
         }
         RgbMode::Breathe => {
-            // Organic breath cycle: quick 40% inhale, slow 60% exhale, with
-            // smoothstep easing — no mechanical sine. Floor at 15%.
             let (h, s, v) = palette::rgb_to_hsv(cfg.static_color);
             let period = 4.5 / speed.max(0.05);
-            let p = (t % period) / period; // 0..1 within one breath
+            let p = (t % period) / period;
             let ease = |x: f64| x * x * (3.0 - 2.0 * x);
             let wave = if p < 0.4 {
                 ease(p / 0.4)
@@ -463,18 +333,11 @@ pub fn animation_frame(
 
             let vol = audio::volume();
             let is_beat = audio::beat();
-            // The accent is the color the rest of the interface already
-            // associates with "right now" — the wallpaper's dominant tone —
-            // so the audio visualization matches the screen instead of a
-            // color the user picked for a different mode. Fall back to the
-            // static color only when no wallpaper sample has arrived yet.
             let base = accent.unwrap_or(cfg.static_color);
             let (h, s, _) = palette::rgb_to_hsv(base);
             let smooth = cfg.audio_smoothing;
 
             let beat_boost = if is_beat { 1.0 } else { 0.0 };
-            // Floor the volume at 0.3 so the base color is always visible;
-            // audio only modulates brightness on top of that.
             let base_v = vol.max(0.3) as f64 * val;
             let v = ((base_v + beat_boost * 0.6) * (1.0 - smooth * 0.5)).clamp(0.0, 1.0);
             let s = (s * sat).clamp(0.0, 1.0);
@@ -483,11 +346,8 @@ pub fn animation_frame(
             let frame = (0..led_count)
                 .map(|i| {
                     let p = i as f64 / led_count.max(1) as f64;
-                    // Spectral tilt: hue drifts up to +40deg along the strip
-                    // scaled by loudness, like a bass-to-treble gradient.
                     let hue = h + 40.0 * p * vol as f64;
                     let wave = if is_beat {
-                        // Beat: a ring expanding from the strip center.
                         let edge = (p - 0.5).abs() * 2.0;
                         (1.0 - edge * 0.4).max(0.0)
                     } else {
@@ -503,7 +363,6 @@ pub fn animation_frame(
     }
 }
 
-/// Per-device eased color cache.
 #[derive(Default)]
 pub struct SmoothedColors {
     map: std::collections::HashMap<u32, [f64; 3]>,
@@ -511,7 +370,6 @@ pub struct SmoothedColors {
 
 impl SmoothedColors {
     pub fn step(&mut self, device: u32, target: [u8; 3], smoothing: f64) -> [u8; 3] {
-        // smoothing 0 => snap most of the way to target, 0.95 => very slow.
         let k = (1.0 - smoothing.clamp(0.0, 0.95)) * 0.8;
         let e = self
             .map
@@ -528,19 +386,12 @@ impl SmoothedColors {
     }
 }
 
-/// Per-LED crossfade cache: the last frame actually pushed to a device, kept
-/// as f64 so repeated blending never discards sub-8-bit progress. Used to
-/// ease animation modes into each other after a mode switch, mirroring how
-/// the dashboard's --glow accent drifts instead of snapping.
 #[derive(Default)]
 pub struct SmoothedFrames {
     map: std::collections::HashMap<u32, Vec<[f64; 3]>>,
 }
 
 impl SmoothedFrames {
-    /// Blend the previous frame toward `frame` by `k` (0..1). Starts from the
-    /// frame itself on the first call, so mode switches crossfade and cold
-    /// starts don't.
     pub fn step(&mut self, device: u32, frame: &[[u8; 3]], k: f64) -> Vec<[u8; 3]> {
         let k = k.clamp(0.0, 1.0);
         let e = self.map.entry(device).or_insert_with(|| {
@@ -572,52 +423,27 @@ impl SmoothedFrames {
     }
 }
 
-/// Main loop: drain samples, compute per-device colors, push to OpenRGB.
-/// Reactive modes ease toward wallpaper-derived targets; animation modes
-/// generate per-LED frames on their own cadence (independent of samples).
 async fn engine_loop(
     mut rx: mpsc::Receiver<ZoneSample>,
     client: RgbClientHandle,
     last_sent_ms: Arc<AtomicU64>,
 ) {
     let mut smoothed = SmoothedColors::default();
-    // Animation-mode crossfade: when the mode (or speed/hue shape) changes,
-    // the first new frame is blended in from the last pushed one instead of
-    // hard-cutting. Keyed per device because exclusion sweeps can interleave.
     let mut anim_frames = SmoothedFrames::default();
     let mut last_anim_mode: Option<RgbMode> = None;
-    // Latest sample per (id, monitor): one wallpaper webview pushes per
-    // display, and each keeps its own "all" + zone slots alive.
     let mut latest: Vec<ZoneSample> = Vec::new();
-    // Wallpapers only push while playing: when a display stops sending (media
-    // removed, webview crashed), expire its samples instead of freezing the
-    // lights on the last frame forever.
     const SAMPLE_TTL_MS: u64 = 3_000;
-    // Level/transient magnitude below which the dashboard is told nothing.
-    // Silence must not become a ~40Hz stream of zeroes to every webview; the
-    // floor is far under anything audible.
     const AUDIO_UI_FLOOR: f32 = 0.002;
-    // How long to keep publishing after the last audible sample, so the
-    // dashboard sees the level reach zero and its envelopes can settle.
     const AUDIO_UI_TAIL: std::time::Duration = std::time::Duration::from_millis(1_200);
     let mut cfg_rx = crate::config_store::watch();
     let mut ticker = tokio::time::interval(std::time::Duration::from_millis(25));
     let phase_start = std::time::Instant::now();
     let mut last_excluded: Vec<u32> = Vec::new();
     let mut last_enabled: Option<bool> = None;
-    // Track-flash: when the SMTC track changes, override every device with a
-    // bright white-ish pulse for track_flash_ms. Instant::now() would panic
-    // before the epoch fix, but this loop only starts after boot time exists.
     let mut flash_until: Option<std::time::Instant> = None;
-    // Hotkey blink: arm on a key press, disarm when the window closes. Both
-    // bounds are kept because the phase is measured from the start, not from
-    // whenever the engine loop next happened to tick.
     let mut blink_window: Option<(std::time::Instant, std::time::Instant)> = None;
-    // Ensure audio capture + SMTC poller threads are spawned (idempotent).
     audio::ensure_started();
     crate::media_session::ensure_started();
-    // Wall-clock anchor for the transient envelope decay, and for the
-    // "keep publishing briefly after the sound stops" tail below.
     let mut last_tick = std::time::Instant::now();
     let mut last_audio_ui: Option<std::time::Instant> = None;
 
@@ -629,16 +455,12 @@ async fn engine_loop(
                         latest.retain(|e| !(e.id == s.id && e.monitor == s.monitor));
                         latest.push(s);
                     }
-                    None => break, // channel closed: shutting down
+                    None => break,
                 }
             }
             _ = ticker.tick() => {}
         }
 
-        // One borrow for both halves: the blink settings live under `general`
-        // next to the bindings they belong to, but this loop only wants the
-        // lighting half cloned. The watch guard is dropped inside this block —
-        // holding it across the loop's awaits would make the future !Send.
         let (mut cfg, blink_ms, blink_color) = {
             let snapshot = cfg_rx.borrow_and_update();
             (
@@ -647,19 +469,13 @@ async fn engine_loop(
                 snapshot.general.hotkey_blink_color,
             )
         };
-        // Real elapsed time for this tick. `tokio::time::interval` uses Burst
-        // catch-up, so the nominal 25ms is not a reliable delta; anything
-        // derived from it would drift whenever the loop is busy.
         let now_tick = std::time::Instant::now();
         let dt_secs = now_tick.duration_since(last_tick).as_secs_f32();
         last_tick = now_tick;
-        // Night dimming: cap brightness inside the scheduled window. Applied
-        // here so every mode (reactive + animation) is affected uniformly.
         if let Some(cap) = night_cap(&cfg) {
             cfg.mixer.brightness = cfg.mixer.brightness.min(cap);
         }
 
-        // Track flash: arm on a fresh SMTC track change, disarm when expired.
         if crate::media_session::take_track_change() && cfg.track_flash_ms > 0 {
             flash_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(cfg.track_flash_ms.clamp(150, 1000)));
         }
@@ -667,7 +483,6 @@ async fn engine_loop(
             flash_until = None;
         }
 
-        // Hotkey blink: arm on a press, disarm when the window closes.
         let blink_requested = take_hotkey_blink();
         if blink_requested && blink_ms > 0 {
             let total = blink_ms.clamp(150, 1000);
@@ -683,10 +498,6 @@ async fn engine_loop(
         if blink_window.is_some_and(|(_, until)| std::time::Instant::now() >= until) {
             blink_window = None;
         }
-        // A key press must be acknowledged even with no wallpaper sample to
-        // colour from, and even in a non-animated mode — otherwise the one
-        // moment the user is watching the keyboard is the one moment the
-        // engine has decided there is nothing to do.
         let blink_active = blink_window.is_some();
         let blink_on = blink_window.is_some_and(|(start, until)| {
             let now = std::time::Instant::now();
@@ -697,7 +508,6 @@ async fn engine_loop(
                 )
         });
 
-        // Expire samples from displays that stopped pushing (3s of silence).
         if !latest.is_empty() {
             let cutoff = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -707,11 +517,6 @@ async fn engine_loop(
             latest.retain(|s| s.received_ms >= cutoff);
         }
 
-        // Broadcast the wallpaper's dominant color to the frontend so the UI
-        // accent can follow the wallpaper even when RGB sync is turned off.
-        // The old path lived inside the device-push section, which is gated on
-        // `cfg.enabled` — that is the bug: `accentLive` is a UI concern,
-        // independent of whether the lights are on.
         if !latest.is_empty() {
             let accent = latest
                 .iter()
@@ -762,11 +567,8 @@ async fn engine_loop(
             }
         }
 
-        // Sync audio source from config.
         audio::set_source(&cfg.audio_source);
 
-        // On/off transitions get a quick hardware sweep so the toggle feels
-        // physical: diff the excluded set against the previous tick.
         let transitions: Vec<(u32, bool)> = {
             let mut out: Vec<(u32, bool)> = cfg
                 .excluded_devices
@@ -786,8 +588,6 @@ async fn engine_loop(
         };
         last_excluded = cfg.excluded_devices.clone();
 
-        // Global RGB sync toggle: play the sweep across ALL devices in
-        // sequence — off drains in mode color, on rises in mode color.
         let global_flip = match last_enabled {
             Some(prev) if prev != cfg.enabled => Some(cfg.enabled),
             None => None,
@@ -804,8 +604,6 @@ async fn engine_loop(
                     if turning_on { f } else { 1.0 - f }
                 });
                 client.push_device_colors(dev.id, sweep).await;
-                // The sequencing is the show: each device lights as the
-                // previous one finishes its wave.
                 tokio::time::sleep(std::time::Duration::from_millis(70)).await;
             }
         }
@@ -816,7 +614,6 @@ async fn engine_loop(
                 if n == 0 {
                     continue;
                 }
-                // Off: the wave drains left-to-right; on: it rises.
                 let sweep = sweep_colors(sweep_base(&cfg, &latest), n, |f| {
                     if excluded { 1.0 - f } else { f }
                 });
@@ -830,22 +627,15 @@ async fn engine_loop(
 
         let sleeping = SLEEPING.load(Ordering::Relaxed);
 
-        // Animations are self-generated and don't need wallpaper samples; the
-        // reactive modes do (and otherwise shouldn't burn pushes with stale data).
         if !sleeping && !cfg.mode.is_animation() && latest.is_empty() && !blink_active {
             continue;
         }
 
-        // Throttle device updates. Animations want fluid motion, so cap their
-        // interval well below the default reactive 100ms.
         let mut min_interval = if cfg.mode.is_animation() {
             cfg.min_update_ms.min(33)
         } else {
             cfg.min_update_ms
         };
-        // A blink is short enough (default 450ms) that the normal reactive
-        // cadence can outlast a whole pulse and the flash looks like a
-        // flicker. Pin to the tick rate while blinking so each phase lands.
         if blink_active {
             min_interval = min_interval.min(25);
         }
@@ -861,8 +651,6 @@ async fn engine_loop(
 
         let t = phase_start.elapsed().as_secs_f64();
         let status = client.status();
-        // Device set changes invalidate crossfade caches: a reconnected
-        // strip should not fade from colors it never actually showed.
         for cached in anim_frames.device_ids() {
             if !status.devices.iter().any(|d| d.id == cached) {
                 anim_frames.forget(cached);
@@ -877,8 +665,6 @@ async fn engine_loop(
             if n == 0 {
                 continue;
             }
-            // Excluded devices: actively push black so the toggle visibly
-            // turns the hardware off (it would otherwise keep its last color).
             if cfg.excluded_devices.contains(&dev.id) {
                 if !sleeping {
                     let black: Vec<Color> = vec![Color { r: 0, g: 0, b: 0 }; n];
@@ -891,31 +677,13 @@ async fn engine_loop(
                 });
                 continue;
             }
-            // The ambient frame is computed FIRST, every tick, blink or not.
-            //
-            // A blink used to short-circuit this, which quietly broke the
-            // "lights come back" promise in two ways: the smoothing and
-            // animation-crossfade state stopped advancing for the length of the
-            // blink (so a crossfade froze mid-way and then jumped when the
-            // window closed), and the off-phase had no ambient to fall back on
-            // in animation modes, which pushed black instead of the running
-            // animation. Computing ambient first means the blink is a pure
-            // overlay and the lighting is exactly where it left off.
             let blink_this = blink_active && is_keyboard(dev);
             let ambient: Option<Vec<[u8; 3]>> = if sleeping {
-                // Idle sleep: push black to turn off all LEDs.
                 Some(vec![[0u8; 3]; n])
             } else if flash_until.is_some() {
-                // Track change: one bright pulse, same tint for every LED.
-                // Mirrors the mixer so brightness/saturation prefs apply.
                 let flash = palette::apply_mixer([235, 235, 235], cfg.mixer.brightness, cfg.mixer.saturation, cfg.mixer.gamma);
                 Some(vec![flash; n])
             } else if is_anim {
-                // Accent for the frame: the primary display's live wallpaper
-                // color, so audio-reactive rides the screen's mood instead of
-                // the user-picked static color. Computed directly —
-                // target_color_for_device() returns None for animation modes,
-                // which is exactly the mode we're in here.
                 let accent = latest
                     .iter()
                     .find(|s| s.id == "all" && s.primary)
@@ -924,11 +692,6 @@ async fn engine_loop(
                     .or_else(|| palette::dominant_over_samples(&latest));
                 match animation_frame(&cfg, n, t, accent) {
                     Some((_, per_led)) => {
-                        // Crossfade on mode change: blend the new mode's first
-                        // frames from the last pushed frame (~0.35s to fully
-                        // converge at the 30fps animation cadence). Reaction
-                        // modes already ease via SmoothedColors; this gives
-                        // animation modes the same glow.
                         let fade = if last_anim_mode != Some(cfg.mode) {
                             last_anim_mode = Some(cfg.mode);
                             0.35
@@ -948,9 +711,6 @@ async fn engine_loop(
             let per_led: Vec<[u8; 3]> = match ambient {
                 Some(per_led) => {
                     if blink_this && blink_on {
-                        // On-phase: overwrite, but deliberately do NOT record
-                        // this as the device's state — it is an overlay, and
-                        // recording it would leave nothing to restore to.
                         let flash = palette::apply_mixer(
                             blink_color,
                             cfg.mixer.brightness,
@@ -964,11 +724,6 @@ async fn engine_loop(
                     }
                 }
                 None => {
-                    // No ambient frame this tick. Outside a blink that is
-                    // business as usual (nothing to draw from, so don't push).
-                    // During one, the hardware is still holding the blink
-                    // colour we wrote on the previous tick — put the pre-blink
-                    // ambient back rather than leaving it stuck lit.
                     if blink_this {
                         restore_frame(LAST_FRAMES.get(dev.id).as_deref(), n)
                     } else {
@@ -989,12 +744,6 @@ async fn engine_loop(
             frame.push(DeviceColor {
                 id: dev.id,
                 rgb: rep,
-                // Reactive modes push one flat color for every LED; the
-                // per-LED preview would be 96 copies of it, which wasted
-                // event bytes. Zone-mode gradients and animations genuinely
-                // vary per LED, so cap_leds samples those down to the
-                // preview budget. The dashboard's LED lanes render whatever
-                // this carries (flat or varied) either way.
                 led_colors: if per_led.windows(2).any(|w| w[0] != w[1]) {
                     cap_leds(&per_led)
                 } else {
@@ -1006,9 +755,6 @@ async fn engine_loop(
             if let Some(app) = crate::app_handle() {
                 crate::events::emit_all(&app, crate::events::RGB_FRAME, &frame);
             }
-            // Wallpaper's current dominant color, broadcast for the dashboard
-            // glow and the Windows theming hub. Rate-limited: the UI glow and
-            // OS accent shouldn't chase every video frame.
             if let Some(c) = frame.first() {
                 if c.rgb != [0, 0, 0] {
                     let now_ms = std::time::SystemTime::now()
@@ -1048,33 +794,19 @@ async fn engine_loop(
                                 &c.rgb,
                             );
                         }
-                        // Windows theming hub: drive the OS accent from the
-                        // wallpaper's dominant color when enabled.
                         crate::sys_theme::feed_wallpaper_color(c.rgb);
                     }
                 }
             }
         }
-        // Emit audio level for UI visualization when in audio reactive mode.
-        // Feed the UI's transient envelope. Decayed on the real elapsed time
-        // (not the tick count) so a hit reads the same length at any rate.
         audio::decay_pulse(dt_secs);
 
-        // Publish the level for the dashboard's visualizers. This is NOT gated
-        // on the lighting mode: the Now playing equalizer and the lighting
-        // engine card's audio halo are shown whenever something plays, and a
-        // player whose equalizer only moves when the LEDs happen to be in
-        // audio-reactive mode is broken. The level itself is only interesting
-        // while something is audible, so silence stops the stream instead of
-        // pushing a constant zero at every webview ~40x a second.
         let volume = audio::volume();
         let pulse = audio::pulse();
         let audible = volume > AUDIO_UI_FLOOR || pulse > AUDIO_UI_FLOOR;
         if audible {
             last_audio_ui = Some(std::time::Instant::now());
         }
-        // Keep streaming briefly after the last sound so the dashboard sees
-        // the level fall to zero and its own envelopes can settle.
         let still_settling = last_audio_ui
             .is_some_and(|t| t.elapsed() < AUDIO_UI_TAIL);
         if audible || still_settling {
@@ -1082,9 +814,6 @@ async fn engine_loop(
             #[derive(Clone, serde::Serialize)]
             struct AudioLevelPayload {
                 volume: f32,
-                /// Decaying transient envelope, 0..1. Drives the equalizer and
-                /// the card's beat flash; unlike `beat` it is safe to read
-                /// without consuming it.
                 pulse: f32,
                 device_name: String,
             }
@@ -1103,18 +832,14 @@ async fn engine_loop(
 mod tests {
     use super::*;
 
-    // ---------- hotkey blink ----------
 
     #[test]
     fn blink_starts_on_so_the_press_is_seen_immediately() {
-        // A key press whose first visible frame is "off" reads as nothing
-        // happening, which is the exact failure the blink exists to fix.
         assert!(blink_is_on(0, 450));
     }
 
     #[test]
     fn blink_draws_the_configured_number_of_pulses() {
-        // 450ms over 3 pulses: 150ms period, 75ms on then 75ms off.
         let total = 450u64;
         let period = total / HOTKEY_BLINK_PULSES;
         for pulse in 0..HOTKEY_BLINK_PULSES {
@@ -1133,49 +858,33 @@ mod tests {
 
     #[test]
     fn blink_ends_off_so_the_backlight_settles_back_to_ambient() {
-        // The final frame should be the ambient colour, not a stuck white — a
-        // backlight left on at full would wreck the room's lighting after the
-        // flash is over.
         let total = 450u64;
         assert!(!blink_is_on(total - 1, total));
     }
 
     #[test]
     fn blink_survives_a_degenerate_duration() {
-        // A hand-edited config of 0ms must not divide by zero or panic; it
-        // simply resolves to a steady on-phase for the clamped minimum.
         assert!(blink_is_on(0, 0));
         assert!(blink_is_on(5, 1));
     }
 
     #[test]
     fn the_pre_blink_frame_is_what_gets_restored() {
-        // The promise: after the blink, the lighting is what it was. The
-        // remembered frame is the only thing standing between a blink and a
-        // keyboard stuck on the flash colour.
         let lf = LastFrames::new();
         let ambient = vec![[10, 20, 30], [40, 50, 60]];
         lf.record(7, &ambient);
-        // The blink writes over the hardware without recording itself...
         let flash = vec![[255, 255, 255], [255, 255, 255]];
         assert!(!lf.get(7).unwrap().iter().any(|c| flash.contains(c)));
-        // ...so the restore is the ambient, not the flash.
         assert_eq!(restore_frame(lf.get(7).as_deref(), 2), ambient);
     }
 
     #[test]
     fn a_device_with_no_remembered_frame_restores_to_black_not_a_flash() {
-        // Nothing was ever pushed (fresh install, blink before the first
-        // frame). Black is the honest answer: an unlit key cannot be mistaken
-        // for a stuck light.
         assert_eq!(restore_frame(None, 3), vec![[0, 0, 0]; 3]);
     }
 
     #[test]
     fn restoring_survives_a_keyboard_reporting_a_different_led_count() {
-        // A reconnected keyboard can enumerate a different number of LEDs
-        // than the one that was recorded; pushing the old length would send
-        // the wrong frame size to the device.
         let lf = LastFrames::new();
         lf.record(1, &[[1, 2, 3], [4, 5, 6]]);
         assert_eq!(restore_frame(lf.get(1).as_deref(), 5).len(), 5);
@@ -1202,7 +911,6 @@ mod tests {
             zones: Vec::new(),
         };
         assert!(is_keyboard(&dev("Keyboard")));
-        // A laptop's dedicated mode key is a Light, not part of the keyboard.
         assert!(!is_keyboard(&dev("Light")));
         assert!(!is_keyboard(&dev("Mouse")));
         assert!(!is_keyboard(&dev("Headset")));
@@ -1222,8 +930,6 @@ mod tests {
 
     #[test]
     fn mashed_keys_coalesce_into_one_blink() {
-        // Holding a combo or mashing several keys must read as one blink, not
-        // a stutter of them that never settles back to the ambient colour.
         HOTKEY_BLINK_PENDING.store(false, Ordering::Relaxed);
         for _ in 0..5 {
             request_hotkey_blink();
@@ -1277,8 +983,6 @@ mod tests {
             mode: RgbMode::Ambient,
             ..Default::default()
         };
-        // Zone samples overlap the "all" pixels; averaging them in would
-        // double-count regions. Ambient must follow the full-frame sample.
         let samples = vec![
             sample("all", [100, 100, 100], 0.5),
             sample("z1", [255, 0, 0], 0.4),
@@ -1299,7 +1003,6 @@ mod tests {
             sample("z2", [0, 255, 0], 0.4),
         ];
         let out = target_color_for_device(0, &cfg, &samples).unwrap();
-        // Ambient now applies a 1.25x saturation boost to the sample average.
         assert_eq!(out, [130, 130, 0]);
     }
 
@@ -1309,7 +1012,6 @@ mod tests {
             mode: RgbMode::Ambient,
             ..Default::default()
         };
-        // Secondary monitor pushes last, but ambient must follow the primary.
         let samples = vec![
             sample_on("all", [200, 40, 40], 0.5, "\\\\.\\DISPLAY1", true),
             sample_on("all", [40, 40, 200], 0.5, "\\\\.\\DISPLAY6", false),
@@ -1358,8 +1060,6 @@ mod tests {
             mode: RgbMode::Pulse,
             ..Default::default()
         };
-        // A dark low-luma zone must not drag the whole device dimmer when
-        // the full frame is bright.
         let samples = vec![
             sample("all", [200, 200, 200], 0.78),
             sample("z1", [10, 10, 10], 0.01),
@@ -1392,7 +1092,6 @@ mod tests {
         };
         let (_, fa) = animation_frame(&cfg, 12, 0.0, None).unwrap();
         let (_, fb) = animation_frame(&cfg, 12, 1.0, None).unwrap();
-        // Cycle now spreads the spectrum across the strip, sliding with time.
         assert_ne!(fa[0], fa[11], "rainbow must span the strip");
         assert_ne!(fa[0], fb[0], "cycle should march in time");
     }
@@ -1444,7 +1143,6 @@ mod tests {
         assert_eq!(out.len(), super::MAX_LED_PREVIEW);
         assert_eq!(out[0], big[0]);
         assert_eq!(out[out.len() - 1], big[499]);
-        // Interior samples spread across the whole strip, not just the head.
         assert_ne!(out[50], out[0], "mid-strip LED must be sampled");
         assert_ne!(out[50], out[95], "gradient should not collapse");
     }
@@ -1499,7 +1197,6 @@ mod tests {
 
     #[test]
     fn frame_crossfade_starts_from_frame() {
-        // Cold start: the first frame IS the target (no fade from black).
         let mut s = SmoothedFrames::default();
         let f = s.step(7, &[[255, 0, 0]; 4], 0.35);
         assert_eq!(f, vec![[255, 0, 0]; 4]);
@@ -1509,17 +1206,14 @@ mod tests {
     fn frame_crossfade_blends_toward_target() {
         let mut s = SmoothedFrames::default();
         s.step(7, &[[0, 0, 0]; 4], 1.0);
-        // 35% of the way to red on the first blended step.
         let f = s.step(7, &[[255, 0, 0]; 4], 0.35);
         assert_eq!(f[0][0], 89, "0.35 * 255 = 89");
-        // Full-k step converges immediately.
         let g = s.step(7, &[[255, 0, 0]; 4], 1.0);
         assert_eq!(g, vec![[255, 0, 0]; 4]);
     }
 
     #[test]
     fn frame_crossfade_keeps_sub_byte_progress() {
-        // f64 cache must not lose sub-8-bit progress across many small steps.
         let mut s = SmoothedFrames::default();
         s.step(1, &[[0, 0, 0]], 1.0);
         let mut last = [0u8; 3];
@@ -1533,7 +1227,6 @@ mod tests {
     fn frame_crossfade_handles_resize() {
         let mut s = SmoothedFrames::default();
         s.step(2, &[[10, 10, 10]; 3], 1.0);
-        // Growing the strip: new LEDs start at the incoming frame.
         let grown = s.step(2, &[[10, 10, 10], [200, 0, 0], [10, 10, 10], [0, 200, 0]], 1.0);
         assert_eq!(grown, vec![[10, 10, 10], [200, 0, 0], [10, 10, 10], [0, 200, 0]]);
     }
@@ -1545,7 +1238,6 @@ mod tests {
         assert_eq!(s.device_ids(), vec![3]);
         s.forget(3);
         assert!(s.device_ids().is_empty());
-        // After forgetting, the next step cold-starts again.
         let f = s.step(3, &[[5, 5, 5]; 2], 0.35);
         assert_eq!(f, vec![[5, 5, 5]; 2]);
     }
@@ -1573,7 +1265,6 @@ mod tests {
 
     #[test]
     fn night_cap_clamped() {
-        // Cap out of range is clamped into 0..1 whatever the window says.
         let c = night_cap(&night_cfg("00:00", "23:59", 4.0));
         assert!(matches!(c, Some(v) if (v - 1.0).abs() < f64::EPSILON));
     }

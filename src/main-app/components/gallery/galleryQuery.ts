@@ -1,10 +1,6 @@
-// Query decisions stay pure; WallpaperTab owns UI state and pagination.
-// See `skills/gallery-palette-rationale/SKILL.md` for cross-cutting behavior contracts.
 import type { GalleryEntry, WallpaperCollection, WallpaperKind } from "@shared/types";
 import type { VaultIndex } from "./vaultIndex";
 
-/** How the vault is ordered. Newest-first is the default because the common
- *  case is "I just added something, show it to me". */
 export type GallerySort =
   | "recent"
   | "oldest"
@@ -15,36 +11,25 @@ export type GallerySort =
   | "resolution"
   | "length";
 
-/** A shortcut filter that is not a kind and not a collection. */
 export type GalleryPick = "all" | "favourites" | "uncollected";
 
 export interface GalleryQuery {
-  /** Free text over the entry name, case- and accent-insensitive. */
   search: string;
-  /** Collection id, or "all" for the whole vault. */
   collection: string;
-  /** Wallpaper kind, or "all". */
   kind: WallpaperKind | "all";
   sort: GallerySort;
-  /** Minimum width in pixels; null means no floor. */
   minWidth: number | null;
   picks: GalleryPick;
-  /** Monitor device name, or "all". */
   display: string;
 }
 
-/** Everything outside the query itself that filtering needs to know. */
 export interface SelectContext {
-  /** Resolution and length, keyed by source path. */
   index?: VaultIndex;
-  /** Display device name -> its override, if any. */
   perMonitor?: Record<string, { kind: string; source: string } | undefined>;
-  /** The global wallpaper, so it can count as running on any display. */
   globalKind?: WallpaperKind;
   globalSource?: string;
 }
 
-/** Diacritics stripped so "cancion" finds "canción". */
 function fold(s: string): string {
   return s
     .normalize("NFD")
@@ -69,7 +54,6 @@ export function isMember(
   return collections.some((c) => c.id === collectionId && c.entryIds.includes(entry.id));
 }
 
-/** In any collection at all. This is what "uncollected" is the absence of. */
 export function inAnyCollection(
   entry: GalleryEntry,
   collections: WallpaperCollection[],
@@ -77,7 +61,6 @@ export function inAnyCollection(
   return collections.some((c) => c.entryIds.includes(entry.id));
 }
 
-/** Collections an entry belongs to, in vault order. Drives the dot on a card. */
 export function collectionsOf(
   entry: GalleryEntry,
   collections: WallpaperCollection[],
@@ -87,7 +70,6 @@ export function collectionsOf(
 
 const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 
-/** Shared by grid filtering and kind counts. */
 function matches(
   e: GalleryEntry,
   collections: WallpaperCollection[],
@@ -104,7 +86,6 @@ function matches(
   if (q.picks === "uncollected" && inAnyCollection(e, collections)) return false;
 
   if (q.display !== "all") {
-    // See `skills/gallery-palette-rationale/SKILL.md`: global fallback applies only without an override.
     const o = ctx.perMonitor?.[q.display];
     const onIt = o && o.kind === e.kind && o.source === e.source;
     const isGlobal =
@@ -113,16 +94,12 @@ function matches(
   }
 
   if (q.minWidth != null) {
-    // Unknown dimensions must remain visible. See `skills/gallery-palette-rationale/SKILL.md`.
     const meta = ctx.index?.[e.source];
     if (meta && meta.width < q.minWidth) return false;
   }
   return true;
 }
 
-/**
- * Filter, then sort; search matches entry names only.
- */
 export function selectGallery(
   entries: GalleryEntry[],
   collections: WallpaperCollection[],
@@ -157,7 +134,6 @@ export function selectGallery(
         (a, b) => a.kind.localeCompare(b.kind) || collator.compare(a.name, b.name),
       );
       break;
-    // See skills/gallery-palette-rationale/SKILL.md: unknown measurements sort last.
     case "resolution":
       sorted.sort((a, b) => byMeasured(a, b, index, (m) => m.width * m.height));
       break;
@@ -168,7 +144,6 @@ export function selectGallery(
   return sorted;
 }
 
-/** Derive the full matching order, current page, and empty-state filter mode together. */
 export function deriveGalleryView(
   entries: GalleryEntry[],
   collections: WallpaperCollection[],
@@ -190,7 +165,6 @@ export function deriveGalleryView(
   };
 }
 
-/** Ascending by a measured fact, with unmeasured entries last. */
 function byMeasured(
   a: GalleryEntry,
   b: GalleryEntry,
@@ -205,12 +179,6 @@ function byMeasured(
   return value(ma) - value(mb) || collator.compare(a.name, b.name);
 }
 
-/**
- * How many entries each kind has within the current view, so the kind filter
- * can show counts and disable the kinds that match nothing. Runs the same
- * predicate as the grid, so a count can never promise entries a click would not
- * then show. See `skills/gallery-palette-rationale/SKILL.md` for the lifted-kind count rule.
- */
 export function kindCounts(
   entries: GalleryEntry[],
   collections: WallpaperCollection[],

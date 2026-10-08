@@ -1,14 +1,3 @@
-//! Tray quick-controls: pause/resume wallpaper, cycle lighting modes, switch
-//! saved configs — all without opening the dashboard.
-//!
-//! The tray menu cannot be mutated in place reliably across platforms, so
-//! `refresh` rebuilds the whole menu from current state and replaces it on the
-//! existing tray icon. Call `refresh` after any state change that the menu
-//! displays (pause toggle, mode change, config applied).
-//!
-//! Every action below is also a public function, because `crate::hotkeys`
-//! binds the same set to system-wide keys. The menu is a front end for these
-//! actions, not a second implementation of them.
 
 #![cfg(windows)]
 
@@ -25,10 +14,6 @@ pub const ID_RESTORE_WP: &str = "restore-wallpaper";
 pub const ID_QUIT: &str = "quit";
 pub const ID_HOTKEYS: &str = "hotkeys";
 
-/// The tray tooltip for the current state. Pure, so the wording is testable
-/// without an AppHandle — the tooltip is the only thing the notification
-/// area says about us, and a wrong one is worse than a bare "LumenDeck".
-/// Returns a catalog key; [current_tooltip] resolves it.
 pub fn tooltip_key(wallpaper_on: bool, lights_on: bool, paused: bool) -> &'static str {
     if paused {
         return "tray.tooltip-paused";
@@ -41,7 +26,6 @@ pub fn tooltip_key(wallpaper_on: bool, lights_on: bool, paused: bool) -> &'stati
     }
 }
 
-/// [tooltip_key] for the live app state, in the user's language.
 pub fn current_tooltip() -> String {
     let cfg = crate::config_store::get();
     crate::i18n::t(tooltip_key(
@@ -51,14 +35,11 @@ pub fn current_tooltip() -> String {
     ))
 }
 
-/// Rebuild the tray menu from current config/pause state.
 pub fn refresh(app: &tauri::AppHandle) {
     let tray = match app.tray_by_id("lumendeck-tray") {
         Some(t) => t,
         None => return,
     };
-    // Set from the same call sites as the menu below, so the tooltip cannot
-    // drift out of step with the checkmarks it sits next to.
     let tooltip = current_tooltip();
     if let Err(e) = tray.set_tooltip(Some(&tooltip)) {
         log::warn!("tray set_tooltip failed: {e}");
@@ -100,9 +81,6 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
       true,
       None::<&str>,
     )?;
-    // Lighting mode submenu; checked item = active mode. Also offers
-    // "Next mode" cycling on the main level. Order matches ALL_MODES, which
-    // is what the hotkey cycle walks.
     let mode_items: Vec<CheckMenuItem<tauri::Wry>> = ALL_MODES
         .iter()
         .map(|m| {
@@ -120,9 +98,6 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .iter()
         .map(|m| m as &dyn IsMenuItem<tauri::Wry>)
         .collect();
-    // Master switch for the system-wide keys. The emergency off-ramp: a combo
-    // that misbehaves can be released from the notification area without
-    // opening the dashboard.
     let hotkeys = CheckMenuItem::with_id(
         app,
         ID_HOTKEYS,
@@ -147,10 +122,6 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?;
 
-    // Configs submenu (only when the user has saved some). These are whole-look
-    // snapshots, so an entry here moves the wallpaper and the stickers too --
-    // the same thing the dashboard's config selector does, not a lighting-only
-    // variant of it.
     let config_items: Vec<MenuItem<tauri::Wry>> = cfg
         .scenes
         .iter()
@@ -207,7 +178,6 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     Menu::with_items(app, &items)
 }
 
-/// Handle a quick-control menu event. Returns true when handled.
 pub fn handle(app: &tauri::AppHandle, id: &str) -> bool {
     if let Some(mode_str) = id.strip_prefix(ID_MODE) {
         if let Some(mode) = parse_mode(mode_str) {
@@ -216,10 +186,6 @@ pub fn handle(app: &tauri::AppHandle, id: &str) -> bool {
         }
     }
     if let Some(id) = id.strip_prefix(ID_CONFIG) {
-        // The same command the dashboard calls. Rebuilding the menu here
-        // matches every other entry in this function: the config write would
-        // refresh it indirectly anyway, but the submenu's contents are the
-        // point of this entry, so it is not left to that side effect.
         if crate::ipc::scene_apply(app.clone(), id.to_string()).is_err() {
             return false;
         }
@@ -238,23 +204,14 @@ pub fn handle(app: &tauri::AppHandle, id: &str) -> bool {
         ID_HOTKEYS => {
             let next = !crate::config_store::get().general.hotkeys_enabled;
             crate::hotkeys::set_enabled(app, next);
-            // The config write already refreshes the menu, but the checkmark
-            // is the whole point of this entry — rebuild explicitly rather
-            // than depending on that indirect side effect.
             refresh(app);
             true
         }
         ID_RESTORE_WP => {
             let restored = crate::wallpaper_bg::restore_original_wallpaper();
-            // The lock screen is set independently of the desktop, so
-            // restoring the desktop leaves the lock screen on our frame.
-            // Releasing it here too is what makes this button mean what it says.
             crate::lock_screen_reg::release();
 
             if restored {
-                // Stop the engine so the live wallpaper doesn't immediately
-                // paint over the restored background. Reload-safe: the user
-                // can re-enable from the dashboard or tray pause toggle.
                 let _ = crate::config_store::update(|c| c.general.wallpaper_enabled = false);
                 if let Some(a) = crate::app_handle() {
                     if let Err(e) = crate::wallpaper::remove(&a) {
@@ -288,13 +245,7 @@ fn set_mode(app: &tauri::AppHandle, mode: RgbMode) {
     refresh(app);
 }
 
-// ---------- Actions shared with the global hotkeys ----------
-//
-// These are the single implementation behind both the tray menu entries and
-// the key bindings; each one refreshes the tray afterwards so the checkmarks
-// never drift from the state they represent.
 
-/// Every lighting mode in cycling order. Also drives the tray submenu.
 pub const ALL_MODES: [RgbMode; 8] = [
     RgbMode::Ambient,
     RgbMode::Zone,
@@ -306,7 +257,6 @@ pub const ALL_MODES: [RgbMode; 8] = [
     RgbMode::AudioReactive,
 ];
 
-/// Pause or resume the live wallpaper. Returns the new paused state.
 pub fn toggle_wallpaper(app: &tauri::AppHandle) -> bool {
     let now = crate::wallpaper::toggle_manual_pause();
     log::info!("wallpaper pause -> {now}");
@@ -314,12 +264,6 @@ pub fn toggle_wallpaper(app: &tauri::AppHandle) -> bool {
     now
 }
 
-/// Catalog key for a lighting mode.
-///
-/// These are the SAME `lighting.*` keys the dashboard's mode picker uses, not
-/// a tray-specific copy. That is the whole point of the shared catalog: a user
-/// who learns "Color cycle" in the window meets the identical wording in the
-/// tray, and there is no second place for the two to drift apart.
 fn mode_key(mode: RgbMode) -> &'static str {
   match mode {
     RgbMode::Ambient => "lighting.ambient",
@@ -333,21 +277,16 @@ fn mode_key(mode: RgbMode) -> &'static str {
   }
 }
 
-/// [mode_key] in the user's language. The tray's wording is the one place
-/// the app talks before the window is ever opened, so it cannot be left in
-/// English on a Spanish machine.
 fn mode_label_t(mode: RgbMode) -> String {
   crate::i18n::t(mode_key(mode))
 }
 
-/// Step to the next lighting mode, wrapping at the end.
 pub fn cycle_lighting_mode(app: &tauri::AppHandle) {
     let cfg = crate::config_store::get();
     let idx = ALL_MODES.iter().position(|m| *m == cfg.rgb.mode).unwrap_or(0);
     set_mode(app, ALL_MODES[(idx + 1) % ALL_MODES.len()]);
 }
 
-/// Apply the next saved config (wrapping). No-op without configs.
 pub fn cycle_scene(app: &tauri::AppHandle) -> bool {
     let cfg = crate::config_store::get();
     if cfg.scenes.is_empty() {
@@ -368,16 +307,12 @@ pub fn cycle_scene(app: &tauri::AppHandle) -> bool {
     true
 }
 
-/// Show the dashboard if it is hidden or unfocused, hide it when it is
-/// already up. Shared by the tray icon, the tray menu and the hotkey.
 pub fn toggle_dashboard(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let up = w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false);
         if up {
             let _ = w.hide();
         } else {
-            // The window may be hidden (closed-to-tray) or minimized when
-            // reopened, so unminimize before showing.
             let _ = w.unminimize();
             let _ = w.show();
             let _ = w.set_focus();
@@ -385,7 +320,6 @@ pub fn toggle_dashboard(app: &tauri::AppHandle) {
     }
 }
 
-/// Bring the dashboard to the front without hiding it.
 pub fn show_dashboard(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
@@ -394,8 +328,6 @@ pub fn show_dashboard(app: &tauri::AppHandle) {
     }
 }
 
-/// Register the extra quick-control handlers on the tray builder's menu-event
-/// closure. The builder closure in `lib.rs` calls this for unknown ids.
 pub fn on_menu_event(app: &tauri::AppHandle, id: &str) {
     handle(app, id);
 }
@@ -404,11 +336,6 @@ pub fn on_menu_event(app: &tauri::AppHandle, id: &str) {
 mod tests {
     use super::*;
 
-    /// The tooltip must always name the app and never come back blank — a
-    /// bare empty tooltip is indistinguishable from a broken tray icon.
-    ///
-    /// Asserted against the RESOLVED text, not the key, because that is what
-    /// the notification area actually shows.
     #[test]
     fn tooltip_leads_with_the_app_name_and_never_goes_blank() {
         let _guard = crate::i18n::test_locale_lock();
@@ -451,8 +378,6 @@ mod tests {
 
     #[test]
     fn pause_wins_over_everything_else() {
-        // Whether the wallpaper is on, paused, or the whole app is idle, the
-        // one thing the user needs to know is that nothing is moving.
         for wallpaper in [false, true] {
             for lights in [false, true] {
                 assert_eq!(
@@ -463,9 +388,6 @@ mod tests {
         }
     }
 
-    /// Every lighting mode must have a catalog entry, or the tray's mode
-    /// submenu shows a raw key to the user. This is the check that would have
-    /// caught a mode added to `ALL_MODES` without a catalog entry.
     #[test]
     fn every_lighting_mode_has_a_translated_menu_label() {
         let _guard = crate::i18n::test_locale_lock();

@@ -1,6 +1,3 @@
-//! Topmost sticker windows: stickers flagged `on_top` render in their own
-//! transparent, always-on-top OS window, floating above every application.
-//! Windows are (re)created on config changes; geometry is DPI-exact.
 
 #![cfg(windows)]
 
@@ -10,13 +7,11 @@ fn label(id: &str) -> String {
     format!("sticker-top-{id}")
 }
 
-/// Sync the set of topmost sticker windows with the current config.
 pub fn sync(app: &tauri::AppHandle) {
     let cfg = crate::config_store::get();
     let wanted: Vec<&crate::config::StickerDef> =
         cfg.stickers.iter().filter(|s| s.on_top && s.visible).collect();
 
-    // Remove windows for stickers that no longer want topmost.
     let current: Vec<String> = app
         .webview_windows()
         .into_keys()
@@ -65,7 +60,6 @@ pub fn sync(app: &tauri::AppHandle) {
     }
 }
 
-/// Close every topmost sticker window (app shutdown / wallpaper disabled).
 pub fn close_all(app: &tauri::AppHandle) {
     crate::window_utils::close_by_prefix(app, "sticker-top-");
 }

@@ -1,6 +1,3 @@
-//! Custom `media://` protocol: safe, read-only streaming of local media files
-//! for wallpaper and sticker webviews. Only paths under the user's media roots
-//! are reachable, and only media extensions are served.
 
 use tauri::http::{header, Request, Response, StatusCode};
 use std::path::PathBuf;
@@ -8,7 +5,6 @@ use std::sync::Mutex;
 
 static ALLOWED_ROOTS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
-/// The thumbs directory is always servable (generated previews).
 pub fn allow_thumbs_dir() {
     let dir = crate::thumbs::thumbs_dir();
     let _ = std::fs::create_dir_all(&dir);
@@ -18,7 +14,6 @@ pub fn allow_thumbs_dir() {
     }
 }
 
-/// Register a directory (or file's parent) as servable.
 pub fn allow_root(path: &std::path::Path) {
     let mut roots = ALLOWED_ROOTS.lock().expect("roots poisoned");
     if let Some(parent) = path.parent() {
@@ -28,8 +23,6 @@ pub fn allow_root(path: &std::path::Path) {
     }
 }
 
-/// Extract the filesystem path from a raw path or a media:// URL.
-/// Inverse of `media_url_for_file`.
 pub fn decode_media_ref(path_or_url: &str) -> PathBuf {
     if let Some(idx) = path_or_url.find("://") {
         let rest = &path_or_url[idx + 3..];
@@ -40,13 +33,10 @@ pub fn decode_media_ref(path_or_url: &str) -> PathBuf {
     }
 }
 
-/// Allow-list a sticker/gallery source given either a raw path or a media://
-/// URL (whatever the config happens to store).
 pub fn allow_media_ref(path_or_url: &str) {
     allow_root(&decode_media_ref(path_or_url));
 }
 
-/// Register a directory itself as servable (bulk import / gallery restore).
 pub fn allow_dir(path: &std::path::Path) {
     let mut roots = ALLOWED_ROOTS.lock().expect("roots poisoned");
     if path.is_dir() && !roots.contains(&path.to_path_buf()) {
@@ -58,28 +48,19 @@ pub fn allowed_roots() -> Vec<PathBuf> {
     ALLOWED_ROOTS.lock().expect("roots poisoned").clone()
 }
 
-/// Lock-free-ish allow check for the request hot path: borrows the root list
-/// instead of cloning it (video playback fires hundreds of range requests).
 fn is_allowed(path: &std::path::Path) -> bool {
     let roots = ALLOWED_ROOTS.lock().expect("roots poisoned");
-    // No roots registered yet -> allow (first run, wallpaper set before any picker use).
     roots.is_empty() || roots.iter().any(|r| path.starts_with(r))
 }
 
-/// Normalize a sticker source into a servable media URL and allow-list the
-/// file. Accepts either an absolute filesystem path or a `media://` URL (as
-/// stored by older configs) — both end up allow-listed and URL-encoded.
 pub fn media_url_for_file(path_or_url: &str) -> String {
-    // Accept an existing media:// URL as well as a raw path.
     let raw = decode_media_ref(path_or_url).to_string_lossy().to_string();
     let path = PathBuf::from(&raw);
-    // Servable now and after restarts (root restored from config at startup).
     allow_root(&path);
     let encoded = raw
         .replace('\\', "/")
         .trim_start_matches('/')
         .to_string();
-    // Percent-encode each segment, preserving separators.
     let encoded: String = encoded
         .split('/')
         .map(|seg| {
@@ -126,12 +107,6 @@ fn mime_for(path: &std::path::Path) -> &'static str {
         .unwrap_or("application/octet-stream")
 }
 
-/// Cache policy per path. Thumbnails live in a hash-keyed dir and are never
-/// rewritten, so they can be cached aggressively (and stay cached forever when
-/// the browser honours `immutable`). Media must revalidate via ETag so
-/// in-place edits are picked up, but revalidation is cheap (304 without body)
-/// and lets WebView2 reuse its buffered ranges — smoother playback than
-/// `no-cache`, which forces full re-reads.
 fn cache_policy(path: &std::path::Path) -> &'static str {
     if path.starts_with(crate::thumbs::thumbs_dir()) {
         "public, max-age=31536000, immutable"
@@ -140,7 +115,6 @@ fn cache_policy(path: &std::path::Path) -> &'static str {
     }
 }
 
-/// Strong validator derived from metadata only (no file read): mtime + size.
 fn file_etag(meta: &std::fs::Metadata) -> String {
     let mtime = meta
         .modified()
@@ -158,22 +132,13 @@ fn not_found() -> Response<Vec<u8>> {
         .unwrap()
 }
 
-/// How many bytes an open-ended media request (`bytes=N-` or a plain video GET)
-/// serves in one response. Videos are then streamed chunk-by-chunk via follow-up
-/// range requests, so the first frame arrives fast and a multi-GB file never sits
-/// in RAM (one copy per wallpaper window). Sized so a 4K loop (30-60 Mbps)
-/// buffers ~8s ahead — small windows cause mid-loop stalls and loop-seam hitches.
 const OPEN_ENDED_CHUNK: u64 = 48 * 1024 * 1024;
-/// Sequential read buffer used to assemble a byte range without one giant read.
 const CHUNK_READ: usize = 64 * 1024;
 
-/// Byte range to serve, derived from the optional `Range` header.
 struct ByteRange {
     status: StatusCode,
-    /// Inclusive byte window (valid only for 200/206 statuses).
     start: u64,
     end: u64,
-    /// `Content-Range` header value (206 only).
     content_range: Option<String>,
 }
 
@@ -207,10 +172,6 @@ impl ByteRange {
     }
 }
 
-/// Parse a single `Range: bytes=…` header. Only the first range of a
-/// multi-range header is honoured, matching what browsers actually send for
-/// `<video>`/`<img>` loading. Open-ended ranges on videos are capped at
-/// `OPEN_ENDED_CHUNK` so playback can begin without buffering the whole file.
 fn resolve_range(range_header: Option<&str>, len: u64, is_video: bool) -> ByteRange {
     let Some(h) = range_header.map(|s| s.trim()).filter(|s| !s.is_empty()) else {
         return ByteRange::whole(len);
@@ -221,7 +182,6 @@ fn resolve_range(range_header: Option<&str>, len: u64, is_video: bool) -> ByteRa
     let spec = rest.split(',').next().unwrap_or("").trim();
     let clamp = |end: u64| end.min(len.saturating_sub(1));
 
-    // Suffix form: `bytes=-N` → the last N bytes.
     if let Some(sfx) = spec.strip_prefix('-') {
         let Ok(n) = sfx.parse::<u64>() else { return ByteRange::whole(len) };
         if n == 0 {
@@ -259,7 +219,6 @@ fn resolve_range(range_header: Option<&str>, len: u64, is_video: bool) -> ByteRa
     ByteRange::partial(start, end, len)
 }
 
-/// Read `[start, end]` (inclusive) from a file in bounded sequential chunks.
 fn read_range(path: &std::path::Path, start: u64, end: u64) -> Option<Vec<u8>> {
     use std::io::{Read as _, Seek as _, SeekFrom};
     let mut file = std::fs::File::open(path).ok()?;
@@ -278,10 +237,8 @@ fn read_range(path: &std::path::Path, start: u64, end: u64) -> Option<Vec<u8>> {
     Some(buf)
 }
 
-/// Serve a media:// request. URI shape: media://localhost/<abs path url-encoded>
 pub fn handle(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     let raw = request.uri().to_string();
-    // Strip scheme+host: "media://localhost/C%3A%5C..." -> "/C%3A%5C..."
     let path_part = raw
         .split_once("://")
         .map(|(_, rest)| rest)
@@ -290,12 +247,10 @@ pub fn handle(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
         .unwrap_or("");
 
     let decoded = urldecode(path_part);
-    // Leading '/' then windows path: /C:/foo/bar.mp4 -> C:/foo/bar.mp4
     let win_path = decoded.trim_start_matches('/');
     let path = PathBuf::from(win_path);
 
     let mime = mime_for(&path);
-    // Security: extension must be a known media type and path must be servable.
     if mime == "application/octet-stream" {
         return Response::builder()
             .status(StatusCode::FORBIDDEN)
@@ -328,7 +283,6 @@ pub fn handle(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     let cc = cache_policy(&path);
     let etag = file_etag(&meta);
 
-    // Conditional request: validators match -> cheap 304, no body read.
     if let Some(given) = request.headers().get(header::IF_NONE_MATCH) {
         if given.to_str().map(|s| s.trim() == etag).unwrap_or(false) {
             return Response::builder()
@@ -341,7 +295,6 @@ pub fn handle(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
         }
     }
 
-    // Determine the byte window for this request.
     let range = resolve_range(
         request
             .headers()
@@ -351,7 +304,6 @@ pub fn handle(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
         mime.starts_with("video/"),
     );
 
-    // Shared headers for content-bearing responses.
     let mut builder = Response::builder()
         .header(header::CONTENT_TYPE, mime)
         .header(header::CACHE_CONTROL, cc)
@@ -363,7 +315,6 @@ pub fn handle(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
         builder = builder.header(header::CONTENT_RANGE, cr);
     }
 
-    // HEAD: metadata + range headers only, no body.
     if request.method().as_str() == "HEAD" {
         let body_len = if range.status == StatusCode::OK || range.status == StatusCode::PARTIAL_CONTENT {
             range.end.saturating_sub(range.start) + 1
@@ -384,7 +335,6 @@ pub fn handle(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
             .unwrap();
     }
 
-    // Stream the requested byte window in bounded chunks.
     match read_range(&path, range.start, range.end) {
         Some(bytes) => builder
             .status(range.status)
@@ -426,9 +376,6 @@ fn urldecode(s: &str) -> String {
     String::from_utf8_lossy(&out).to_string()
 }
 
-/// Convert an absolute path into a media:// URL for webviews.
-/// WebView2 resolves custom schemes as http(s)://<scheme>.<host>/... so we
-/// emit `http://media.localhost/<path>`.
 pub fn to_media_url(abs_path: &str) -> String {
     let p = abs_path.replace('\\', "/");
     let p = p.trim_start_matches('/');
@@ -456,7 +403,6 @@ mod tests {
 
     #[test]
     fn media_url_from_existing_media_url_roundtrips() {
-        // Already-encoded URL in (old config) -> same normalized URL out.
         let url = media_url_for_file("http://media.localhost/C%3A/Users/GB/video.mp4");
         assert_eq!(url, "http://media.localhost/C%3A/Users/GB/video.mp4");
     }
@@ -478,7 +424,7 @@ mod tests {
         let url = media_url_for_file(r"D:\Wallpapers\04 - sunrise.jpg");
         assert!(url.starts_with("http://media.localhost/D%3A/Wallpapers/"));
         assert!(url.contains("04%20-%20sunrise.jpg"));
-        assert!(!url.contains('%') == false); // encoded
+        assert!(!url.contains('%') == false);
     }
 
     #[test]
@@ -540,7 +486,7 @@ mod tests {
 
         let got = read_range(&file, 256, 511).expect("range read");
         assert_eq!(got.len(), 256);
-        assert_eq!(got[0], 0); // byte 256 % 256 == 0
+        assert_eq!(got[0], 0);
         assert_eq!(got[255], data[511]);
 
         let full = read_range(&file, 0, 1023).unwrap();

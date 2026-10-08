@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { PALETTE_SIZE, wallpaperPalette } from "./wallpaperPalette";
 import type { DeviceColor } from "@shared/types";
 
-/** A live-colour map from `[r, g, b]` tuples, keyed by device id. */
 function colors(list: [number, number, number][]): Record<number, DeviceColor> {
   const out: Record<number, DeviceColor> = {};
   list.forEach((rgb, i) => {
@@ -23,16 +22,12 @@ describe("wallpaperPalette", () => {
   });
 
   it("merges devices showing the same colour", () => {
-    // The failure this guards: eight strips of one sunset rendered as eight
-    // swatches, which is one colour counted eight times rather than a palette.
     const p = wallpaperPalette(colors([[255, 120, 40], [255, 120, 40], [255, 120, 40]]));
     expect(p).toHaveLength(1);
     expect(p[0]!.count).toBe(3);
   });
 
   it("merges near-identical colours rather than splitting them", () => {
-    // Two strips of a gradient differ slightly and are still the same colour
-    // to anyone looking at the wallpaper.
     const p = wallpaperPalette(colors([[255, 120, 40], [252, 118, 44]]));
     expect(p).toHaveLength(1);
   });
@@ -43,8 +38,6 @@ describe("wallpaperPalette", () => {
   });
 
   it("orders by how many devices agree, not by device id", () => {
-    // The count is the only signal for which colour the picture is mostly
-    // made of; ordering by id would just be enumeration order.
     const p = wallpaperPalette(
       colors([[10, 10, 10], [255, 0, 0], [250, 4, 2], [248, 2, 6]]),
     );
@@ -54,8 +47,6 @@ describe("wallpaperPalette", () => {
   });
 
   it("keeps the colour actually on screen rather than an average", () => {
-    // Averaging two strips of a gradient yields a colour that is on the
-    // wallpaper nowhere, which is the one thing this row must not hand over.
     const p = wallpaperPalette(colors([[255, 120, 40], [255, 200, 200]]));
     const reds = p.map((e) => e.rgb);
     expect(reds).toContainEqual([255, 120, 40]);
@@ -73,8 +64,6 @@ describe("wallpaperPalette", () => {
   });
 
   it("skips an entry with no colour rather than drawing black", () => {
-    // A device that has connected but never reported would otherwise pin the
-    // first swatch to #000000, which reads as a colour the picture chose.
     const map = colors([[255, 0, 0]]);
     map[9] = { id: 9, rgb: undefined as never, ledColors: [] };
     const p = wallpaperPalette(map);

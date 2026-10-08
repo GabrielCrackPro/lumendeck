@@ -1,8 +1,3 @@
-// "What's new": the release notes for the running build, plus history.
-//
-// Release notes used to live only on the GitHub release page, which a user
-// who installed an update and relaunched would never think to visit. This is
-// the same file the release pipeline publishes, bundled at build time.
 import { useStore } from "../store";
 import { useCopy } from "./useCopy";
 import { Card, Btn, Section, CollapsibleCard } from "./ui";
@@ -17,7 +12,6 @@ import {
 } from "@shared/changelog";
 import { t } from "../i18n";
 
-/** One bullet, with the commit scope carried through from the message. */
 function Entry({ entry }: { entry: ChangelogEntry }) {
   return (
     <li className="flex gap-2 leading-relaxed">
@@ -68,15 +62,6 @@ function ReleaseBody({ release }: { release: ChangelogRelease }) {
   );
 }
 
-/**
- * Release notes for the running build.
- *
- * `compact` folds the body away behind a one-line summary, because this card
- * used to sit second on the settings page — above the theme picker — taking a
- * full screen of vertical space to announce a changelog nobody opened on
- * purpose. A release you have not read still opens itself, so "new" can never
- * be the thing that hides the news.
- */
 export default function WhatsNewCard({ compact }: { compact?: boolean }) {
   const cfg = useStore((s) => s.cfg);
   const save = useStore((s) => s.save);
@@ -84,8 +69,6 @@ export default function WhatsNewCard({ compact }: { compact?: boolean }) {
   const version = __APP_VERSION__;
   const release = currentRelease(version);
   const history = olderReleases(version);
-  // Unread until the user opens this version's notes. Reading is recorded on
-  // open rather than on click, so the marker means "you have seen this".
   const seen = cfg?.general.changelogSeenVersion;
   const unread = release != null && seen !== version;
 

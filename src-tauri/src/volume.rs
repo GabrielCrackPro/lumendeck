@@ -1,8 +1,3 @@
-//! System master volume (WASAPI endpoint volume).
-//!
-//! The dashboard's Now playing card exposes a volume slider. SMTC has no
-//! per-app volume concept, so this drives the default render endpoint's
-//! master volume — the same knob the taskbar speaker controls.
 
 #![cfg(windows)]
 
@@ -24,14 +19,12 @@ fn endpoint_volume() -> windows::core::Result<IAudioEndpointVolume> {
     }
 }
 
-/// Master volume of the default render endpoint, 0.0..1.0.
 pub fn get() -> Result<f32, String> {
     let vol = endpoint_volume().map_err(|e| format!("volume unavailable: {e}"))?;
     unsafe { vol.GetMasterVolumeLevelScalar() }
         .map_err(|e| format!("volume read failed: {e}"))
 }
 
-/// Master mute state of the default render endpoint.
 pub fn muted() -> Result<bool, String> {
     let vol = endpoint_volume().map_err(|e| format!("volume unavailable: {e}"))?;
     unsafe { vol.GetMute() }
@@ -39,8 +32,6 @@ pub fn muted() -> Result<bool, String> {
         .map_err(|e| format!("mute read failed: {e}"))
 }
 
-/// Set the master volume (0.0..1.0). Clamped; out-of-range input is not an
-/// error because sliders only produce the range they declare.
 pub fn set(v: f32) -> Result<(), String> {
     let v = v.clamp(0.0, 1.0);
     let vol = endpoint_volume().map_err(|e| format!("volume unavailable: {e}"))?;
@@ -48,26 +39,19 @@ pub fn set(v: f32) -> Result<(), String> {
         .map_err(|e| format!("volume write failed: {e}"))
 }
 
-/// Set (or clear) the master mute.
 pub fn set_mute(m: bool) -> Result<(), String> {
     let vol = endpoint_volume().map_err(|e| format!("volume unavailable: {e}"))?;
     unsafe { vol.SetMute(m, &ENDPOINT_VOLUME_GUID) }
         .map_err(|e| format!("mute write failed: {e}"))
 }
 
-/// Flip the mute bit; returns the new state.
 pub fn toggle_mute() -> Result<bool, String> {
     let next = !muted()?;
     set_mute(next)?;
     Ok(next)
 }
 
-// ---------- change notifications ----------
 
-/// COM callback that fires whenever anything (taskbar, keyboard, another
-/// app, this app) changes the endpoint volume or mute. Holds the Tauri app
-/// handle and broadcasts VOLUME_CHANGED so the dashboard's slider mirrors
-/// external changes live instead of syncing on tab reopen.
 #[windows::core::implement(windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolumeCallback)]
 struct VolumeNotifier {
     app: tauri::AppHandle,
@@ -78,7 +62,6 @@ impl windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolumeCallback_Impl 
         &self,
         pnotify: *mut windows::Win32::Media::Audio::AUDIO_VOLUME_NOTIFICATION_DATA,
     ) -> windows::core::Result<()> {
-        // The data struct is only valid for the duration of the callback.
         if pnotify.is_null() {
             return Ok(());
         }
@@ -92,10 +75,6 @@ impl windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolumeCallback_Impl 
     }
 }
 
-/// Register a volume-change notifier and keep it alive for the process
-/// lifetime. Runs on its own thread because the callback object must stay
-/// alive (unregistering on drop would kill the stream) and COM init is
-/// apartment-bound to whatever thread registers.
 pub fn spawn_watcher(app: tauri::AppHandle) {
     use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolumeCallback;
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
@@ -115,9 +94,6 @@ pub fn spawn_watcher(app: tauri::AppHandle) {
             return;
         }
         log::info!("volume watcher active");
-        // The notifier must outlive the registration; parking this thread
-        // forever is the simplest correct keep-alive (matches the accent
-        // watcher's shape). COM is never torn down — process-lifetime.
         loop {
             std::thread::sleep(std::time::Duration::from_secs(3600));
         }

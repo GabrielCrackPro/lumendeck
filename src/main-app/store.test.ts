@@ -1,6 +1,3 @@
-// Toast stacking rules, and the point at which a device-list update prunes
-// the colour cache. The keyed path has a branch worth pinning: a flapping
-// device must update one card and count, not grow the stack.
 import { describe, expect, it, beforeEach } from "vitest";
 import type { DeviceColor, RgbStatus } from "@shared/types";
 import { useStore } from "./store";
@@ -38,18 +35,12 @@ describe("device arrivals", () => {
     seedRgb(status([0]));
     expect(useStore.getState().deviceAddedAt[0]).toBeUndefined();
 
-    // `setRgb` diffs against the status it is replacing, so it has to be the
-    // thing that installs the new list — pre-setting `rgb` here would erase
-    // the very transition under test.
     setRgb(status([0, 1]));
     expect(useStore.getState().deviceAddedAt[0]).toBeUndefined();
     expect(useStore.getState().deviceAddedAt[1]).toBeTypeOf("number");
   });
 
   it("says nothing about hardware that was already plugged in at startup", () => {
-    // The boot poll. A dashboard that opens with a "just connected" badge on
-    // every device the user has owned for years is worse than one that says
-    // nothing at all.
     useStore.getState().seedRgb(status([0, 1, 2]));
     expect(useStore.getState().deviceAddedAt).toEqual({});
   });
@@ -71,9 +62,6 @@ describe("device colour cache", () => {
   });
 
   it("forgets the colour of a device the backend stopped reporting", () => {
-    // The cache merges rather than replaces, so this is the only thing that
-    // removes hardware. Without it an unplugged keyboard keeps tinting the
-    // sidebar accent and the tab's first-entry colour reads forever.
     const { setRgb, setDeviceColors } = useStore.getState();
     setRgb(status([0, 1]));
     setDeviceColors([frame(0, 10), frame(1, 20)]);
@@ -84,8 +72,6 @@ describe("device colour cache", () => {
   });
 
   it("keeps a connected device's colour through a status update", () => {
-    // Pruning must not be a rebuild: a live device keeps the colour the
-    // engine last pushed rather than flashing dark until its next frame.
     const { setRgb, setDeviceColors } = useStore.getState();
     setRgb(status([0]));
     setDeviceColors([frame(0, 42)]);
@@ -94,7 +80,6 @@ describe("device colour cache", () => {
   });
 
   it("clears the cache when no device is connected", () => {
-    // OpenRGB going away, or lighting being switched off.
     const { setRgb, setDeviceColors } = useStore.getState();
     setRgb(status([0, 1]));
     setDeviceColors([frame(0, 10), frame(1, 20)]);
@@ -124,7 +109,6 @@ describe("toasts", () => {
 
     const toasts = useStore.getState().toasts;
     expect(toasts).toHaveLength(1);
-    // The newest state wins: the card shows what is true now, not what was.
     expect(toasts[0]!.msg).toBe("Keyboard disconnected");
     expect(toasts[0]!.tone).toBe("info");
     expect(toasts[0]!.count).toBe(3);
