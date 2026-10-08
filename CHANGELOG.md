@@ -6,6 +6,9 @@ and it lands under that release's heading.
 
 ## 0.2.45 — 2026-10-08
 
+### Added
+- polish dashboard, gallery, and onboarding (`9254126`)
+
 ### Changed
 - trim comments and polish dashboard greeting (`b93321d`)
 
