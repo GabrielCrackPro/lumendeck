@@ -149,13 +149,16 @@ jobs:
           # opposite of what you want for a commit you still need verified.
           $headSubject = (git log -1 --format=%s $env:CI_HEAD_SHA)
           $headMessage = (git log -1 --format=%B $env:CI_HEAD_SHA)
+          $lastMessageLine = $headMessage -split '\r?\n' |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Select-Object -Last 1
           $skipReason = $null
           if ($headSubject -match '^chore\(release\)') {
             $skipReason = "it only records a released version"
-          } elseif ($headMessage -match '(?m)^\s*\[skip release\]\s*$') {
-            # Trailer only, on a line of its own. Accepting the marker anywhere
-            # would mean a commit whose subject merely mentions it — one
-            # documenting this very rule, say — silently swallowed the release.
+          } elseif ($lastMessageLine -and $lastMessageLine.Trim() -ceq '[skip release]') {
+            # Require a final trailer, not merely a matching line. Otherwise
+            # documenting this marker inside a fenced example would suppress
+            # the release for the commit that explains the rule.
             # Being strict errs towards publishing, and the note below turns the
             # case where someone meant to skip into a line in the log rather than
             # a mystery.
@@ -167,7 +170,7 @@ jobs:
             exit 0
           }
           if ($headMessage -match '\[skip release\]') {
-            Write-Host "Note: [skip release] is in this commit but not as a trailer on a line of its own, so it is releasing anyway."
+            Write-Host "Note: [skip release] is not the final non-empty commit-message line, so this commit is releasing anyway."
           }
           $releaseJson = gh release list --limit 100 --json tagName,isDraft,isPrerelease | Out-String
           if ($LASTEXITCODE -ne 0) {

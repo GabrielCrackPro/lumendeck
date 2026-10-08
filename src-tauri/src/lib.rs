@@ -153,21 +153,10 @@ const fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
 
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 
-/// WebView2 promotes playing <video> elements to DirectComposition hardware
-/// overlays, which paint ABOVE all other DOM content — stickers layered over
-/// a video wallpaper silently vanish (DOM reports them rendered; pixels show
-/// only the video). Disabling video overlays keeps the video in the normal
-/// compositing tree so the sticker layer can stack over it.
-///
-/// Note: hardware video DECODE stays enabled. Software-decoding 4K wallpaper
-/// loops stalls the pipeline and Chromium tears it down with recurring
-/// PIPELINE_ERROR_DISCONNECTED / PIPELINE_ERROR_DECODE errors.
+/// Applies the WebView2 flags needed for video layers composited with stickers
+/// and uninterrupted animation behind desktop icons. See
+/// `skills/rust-startup-logging/SKILL.md` for the platform constraints.
 fn disable_video_overlays() {
-    // CalculateNativeWinOcclusion is the other half of wallpaper viability:
-    // once the video window sits behind the desktop icons (as it must),
-    // Chromium's occlusion tracker sees it as fully covered and backgrounds
-    // the renderer — pausing <video> and rAF loops. The wallpaper webview
-    // must always believe it is visible.
     let mut extra = "--disable-direct-composition-video-overlays \
 --disable-features=CalculateNativeWinOcclusion"
         .to_string();
@@ -193,26 +182,9 @@ fn disable_video_overlays() {
     }
 }
 
-/// Logging: a file next to the config, plus stderr for `tauri dev`.
-///
-/// This used to be a hand-rolled `log::Log` impl with its own ANSI colouring,
-/// byte counter and size-triggered rotation, all of which
-/// `tauri-plugin-log` does natively. The real argument was not the line count:
-/// the plugin also forwards the webview's `console.log` into the same file.
-/// Before, a bug report from a user carried only the Rust half of the story,
-/// because anything logged in the frontend went to devtools, which a user
-/// cannot open.
-///
-/// Two things are deliberately preserved, because both are load-bearing:
-///
-/// - The file stays at `%APPDATA%/LumenDeck/lumendeck.log`. That path is what
-///   people are told to attach, and moving it would strand every existing log.
-/// - One generation is kept, at 5 MB. `RotationStrategy::KeepOne` is exactly
-///   the old rename-to-.old behaviour; `KeepSome` would quietly accumulate.
-///
-/// The per-line format is set by [LogFormat] rather than left at the plugin
-/// default, because the short module name and the fixed-width level are what
-/// make this file readable when you are grepping it at 3am.
+/// Shared file and stderr logging for Rust and webview diagnostics. The path,
+/// retention policy, and line format are support-facing; see
+/// `skills/rust-startup-logging/SKILL.md`.
 fn init_logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_log::{Target, TargetKind};
 
@@ -221,7 +193,7 @@ fn init_logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 
     tauri_plugin_log::Builder::new()
         .targets([
-            // stderr keeps `tauri dev` useful, exactly as the old dual sink did.
+            // stderr keeps `tauri dev` useful.
             Target::new(TargetKind::Stdout),
             Target::new(TargetKind::Folder {
                 path: dir,
@@ -232,11 +204,6 @@ fn init_logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         ])
         .max_file_size(MAX_LOG_BYTES)
         .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
-        // The per-line format, kept from the hand-rolled logger. Two details are
-        // load-bearing rather than cosmetic: the target is shortened to its last
-        // segment (`lumendeck_lib::ipc` reads as `ipc`, which is what you grep
-        // for), and the level is padded to five columns so INFO and ERROR line up
-        // when you scan a wall of startup output.
         .format(|out, message, record| {
             let short_target = record
                 .target()
@@ -254,22 +221,7 @@ fn init_logging() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .build()
 }
 
-/// The dashboard window's OS title.
-///
-/// A dev build names its version, so this string is the one piece of build
-/// identity visible when the window is *not* being looked at: the taskbar
-/// tooltip, the Alt-Tab entry, and anything that screenshots the desktop.
-///
-/// The version rather than the commit, because the badge beside the wordmark
-/// says the version and two surfaces showing different identities is worse than
-/// either choice on its own. What this costs is real: every local build reports
-/// the same version, so the title no longer distinguishes two of them, and the
-/// commit has to be read off the badge tooltip or the Developer panel. What it
-/// buys is that the number on screen is the one a user would compare against a
-/// release, rather than a hash they cannot place.
-///
-/// Release builds are left alone. A shipped installer's title is part of its
-/// polish, and a version there is noise the badge check already covers.
+/// The dashboard title includes the version only in development builds.
 fn main_window_title() -> String {
     window_title(cfg!(debug_assertions), env!("CARGO_PKG_VERSION"))
 }
@@ -286,16 +238,8 @@ fn window_title(is_dev: bool, version: &str) -> String {
     }
 }
 
-/// The level the logger was actually built with.
-///
-/// Split out of [init_logging] so the Developer section can report it instead of
-/// guessing. A bug report that says "log level: info" when the process was
-/// started with `RUST_LOG=debug` sends whoever reads it looking for debug lines
-/// that were never written — the exact question a diagnostics panel exists to
-/// answer.
+/// Effective logger level, also exposed by the Developer diagnostics panel.
 pub fn log_level() -> log::LevelFilter {
-    // RUST_LOG still wins, so `RUST_LOG=debug` keeps working for a bug
-    // report without anyone editing code.
     std::env::var("RUST_LOG")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -313,23 +257,11 @@ fn now_millis() -> u128 {
         .unwrap_or_default()
 }
 
-/// The wall-clock stamp at the front of every log line.
-///
-/// Time of day comes from the OS, not from arithmetic on Unix epoch seconds.
-/// The previous version computed the date itself and was therefore UTC in a
-/// local-time app: the machine said 10:59 while the log said 08:59, forever.
-/// `GetLocalTime` also gets DST right for free, which the hand-rolled version
-/// could not have done without a timezone database.
-///
-/// The milliseconds are the sub-second remainder of the system clock, kept
-/// separate because `GetLocalTime` only resolves to the second — without them
-/// every line written inside one second shares a stamp and ordering has to be
-/// inferred from the file rather than read off it.
+/// Local wall-clock timestamp with millisecond precision for log ordering.
 fn local_timestamp() -> String {
     use windows::Win32::Foundation::SYSTEMTIME;
     use windows::Win32::System::SystemInformation::GetLocalTime;
     let st: SYSTEMTIME = unsafe { GetLocalTime() };
-    // SYSTEMTIME fields are u16; widen once here rather than at every use.
     let ms = now_millis();
     logfmt::timestamp(&logfmt::WallClock {
         year: st.wYear as u64,

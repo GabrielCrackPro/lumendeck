@@ -38,7 +38,7 @@ export const api = {
     kind: WallpaperKind;
     source: string;
     thumb?: string | null;
-  }) => invoke<GalleryEntry[]>("gallery_add", entry),
+  }) => invoke<GalleryEntry>("gallery_add", entry),
   galleryRemove: (id: string) =>
     invoke<GalleryEntry[]>("gallery_remove", { id }),
   galleryApply: (id: string) => invoke<void>("gallery_apply", { id }),
@@ -49,7 +49,7 @@ export const api = {
   galleryImportPaths: (paths: string[]) =>
     invoke<GalleryEntry[]>("gallery_import_paths", { paths }),
   galleryAddFromUrl: (url: string, name?: string) =>
-    invoke<GalleryEntry[]>("gallery_add_from_url", { url, name: name ?? null }),
+    invoke<GalleryEntry>("gallery_add_from_url", { url, name: name ?? null }),
   gallerySetOpts: (id: string, opts: EntryOptions | null) =>
     invoke<GalleryEntry[]>("gallery_set_opts", { id, opts }),
   gallerySetFavorite: (id: string, favorite: boolean) =>

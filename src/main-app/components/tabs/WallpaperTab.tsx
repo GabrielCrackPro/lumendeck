@@ -20,9 +20,9 @@ import { GalleryDrawer } from "../gallery/GalleryDrawer";
 import { GalleryToolbar } from "../gallery/GalleryToolbar";
 import { CollectionsView } from "../gallery/CollectionsView";
 import { NowShowingCard } from "../gallery/NowShowingCard";
-import { DEFAULT_QUERY, selectGallery, type GalleryQuery, type SelectContext } from "../gallery/galleryQuery";
+import { DEFAULT_QUERY, deriveGalleryView, type GalleryQuery, type SelectContext } from "../gallery/galleryQuery";
 import { GalleryThumb } from "../gallery/GalleryThumb";
-import { resolvePicked } from "../gallery/mediaKind";
+import { lastPickedEntry, newlyAddedEntries, resolvePicked } from "../gallery/mediaKind";
 import { duplicateIds, healthOf, type Unhealthy } from "../gallery/vaultHealth";
 import { membershipDiff, visibleSelection } from "../gallery/collections";
 import {
@@ -166,21 +166,23 @@ export default function WallpaperTab() {
           const paths = event.payload.paths;
           if (paths.length === 0) return;
           const seq = ++importSeq;
+          const before = useStore.getState().cfg?.gallery ?? [];
           setDropBusy(true);
           api
             .galleryImportPaths(paths)
             .then(async (list) => {
               if (seq !== importSeq) return;
+              const added = newlyAddedEntries(before, list);
               // Same treatment as the toolbar's import buttons: a drop is an
               // import, and leaving its files unmeasured would make the drop
               // path the one route that quietly does not index.
-              await indexAfterImport(list.length);
+              await indexAfterImport(added.length);
               if (seq !== importSeq) return;
               toast(
                 "ok",
                 t("common.imported-{n}-items", {
-                  n: list.length,
-                  s: list.length === 1 ? "" : "s",
+                  n: added.length,
+                  s: added.length === 1 ? "" : "s",
                 }),
               );
             })
@@ -229,7 +231,13 @@ export default function WallpaperTab() {
     }),
     [vaultIndex, overrides, wall.kind, wall.source],
   );
-  const gallery = selectGallery(cfg.gallery, collections, gq, selectCtx);
+  const { gallery, visibleGallery, filtered } = deriveGalleryView(
+    cfg.gallery,
+    collections,
+    gq,
+    selectCtx,
+    limit,
+  );
   /**
    * "every 15 min", or null. A playlist with no shuffle interval only advances
    * on time rules and a manual nudge, so claiming it rotates would be wrong.
@@ -264,8 +272,6 @@ export default function WallpaperTab() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
-  // Only the first page of tiles is mounted; the rest waits for "show more".
-  const visibleGallery = gallery.slice(0, limit);
   const selectedEntry = gallery.find((g) => g.id === inspectedId) ?? null;
   const duplicateSet = duplicateIds(cfg.gallery);
   const health = new Map<string, Unhealthy>();
@@ -286,17 +292,6 @@ export default function WallpaperTab() {
     setLimit(GALLERY_PAGE);
   };
 
-  /** Whether anything is narrowing the grid, as opposed to the vault being
-   *  genuinely empty. This test was written out four times inline inside the
-   *  vault's empty state; a fifth filter would have been easy to forget there
-   *  and the two branches would disagree.
-   */
-  const filtered =
-    gq.search.trim() !== "" ||
-    gq.kind !== "all" ||
-    gq.collection !== "all" ||
-    gq.picks !== "all" ||
-    gq.display !== "all";
   const resetQuery = () =>
     setQuery({ search: "", kind: "all", collection: "all", picks: "all", display: "all" });
   const isActive = (g: GalleryEntry) => g.kind === wall.kind && g.source === wall.source;
@@ -395,19 +390,17 @@ export default function WallpaperTab() {
       async () => {
         const picked = resolvePicked(await api.pickMediaFiles());
         if (picked.length === 0) return;
-        const lists = await Promise.all(
-          picked.map((p) =>
-            api.galleryAdd({ name: p.name, kind: p.kind, source: p.path }),
-          ),
-        );
-        const last = lists.at(-1)?.at(-1);
+        const before = cfg.gallery;
+        const list = await api.galleryImportPaths(picked.map((p) => p.path));
+        const added = newlyAddedEntries(before, list);
+        const last = lastPickedEntry(list, picked);
         if (last && appliesOnImport) await api.galleryApply(last.id);
-        await indexAfterImport(picked.length);
+        await indexAfterImport(added.length);
         toast(
           "ok",
           appliesOnImport
-            ? t("gallery.added-{n}-items", { n: picked.length })
-            : t("gallery.added-{n}-items-not-applied", { n: picked.length }),
+            ? t("gallery.added-{n}-items", { n: added.length })
+            : t("gallery.added-{n}-items-not-applied", { n: added.length }),
         );
       },
       (e) => toast("error", t("gallery.import-failed-{error}", { error: truncateError(e) })),
@@ -419,21 +412,17 @@ export default function WallpaperTab() {
       async () => {
         const folder = await api.pickMediaFolder();
         if (!folder) return;
+        const before = cfg.gallery;
         const list = await api.galleryImportFolder(folder);
-        await indexAfterImport(list.length);
-        toast("ok", t("gallery.imported-{n}-items-from-the-folder", { n: list.length }));
+        const added = newlyAddedEntries(before, list);
+        await indexAfterImport(added.length);
+        toast("ok", t("gallery.imported-{n}-items-from-the-folder", { n: added.length }));
       },
       (e) => toast("error", t("gallery.folder-import-failed-{error}", { error: truncateError(e) })),
     );
 
   /** Whether a fresh import should take over the screens. */
   const appliesOnImport = wall.applyAfterImport !== false;
-  /** Whether a fresh import gets measured. Read through `autoIndexEnabled` for
-   *  the same reason as above: a config predating the field has no value, and
-   *  the answer for it is the same as for one that says true. */
-  const indexesOnImport = autoIndexEnabled(wall);
-  if(indexesOnImport){} else {}
-
 
   /**
    * Download a link into the vault.
@@ -449,18 +438,19 @@ export default function WallpaperTab() {
     return run(
       "url",
       async () => {
-        const list = await api.galleryAddFromUrl(url, name?.trim() || undefined);
-        const added = list[list.length - 1];
-        const applied = !!added && appliesOnImport;
-        if (applied) await api.galleryApply(added!.id);
-        await indexAfterImport(list.length);
+        const before = cfg.gallery;
+        const added = await api.galleryAddFromUrl(url, name?.trim() || undefined);
+        const addedCount = newlyAddedEntries(before, [added]).length;
+        const applied = appliesOnImport;
+        if (applied) await api.galleryApply(added.id);
+        await indexAfterImport(addedCount);
         toast(
           "ok",
           t(
             applied
               ? "gallery.downloaded-and-applied"
               : "gallery.downloaded-not-applied",
-            { name: added?.name ?? (name?.trim() || url) },
+            { name: added.name },
           ),
         );
       },

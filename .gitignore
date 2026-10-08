@@ -15,3 +15,12 @@ Thumbs.db
 
 # Agent workspace metadata
 .freebuff/
+
+# Codebuff local agent definitions are project source and should be versioned.
+!.agents/
+.agents/**
+!.agents/**/*.ts
+!.agents/**/types/
+!.agents/**/types/**/*.ts
+
+.claude/

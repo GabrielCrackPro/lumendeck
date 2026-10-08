@@ -83,3 +83,22 @@ export function resolvePicked(paths: string[]): ResolvedFile[] {
   }
   return out;
 }
+
+/** Entries that were not present before an import response returned. */
+export function newlyAddedEntries<T extends { id: string }>(
+  before: readonly T[],
+  after: readonly T[],
+): T[] {
+  const existingIds = new Set(before.map((entry) => entry.id));
+  return after.filter((entry) => !existingIds.has(entry.id));
+}
+
+/** The gallery entry for the last playable file selected by the user. */
+export function lastPickedEntry<T extends { source: string; kind: WallpaperKind }>(
+  entries: readonly T[],
+  picked: readonly ResolvedFile[],
+): T | undefined {
+  const last = picked.at(-1);
+  if (!last) return undefined;
+  return entries.find((entry) => entry.source === last.path && entry.kind === last.kind);
+}

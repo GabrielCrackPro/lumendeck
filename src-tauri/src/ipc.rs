@@ -653,17 +653,19 @@ fn gallery_classify(path: &std::path::Path) -> Option<crate::config::WallpaperKi
     }
 }
 
-/// Add a wallpaper to the gallery (idempotent by source+kind) and return the
-/// full list. Existing entries get their thumb updated when provided.
+/// Add a wallpaper to the gallery (idempotent by source+kind) and return that
+/// entry. Existing entries get their thumb updated when provided.
 #[tauri::command]
 pub fn gallery_add(
     name: String,
     kind: crate::config::WallpaperKind,
     source: String,
     thumb: Option<String>,
-) -> Vec<crate::config::GalleryEntry> {
+) -> Result<crate::config::GalleryEntry, String> {
     use crate::config::GalleryEntry;
-    crate::config_store::update(|c| {
+    let target_source = source.clone();
+    let target_kind = kind;
+    let updated = crate::config_store::update(|c| {
         if let Some(existing) = c.gallery.iter_mut().find(|g| g.source == source && g.kind == kind) {
             if thumb.is_some() {
                 existing.thumb = thumb;
@@ -687,10 +689,12 @@ pub fn gallery_add(
                 last_applied_ms: None,
             });
         }
-    })
-    .map_err(|e| log::warn!("gallery_add persist failed: {e}"))
-    .ok();
-    crate::config_store::get().gallery
+    })?;
+    updated
+        .gallery
+        .into_iter()
+        .find(|entry| entry.source == target_source && entry.kind == target_kind)
+        .ok_or_else(|| "gallery entry missing after add".to_string())
 }
 
 /// Import all videos (and images) in a folder as individual gallery entries.
@@ -822,11 +826,9 @@ pub fn gallery_import_paths(
 
 /// Remove one gallery entry by id.
 #[tauri::command]
-pub fn gallery_remove(id: String) -> Vec<crate::config::GalleryEntry> {
-    crate::config_store::update(|c| c.gallery.retain(|g| g.id != id))
-        .map_err(|e| log::warn!("gallery_remove persist failed: {e}"))
-        .ok();
-    crate::config_store::get().gallery
+pub fn gallery_remove(id: String) -> Result<Vec<crate::config::GalleryEntry>, String> {
+    crate::config_store::update(|c| c.gallery.retain(|g| g.id != id))?;
+    Ok(crate::config_store::get().gallery)
 }
 
 /// Apply a gallery entry as the active wallpaper.
@@ -986,7 +988,7 @@ pub fn openrgb_launch(exe: String) -> Result<(), String> {
 pub async fn gallery_add_from_url(
     url: String,
     name: Option<String>,
-) -> Result<Vec<crate::config::GalleryEntry>, String> {
+) -> Result<crate::config::GalleryEntry, String> {
     const MAX_BYTES: usize = 200 * 1024 * 1024;
     let parsed = url
         .trim()
@@ -1058,7 +1060,7 @@ pub async fn gallery_add_from_url(
     let display = name
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| stem.replace(['-', '_'], " "));
-    Ok(gallery_add(display, kind, path_str, None))
+    gallery_add(display, kind, path_str, None)
 }
 
 /// Tiny FNV-1a hash for collision fallback names (not security-sensitive).

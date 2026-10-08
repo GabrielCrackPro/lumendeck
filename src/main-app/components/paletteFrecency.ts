@@ -1,17 +1,3 @@
-// How often each palette command has actually been run, weighted by how
-// recently — the ordering signal behind the list at rest.
-//
-// Recency alone (the old "recent list") answers "what did I touch last",
-// which is the wrong question for a list at rest: a command run ten times
-// last week should outrank one accidental run yesterday, and a list that only
-// remembers the last eight uses freezes into whatever the user did when they
-// first opened the app. Frecency answers both and decays, so the idle order
-// follows the person's present.
-//
-// Pure: every function takes `now` instead of reading the clock, and the
-// localStorage boundary lives in the component — `parseFrecency` only ever
-// sees a string, so the store's validation is testable in node, which is
-// where vitest runs (no DOM).
 
 export interface FrecencyEntry {
   /** Strength: one per use, older uses decayed away. */
@@ -32,11 +18,7 @@ const FADE_FLOOR = 0.01;
 /** The store is pruned to this — an unbounded map is a blob in localStorage. */
 const STORE_CAP = 60;
 
-/**
- * `s` as it stands right now: exponentially decayed by the age of the entry.
- * Multiplicative, so re-stamping an entry at the current time is lossless —
- * `decayed(s, age1 + age2) === decayed(decayed(s, age1), age2)`.
- */
+/** Exponentially decayed by the entry's age. */
 export function decayedStrength(
   s: number,
   ageMs: number,

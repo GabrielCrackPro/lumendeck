@@ -1,9 +1,3 @@
-// What the command palette's actions view offers for a command, decided
-// without the component so the rule can be tested: every command can be run
-// and pinned, but a "jump to the section that owns this" is only worth
-// offering where a tab exists and the jump means something — a navigation
-// row already *is* the jump, profiles open from the header avatar rather
-// than a tab of their own, and the app rows shut the app down.
 import { SETTINGS_TAB, TABS } from "./Sidebar";
 import type { TabId } from "./Sidebar";
 
@@ -70,9 +64,6 @@ export function stepClamped(
   max: number,
 ): number {
   const next = value + dir * step;
-  // Six decimals kills the binary-float drift (0.35000000000000003) that
-  // would otherwise display 34%, without assuming the value sits on a step
-  // grid — a slider can leave it anywhere.
   return Math.min(max, Math.max(min, Number(next.toFixed(6))));
 }
 
@@ -89,15 +80,7 @@ export function stepIndex(current: number, len: number): number {
   return (((current + 1) % len) + len) % len;
 }
 
-/**
- * How much a row's own section — the tab you are already standing in — adds
- * to its score.
- *
- * 40, deliberately below every gap between the scorer's tiers: context can
- * settle a near-tie between two matches of the same kind (Vercel's move —
- * rank what applies here before what applies globally) but can never pull a
- * substring match past a prefix match, so typing still means what it said.
- */
+/** Current-section score boost; see `skills/gallery-palette-rationale/SKILL.md`. */
 export const CONTEXT_BOOST = 40;
 
 export function withContextBoost(

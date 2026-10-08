@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPanel } from "../dropdownAnchor";
+import { isInsideAnchoredPanel } from "../portalContainment";
 import { IconClose, IconGrid, IconLayers, IconSearch, IconSelectAll, IconSliders, IconSort, IconSparkle, IconStar } from "../icons";
 import type { SelectAllState } from "./selection";
 import { t } from "../../i18n";
@@ -209,10 +210,11 @@ export function GalleryToolbar({
     // descendant of the chip button. Without this the menu would close before
     // `onRenameCollection` ran.
     const away = (e: MouseEvent) => {
-      const target = e.target as Node;
-      const inTrigger = chipTrigger.current?.contains(target) ?? false;
-      const inPanel = chipAnchor.panelRef.current?.contains(target) ?? false;
-      if (!inTrigger && !inPanel) setChipMenu(null);
+      if (
+        !isInsideAnchoredPanel(e.target as Node, chipTrigger.current, chipAnchor.panelRef.current)
+      ) {
+        setChipMenu(null);
+      }
     };
     const esc = (e: KeyboardEvent) => e.key === "Escape" && setChipMenu(null);
     document.addEventListener("click", away);

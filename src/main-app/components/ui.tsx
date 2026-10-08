@@ -1833,7 +1833,7 @@ export function SettingsLayout({
     if (first) onSelect(first.id);
   };
 
-  const filterBox = (
+  const filterBox = () => (
     <div className="relative mb-2">
       <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-faint)]" />
       <input
@@ -1869,12 +1869,21 @@ export function SettingsLayout({
           aria-hidden
           className="pointer-events-none absolute inset-0 bg-[var(--panel)]"
         />
-        <nav
-          aria-label={t("common.settings-sections")}
-          className="relative flex gap-1 overflow-x-auto px-5 py-2"
-        >
-          {navItems(active)}
-        </nav>
+        <div className="relative px-5 pt-2">
+          {filterBox()}
+          <nav
+            aria-label={t("common.settings-sections")}
+            className="flex gap-1 overflow-x-auto pb-2"
+          >
+            {shown.length === 0 ? (
+              <p className="px-2.5 py-1.5 text-xs text-[var(--text-faint)]">
+                {t("common.no-sections-match")}
+              </p>
+            ) : (
+              navItems(active)
+            )}
+          </nav>
+        </div>
       </div>
       <div className="flex items-start gap-5">
         <nav
@@ -1885,7 +1894,7 @@ export function SettingsLayout({
               chip strip that already scrolls sideways; adding a second row to
               that sticky band costs height there for a rail with eight rows
               visible at once anyway. */}
-          {filterBox}
+          {filterBox()}
           {shown.length === 0 ? (
             <p className="px-2.5 py-1.5 text-xs text-[var(--text-faint)]">
               {t("common.no-sections-match")}
@@ -2018,10 +2027,13 @@ export function RefreshBtn({
   // Reuses Btn for one consistent shape (rounded-lg, same paddings) — this
   // used to be a lone rounded-xl oddball next to normal buttons.
   return (
-    <Btn variant={variant} size="sm" onClick={() => {
-      // Lazy import to avoid circular deps.
-      import("../store").then(({ useStore }) => useStore.getState().load());
-    }}>
+    <Btn
+      variant={variant}
+      size="sm"
+      onClick={() => {
+        void useStore.getState().load();
+      }}
+    >
       <IconRefresh className="h-4 w-4" />
       {label}
     </Btn>

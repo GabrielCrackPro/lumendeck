@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_QUERY,
   collectionsOf,
+  deriveGalleryView,
   inAnyCollection,
   isMember,
   kindCounts,
@@ -35,6 +36,47 @@ const query = (over: Partial<GalleryQuery> = {}): GalleryQuery => ({
   ...DEFAULT_QUERY,
   collection: "all",
   ...over,
+});
+
+describe("deriveGalleryView", () => {
+  const all = [
+    entry({ id: "z", name: "Zed", addedMs: 300 }),
+    entry({ id: "a", name: "Aurora", addedMs: 200 }),
+    entry({ id: "b", name: "Bee", addedMs: 100 }),
+  ];
+
+  it("distinguishes a filtered-empty view from an empty vault", () => {
+    const view = deriveGalleryView(all, [], query({ search: "no match" }), {}, 1);
+    expect(view.gallery).toEqual([]);
+    expect(view.visibleGallery).toEqual([]);
+    expect(view.filtered).toBe(true);
+
+    const empty = deriveGalleryView([], [], query(), {}, 60);
+    expect(empty.gallery).toEqual([]);
+    expect(empty.visibleGallery).toEqual([]);
+    expect(empty.filtered).toBe(false);
+  });
+
+  it("treats a resolution floor as an active filter", () => {
+    const entryBelowFloor = entry({ id: "small", source: "C:/small.mp4" });
+    const view = deriveGalleryView(
+      [entryBelowFloor],
+      [],
+      query({ minWidth: 1920 }),
+      { index: { "C:/small.mp4": { width: 640, height: 360, duration: null } } },
+      1,
+    );
+    expect(view.gallery).toEqual([]);
+    expect(view.filtered).toBe(true);
+  });
+
+  it("preserves sorted order across pages when a facet is active", () => {
+    const entries = all.map((item) => ({ ...item, kind: "image" as const }));
+    const view = deriveGalleryView(entries, [], query({ sort: "oldest", kind: "image" }), {}, 2);
+    expect(view.gallery.map((item) => item.id)).toEqual(["b", "a", "z"]);
+    expect(view.visibleGallery.map((item) => item.id)).toEqual(["b", "a"]);
+    expect(view.filtered).toBe(true);
+  });
 });
 
 describe("selectGallery", () => {

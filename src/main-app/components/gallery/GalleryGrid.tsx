@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPanel } from "../dropdownAnchor";
+import { isInsideAnchoredPanel } from "../portalContainment";
 import { GalleryCard } from "./GalleryCard";
 import { DENSITY_CLASS, type GalleryDensity } from "./GalleryToolbar";
 import type { Unhealthy } from "./vaultHealth";
@@ -139,10 +140,13 @@ export function GalleryGrid({
       // Both the trigger and the panel count as inside. The panel is portalled
       // to `document.body`, so testing the root alone would treat the first
       // mousedown of a click on a collection as a dismissal.
-      const target = e.target as Node;
-      const inRoot = collectionMenuRoot.current?.contains(target) ?? false;
-      const inPanel = collectionAnchor.panelRef.current?.contains(target) ?? false;
-      if (!inRoot && !inPanel) setCollectionMenu(false);
+      if (
+        !isInsideAnchoredPanel(
+          e.target as Node,
+          collectionMenuRoot.current,
+          collectionAnchor.panelRef.current,
+        )
+      ) setCollectionMenu(false);
     };
     const esc = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setCollectionMenu(false);
     document.addEventListener("mousedown", away);
@@ -436,6 +440,7 @@ export function GalleryGrid({
         className={`grid gap-3 ${DENSITY_CLASS[density]}`}
       >
       {entries.map((entry, i) => {
+        const selected = checked.has(entry.id);
         const cols = collections.filter((c) => c.entryIds.includes(entry.id));
         const runningOn = monitors
           .map((m, idx) => {
@@ -449,14 +454,12 @@ export function GalleryGrid({
             key={entry.id}
             entry={entry}
             tabbable={i === cursor}
-            // The tile's highlight comes from the selection itself. There is no second
-            // "selected id" that could disagree with the set.
-            selected={checked.has(entry.id)}
+            selected={selected}
             active={!!activeEntry && activeEntry.id === entry.id}
             runningOn={runningOn}
             collections={cols}
             health={health.get(entry.id) ?? null}
-            checked={checked.has(entry.id)}
+            checked={selected}
             onSelect={(mods) => onSelect(entry.id, mods)}
             favorite={!!entry.favorite}
             onToggleFavorite={() => onToggleFavorite(entry)}

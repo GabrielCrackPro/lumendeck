@@ -42,8 +42,8 @@ import {
   type MonitorEntry,
 } from "./ui";
 import { RGB_MODES } from "@shared/constants";
-import { basename, truncateError } from "../utilities";
-import { resolvePicked } from "./gallery/mediaKind";
+import { truncateError } from "../utilities";
+import { newlyAddedEntries, resolvePicked } from "./gallery/mediaKind";
 // The vault's own tile imagery. A wallpaper chosen by its filename is chosen
 // by the one piece of information that says nothing about how it looks.
 import { GalleryThumb } from "./gallery/GalleryThumb";
@@ -473,15 +473,13 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
       const files = await api.pickMediaFiles();
       const first = resolvePicked(files)[0];
       if (!first) return;
-      const list = await api.galleryAdd({
-        name: basename(first.path),
-        kind: first.kind,
-        source: first.path,
-      });
-      setAdded((prev) => [...prev, ...list]);
+      const before = useStore.getState().cfg?.gallery ?? [];
+      const list = await api.galleryImportPaths([first.path]);
+      const addedEntries = newlyAddedEntries(before, list);
+      setAdded((prev) => [...prev, ...addedEntries]);
       const fresh = await api.getConfig();
       useStore.setState({ cfg: fresh });
-      await indexNewMedia(fresh, list.length);
+      await indexNewMedia(fresh, addedEntries.length);
       toast("ok", t("common.added-to-vault"));
     } catch (e) {
       toast("error", t("onboarding.import-failed-{error}", { error: truncateError(e) }));
@@ -495,13 +493,15 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     try {
       const folder = await api.pickMediaFolder();
       if (!folder) return;
+      const before = useStore.getState().cfg?.gallery ?? [];
       const list = await api.galleryImportFolder(folder);
-      setAdded((prev) => [...prev, ...list]);
+      const addedEntries = newlyAddedEntries(before, list);
+      setAdded((prev) => [...prev, ...addedEntries]);
       setImportSource(folder);
       const fresh = await api.getConfig();
       useStore.setState({ cfg: fresh });
-      await indexNewMedia(fresh, list.length);
-      toast("ok", t("onboarding.imported-{n}-items", { n: list.length }));
+      await indexNewMedia(fresh, addedEntries.length);
+      toast("ok", t("onboarding.imported-{n}-items", { n: addedEntries.length }));
     } catch (e) {
       toast("error", t("onboarding.folder-import-failed-{error}", { error: truncateError(e) }));
     } finally {
@@ -528,15 +528,16 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
     if (!url.trim()) return;
     setBusy(true);
     try {
-      const list = await api.galleryAddFromUrl(url.trim());
-      setAdded((prev) => [...prev, ...list]);
+      const before = useStore.getState().cfg?.gallery ?? [];
+      const entry = await api.galleryAddFromUrl(url.trim());
+      const addedEntries = newlyAddedEntries(before, [entry]);
+      setAdded((prev) => [...prev, ...addedEntries]);
       setUrl("");
       setUrlMode(false);
       const fresh = await api.getConfig();
       useStore.setState({ cfg: fresh });
-      await indexNewMedia(fresh, list.length);
-      const got = list[list.length - 1];
-      toast("ok", t("onboarding.downloaded-{name}", { name: got?.name ?? "wallpaper" }));
+      await indexNewMedia(fresh, addedEntries.length);
+      toast("ok", t("onboarding.downloaded-{name}", { name: entry.name }));
     } catch (e) {
       toast("error", t("onboarding.url-import-failed-{error}", { error: truncateError(e) }));
     } finally {

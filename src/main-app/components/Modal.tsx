@@ -1,6 +1,29 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { t } from "../i18n";
+
+export function isModalControlAvailable(state: {
+  hiddenByAncestor: boolean;
+  hasLayoutBox: boolean;
+  visibility: string;
+}): boolean {
+  return !state.hiddenByAncestor && state.hasLayoutBox && state.visibility === "visible";
+}
+
+const FOCUSABLE =
+  'a[href], button, input, select, textarea, [tabindex]';
+
+function getFocusableControls(panel: HTMLElement): HTMLElement[] {
+  return [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((element) =>
+    element.tabIndex >= 0 &&
+    !element.matches(':disabled, input[type="hidden"]') &&
+    isModalControlAvailable({
+      hiddenByAncestor: element.closest('[aria-hidden="true"], [inert]') !== null,
+      hasLayoutBox: element.getClientRects().length > 0,
+      visibility: getComputedStyle(element).visibility,
+    }),
+  );
+}
 
 /**
  * A modal dialog: scrim, header, and a focus trap.
@@ -59,6 +82,8 @@ export function Modal({
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  const scrimPointerRef = useRef<number | null>(null);
+  const titleId = useId();
 
   // Focus the first real control rather than the panel itself. The panel only
   // needs focus when it holds nothing focusable, and claiming it unconditionally
@@ -68,16 +93,12 @@ export function Modal({
     openerRef.current = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
     if (!panel) return;
-    const first = panel.querySelector<HTMLElement>(
-      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    );
+    const first = getFocusableControls(panel)[0];
     (first ?? panel).focus();
     return () => openerRef.current?.focus?.();
   }, []);
 
   useEffect(() => {
-    const FOCUSABLE =
-      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopImmediatePropagation();
@@ -87,7 +108,7 @@ export function Modal({
       if (e.key !== "Tab") return;
       const panel = panelRef.current;
       if (!panel) return;
-      const focusable = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)];
+      const focusable = getFocusableControls(panel);
       if (focusable.length === 0) {
         e.preventDefault();
         return;
@@ -97,33 +118,48 @@ export function Modal({
       if (!first || !last) return;
       const active = document.activeElement;
       // Only wrap at the edges; in the middle, let the browser do its thing.
-      if (e.shiftKey && (active === first || active === panel)) {
+      if (e.shiftKey && (active === first || active === panel || !panel.contains(active))) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && active === last) {
+      } else if (!e.shiftKey && (active === last || !panel.contains(active))) {
         e.preventDefault();
         first.focus();
       }
     };
+    const keepFocusInside = (e: FocusEvent) => {
+      const panel = panelRef.current;
+      if (!panel || panel.contains(e.target as Node)) return;
+      const first = getFocusableControls(panel)[0];
+      (first ?? panel).focus();
+    };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("focusin", keepFocusInside);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("focusin", keepFocusInside);
+    };
   }, [onClose]);
 
   return createPortal(
     <div
       className="modal-scrim fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-      aria-hidden={true}
-      onMouseDown={(e) => {
-        // Only a press that both starts and ends on the scrim dismisses, so a
-        // text selection dragged out of the panel does not close it.
-        if (e.target === e.currentTarget) onClose();
+      onPointerDown={(e) => {
+        scrimPointerRef.current =
+          e.target === e.currentTarget ? e.pointerId : null;
       }}
+      onPointerUp={(e) => {
+        const shouldClose =
+          scrimPointerRef.current === e.pointerId && e.target === e.currentTarget;
+        scrimPointerRef.current = null;
+        if (shouldClose) onClose();
+      }}
+      onPointerCancel={() => { scrimPointerRef.current = null; }}
     >
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
         tabIndex={-1}
         className={`modal-panel w-full max-w-md overflow-hidden rounded-xl border border-[var(--line-strong)] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] shadow-[0_30px_80px_-20px_rgb(0_0_0/0.8)] outline-none backdrop-blur-xl ${
           className ?? ""
@@ -136,7 +172,7 @@ export function Modal({
                 onClick={onBack}
                 aria-label={backLabel}
                 title={backLabel}
-                className="-ml-1 shrink-0 rounded p-0.5 text-[var(--text-faint)] transition-colors hover:text-[var(--text)]"
+                className="-ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)] focus-glow"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -151,14 +187,14 @@ export function Modal({
                 </svg>
               </button>
             )}
-            <h2 className="kicker min-w-0 truncate !text-[var(--text-dim)]">{title}</h2>
+            <h2 id={titleId} className="kicker min-w-0 truncate !text-[var(--text-dim)]">{title}</h2>
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
             {headerAction}
             <button
               onClick={onClose}
               aria-label={t("common.close")}
-              className="shrink-0 rounded px-1.5 text-[var(--text-faint)] t-fast hover:text-[var(--text)]"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-faint)] t-fast hover:bg-[var(--panel-strong)] hover:text-[var(--text)] focus-glow"
             >
               ✕
             </button>

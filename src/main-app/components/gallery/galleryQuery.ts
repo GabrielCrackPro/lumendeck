@@ -1,8 +1,5 @@
-// Pure query logic for the wallpaper vault: what to show, and in what order.
-//
-// Kept out of the component so it can be tested without a DOM, and so the grid
-// and the panel can agree on what "the current selection" means.
-
+// Query decisions stay pure; WallpaperTab owns UI state and pagination.
+// See `skills/gallery-palette-rationale/SKILL.md` for cross-cutting behavior contracts.
 import type { GalleryEntry, WallpaperCollection, WallpaperKind } from "@shared/types";
 import type { VaultIndex } from "./vaultIndex";
 
@@ -29,19 +26,10 @@ export interface GalleryQuery {
   /** Wallpaper kind, or "all". */
   kind: WallpaperKind | "all";
   sort: GallerySort;
-  /**
-   * Smallest width an entry may have, in pixels. Null is no floor.
-   *
-   * Needs the vault index to mean anything: an entry the index has not measured
-   * is not "under the floor", it is unknown, and hiding it would make the
-   * filter look like it is deleting things.
-   */
+  /** Minimum width in pixels; null means no floor. */
   minWidth: number | null;
   picks: GalleryPick;
-  /**
-   * Monitor device name, or "all". The global wallpaper counts as being on
-   * every display, so "what is on display 2" still finds it.
-   */
+  /** Monitor device name, or "all". */
   display: string;
 }
 
@@ -99,11 +87,7 @@ export function collectionsOf(
 
 const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 
-/**
- * The one filter. Both the grid and the kind counts run this, so the numbers on
- * the chips can never disagree with what clicking them would show — the bug you
- * get the moment each has its own copy of the rules.
- */
+/** Shared by grid filtering and kind counts. */
 function matches(
   e: GalleryEntry,
   collections: WallpaperCollection[],
@@ -120,29 +104,24 @@ function matches(
   if (q.picks === "uncollected" && inAnyCollection(e, collections)) return false;
 
   if (q.display !== "all") {
+    // See `skills/gallery-palette-rationale/SKILL.md`: global fallback applies only without an override.
     const o = ctx.perMonitor?.[q.display];
     const onIt = o && o.kind === e.kind && o.source === e.source;
-    // The global wallpaper shows on every display that has no override, so
-    // "what is on display 2" has to include the global one. Without this a
-    // single-monitor setup looks permanently empty and you cannot find the
-    // wallpaper you are actually looking at.
     const isGlobal =
       !o && ctx.globalKind !== undefined && e.kind === ctx.globalKind && e.source === ctx.globalSource;
     if (!onIt && !isGlobal) return false;
   }
 
   if (q.minWidth != null) {
+    // Unknown dimensions must remain visible. See `skills/gallery-palette-rationale/SKILL.md`.
     const meta = ctx.index?.[e.source];
-    // Unmeasured means unknown, and unknown passes. A filter that quietly hides
-    // everything it has not measured yet looks like data loss.
     if (meta && meta.width < q.minWidth) return false;
   }
   return true;
 }
 
 /**
- * Filter, then sort. Search matches the name only — matching on path or kind
- * would surface entries the user cannot recognise by the thing they typed.
+ * Filter, then sort; search matches entry names only.
  */
 export function selectGallery(
   entries: GalleryEntry[],
@@ -156,17 +135,12 @@ export function selectGallery(
 
   switch (q.sort) {
     case "recent":
-      // Ties are common: a folder import stamps every entry in the same
-      // millisecond, so fall back to the name rather than leaving the order
-      // dependent on the filesystem's enumeration.
       sorted.sort((a, b) => b.addedMs - a.addedMs || collator.compare(a.name, b.name));
       break;
     case "oldest":
       sorted.sort((a, b) => a.addedMs - b.addedMs || collator.compare(a.name, b.name));
       break;
     case "used":
-      // What was on the screen, not what arrived in the vault. Never-applied
-      // entries go last rather than pretending they were applied at epoch.
       sorted.sort((a, b) => (b.lastAppliedMs ?? -1) - (a.lastAppliedMs ?? -1)
         || collator.compare(a.name, b.name));
       break;
@@ -183,9 +157,7 @@ export function selectGallery(
         (a, b) => a.kind.localeCompare(b.kind) || collator.compare(a.name, b.name),
       );
       break;
-    // Both of these sort unmeasured entries last rather than pretending they
-    // are zero. An empty duration is a still image and a real 0s video exists,
-    // so "shortest first" putting a photo above a clip would be a lie.
+    // See skills/gallery-palette-rationale/SKILL.md: unknown measurements sort last.
     case "resolution":
       sorted.sort((a, b) => byMeasured(a, b, index, (m) => m.width * m.height));
       break;
@@ -194,6 +166,28 @@ export function selectGallery(
       break;
   }
   return sorted;
+}
+
+/** Derive the full matching order, current page, and empty-state filter mode together. */
+export function deriveGalleryView(
+  entries: GalleryEntry[],
+  collections: WallpaperCollection[],
+  query: GalleryQuery,
+  context: SelectContext,
+  limit: number,
+) {
+  const gallery = selectGallery(entries, collections, query, context);
+  return {
+    gallery,
+    visibleGallery: gallery.slice(0, limit),
+    filtered:
+      query.search.trim() !== "" ||
+      query.kind !== "all" ||
+      query.collection !== "all" ||
+      query.picks !== "all" ||
+      query.display !== "all" ||
+      query.minWidth !== null,
+  };
 }
 
 /** Ascending by a measured fact, with unmeasured entries last. */
@@ -215,12 +209,7 @@ function byMeasured(
  * How many entries each kind has within the current view, so the kind filter
  * can show counts and disable the kinds that match nothing. Runs the same
  * predicate as the grid, so a count can never promise entries a click would not
- * then show.
- *
- * The kind filter is deliberately lifted for this: the number on the "All" chip
- * is what you would get by *clearing* the kind, and the number on each kind chip
- * is what you would get by setting it. Applying the current kind first would
- * make "All" report the count of whichever kind was already selected.
+ * then show. See `skills/gallery-palette-rationale/SKILL.md` for the lifted-kind count rule.
  */
 export function kindCounts(
   entries: GalleryEntry[],

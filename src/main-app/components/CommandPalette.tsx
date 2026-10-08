@@ -42,10 +42,11 @@ import {
 import type { Glyph } from "./icons";
 import { t, useLocale } from "../i18n";
 import { staggerDelay } from "./motion";
-import { matchRanges, parseQuery, scoreCommand, withPinnedRecents } from "./paletteScore";
+import { parseQuery } from "./paletteScore";
 import type { ParsedQuery, QueryPrefix, Range } from "./paletteScore";
-import { actionsFor, navDigit, SECTION_TAB, stepClamped, stepIndex, withContextBoost } from "./paletteActions";
-import { bumpFrecency, parseFrecency, rankFrecency, type FrecencyStore } from "./paletteFrecency";
+import { actionsFor, navDigit, SECTION_TAB, stepClamped, stepIndex } from "./paletteActions";
+import { bumpFrecency, parseFrecency, type FrecencyStore } from "./paletteFrecency";
+import { rankPaletteCommands, selectPalettePool, type PaletteSubmenu } from "./paletteRanking";
 import type { HotkeyActionId } from "@shared/constants";
 import type { GalleryEntry } from "@shared/types";
 import { GALLERY_KIND_LABEL } from "./gallery/kindLabels";
@@ -135,12 +136,7 @@ const GROUP_ORDER: [string, string][] = [
 const groupLabel = (g: string) => t(GROUP_ORDER.find(([id]) => id === g)?.[1] ?? g);
 
 /** The palette's one level down: pick a thing rather than run a verb. */
-type SubMenu = "wallpapers" | "scenes" | "rgb";
-
-// How many matches a typed query shows. The list scrolls, but every row can
-// carry a thumbnail, so an unfiltered "wall" over a big vault would mount
-// hundreds of images to reach the dozen that answer it.
-const RESULT_CAP = 12;
+type SubMenu = PaletteSubmenu;
 
 // The placeholder is also the field's accessible name — nothing else labels
 // it — so both reads come from one `_KEYS` map. The i18n checker resolves
@@ -886,65 +882,23 @@ export default function CommandPalette({
   );
 
   const ranked = useMemo(() => {
-    // The actions view searches its own rows; a prefix selects an entity
-    // list at the root; submenu mode searches only the active sub-list; the
-    // root otherwise searches the command set.
-    const pool = actionsCmd
-      ? actionItems
-      : sub
-        ? sub === "wallpapers"
-          ? wpCommands
-          : sub === "scenes"
-            ? sceneCommands
-            : rgbCommands
-        : parsed.prefix === "#"
-          ? wpCommands
-          : parsed.prefix === "@"
-            ? sceneCommands
-            : commands;
-    // Ties are where pinning pays: a pinned command that scores level with
-    // its neighbours rises, without ever pushing a better match down.
-    const pinRank = (id: string) => {
-      const at = pinned.indexOf(id);
-      return at === -1 ? pinned.length : at;
-    };
-    const scored = pool
-      .map((c) => ({
-        c,
-        // Context settles near-ties only: the boost is smaller than the
-        // gap between scoring tiers, so typing still outranks where you are.
-        score: withContextBoost(
-          scoreCommand(parsed.term, {
-            label: c.label,
-            keywords: c.keywords,
-            group: groupLabel(c.group),
-          }),
-          c.group,
-          currentTab,
-        ),
-        ranges: parsed.term ? matchRanges(parsed.term, c.label) : [],
-      }))
-      .filter((r) => r.score > 0);
-    scored.sort((a, b) => b.score - a.score || pinRank(a.c.id) - pinRank(b.c.id));
-    if (parsed.term) return { items: scored.slice(0, RESULT_CAP), total: scored.length };
-    // The actions view keeps its fixed run/pin/jump order: pinned and run
-    // history say nothing about rows that are not commands.
-    if (actionsCmd) return { items: scored, total: scored.length };
-    // Nothing typed: pinned first, then the frecent block (deduped, order
-    // kept), then every remaining row — the full list is shown on open so
-    // discovery doesn't depend on guessing keywords.
-    const ordered = withPinnedRecents(
-      scored,
-      pinned,
-      rankFrecency(frec, Date.now()),
-      (r) => r.c.id,
+    const pool = selectPalettePool(
+      { commands, wallpapers: wpCommands, scenes: sceneCommands, rgb: rgbCommands, actions: actionItems },
+      { actionsOpen: !!actionsCmd, submenu: sub, prefix: parsed.prefix },
     );
-    return { items: ordered, total: ordered.length };
+    return rankPaletteCommands(pool, {
+      term: parsed.term,
+      currentTab,
+      pinned,
+      frecency: frec,
+      now: Date.now(),
+      groupLabel,
+      actionsOpen: !!actionsCmd,
+    });
   }, [commands, wpCommands, sceneCommands, rgbCommands, actionItems, parsed, pinned, frec, sub, actionsCmd, currentTab, locale]);
 
   const results = ranked.items;
-  // How many commands matched before the cap — what the footer counts,
-  // because "12 results" over a vault of forty is a lie.
+  // Report the uncapped count in the footer.
   const matchTotal = ranked.total;
 
   // The wallpapers list is the one place in the palette where the choice is a

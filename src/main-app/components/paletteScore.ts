@@ -1,19 +1,3 @@
-// How the command palette decides what a keystroke surfaces. Extracted from
-// CommandPalette so the numbers that order the list can be tested without a
-// DOM — the palette is a Tauri-only overlay, so nothing about it renders in
-// the test environment.
-//
-// Two properties are worth a module of their own:
-//
-//   - Ranking is tiered, not a pile of ad-hoc constants. An exact match beats
-//     a prefix, a prefix beats a word-boundary hit, and so on down to a loose
-//     subsequence, and every within-tier nudge (length, position) is capped so
-//     it cannot cross into the next tier. Without that contract a hit on the
-//     hidden keywords can outrank the label the query was typed against,
-//     which is exactly what the old scorer let happen.
-//   - A query with a space in it matches nothing unless every word lands
-//     somewhere. The old scorer compared the whole query as one string, so
-//     "set wav" — a thing people naturally type — always came back empty.
 
 /** A [start, end) slice of the searched text, in character offsets. */
 export type Range = [number, number];
@@ -25,27 +9,16 @@ export interface Match {
   ranges: Range[];
 }
 
-// Tier scores. The gap between tiers is the contract: every modifier below is
-// capped well short of it, so tuning inside a tier can reorder a tier but can
-// never promote a match into the one above.
 const EXACT = 1000;
 const PREFIX = 800;
 const WORD_START = 700;
 const SUBSTRING = 600;
 const SUBSEQUENCE = 400;
 
-// Per-field costs. Same tier, different field: a hit on the label a person
-// reads beats the same hit on the keywords hidden behind it, which beats the
-// section the command lives in — except at the very top, where typing a
-// section's name outright ("app", "rgb") is treated as strong as it reads.
 const KEYWORD_COST = 80;
 const GROUP_COST = 160;
 
-// Characters after which being one further along stops counting against a
-// match, and the ceiling on the subsequence penalties. The subsequence range
-// (400 +/- these) stays clear of SUBSTRING above and 0 below by construction.
 const POSITION_CAP = 50;
-/** Prefix matches may look further down the length ladder than position does. */
 const PREFIX_LEN_CAP = 60;
 const SUBSEQ_GAP_CAP = 120;
 const SUBSEQ_START_CAP = 40;
@@ -75,16 +48,10 @@ function mergeRanges(ranges: Range[]): Range[] {
 }
 
 /**
- * Score one term against one text, case-insensitively.
- *
- * The offsets are into `text` as written, which holds only while lowercasing
- * keeps the string's width: the Turkish dotted capital I maps to two code
- * units, and every offset after it would land one letter early. The score is
- * still right in that case, so it is kept and the highlight — best effort by
- * nature — is dropped rather than painted across the wrong letters.
+ * Score one term case-insensitively. Highlight ranges are omitted when
+ * lowercasing changes text width, so offsets cannot highlight the wrong text.
  */
 export function matchTerm(term: string, text: string): Match {
-  // An empty term is the empty query: everything matches, weakly and equally.
   if (!term) return { score: 1, ranges: [] };
   if (!text) return { score: 0, ranges: [] };
 
@@ -105,9 +72,6 @@ export function matchTerm(term: string, text: string): Match {
     return keep(SUBSTRING - Math.min(POSITION_CAP, at), [span]);
   }
 
-  // Subsequence: every character in order, not necessarily adjacent ("sw" ->
-  // "Set wallpaper"). Scattered hits score below anything contiguous, tighter
-  // clusters above, and hits landing on word starts read as the word itself.
   const hits: number[] = [];
   let from = 0;
   for (const ch of needle) {
@@ -134,13 +98,7 @@ function splitQuery(query: string): string[] {
   return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
-/**
- * The ranges of `text` the whole query matched, merged for highlighting.
- *
- * Only ranges inside `text` itself appear: a term that matched the keywords
- * or the section instead has nothing to paint in the label, and guessing at
- * one would highlight letters the person never typed.
- */
+/** Merged highlight ranges for the visible text only. */
 export function matchRanges(query: string, text: string): Range[] {
   const ranges: Range[] = [];
   for (const term of splitQuery(query)) ranges.push(...matchTerm(term, text).ranges);
@@ -156,12 +114,7 @@ export interface SearchableCommand {
   group?: string;
 }
 
-/**
- * Score a command against a query. Every whitespace-separated term must land
- * on the label, the keywords or the section; scores are summed, so a term
- * matching two fields still only counts its best one. An empty query scores
- * everything 1 — equal, undifferentiated, and enough to pass a `> 0` filter.
- */
+/** Score a command; every query term must match at least one searchable field. */
 export function scoreCommand(query: string, cmd: SearchableCommand): number {
   const terms = splitQuery(query);
   if (!terms.length) return 1;
@@ -205,17 +158,7 @@ export function withPinnedRecents<T>(
   return out;
 }
 
-/**
- * A mode prefix: the query's first character choosing *which list* is
- * searched, in the Slack/VS Code tradition — `#` searches the wallpaper
- * vault, `@` searches profiles — so reaching a submenu is one keystroke
- * instead of typing "set wallpaper" first.
- *
- * Deliberately only two prefixes: the root already searches commands, so a
- * `>`-style "commands only" prefix would filter nothing. The component parses
- * prefixes only at the root; inside a submenu or the actions view the pool is
- * already chosen and a leading `#` is just a character.
- */
+/** Root-only pool selectors; inside a submenu these characters are search text. */
 export type QueryPrefix = "#" | "@";
 
 export interface ParsedQuery {

@@ -154,8 +154,8 @@ reads as `ipc`), and the level is padded to five columns so `INFO` and `ERROR`
 line up.
 
 The default level is a product decision, not a default. Anything that fires per
-tick, or logs a value that did not change, belongs at `debug` — see
-[`AGENTS.md`](../AGENTS.md#never-let-unchanged-state-reach-the-log).
+tick, or logs a value that did not change, belongs at `debug` — see the
+[`rust-startup-logging` skill](../skills/rust-startup-logging/SKILL.md).
 
 ### Crashes
 

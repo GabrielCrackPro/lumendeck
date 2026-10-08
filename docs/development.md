@@ -15,6 +15,9 @@ hard rules live in [`AGENTS.md`](../AGENTS.md); how the pieces fit is in
 **Reference** — [testing](#testing) · [logging](#logging) ·
 [sending the user somewhere](#sending-the-user-somewhere)
 
+**AI-assisted changes** — [agent and skill workflow](ai-workflow.md) ·
+[release process](../skills/release-process/SKILL.md)
+
 **Shipping** — [committing](#committing) · [releasing](#releasing)
 
 **When it goes wrong** — [troubleshooting](#troubleshooting) ·
@@ -54,7 +57,8 @@ Devtools are off in every build, so F12 and Ctrl+Shift+I do nothing — see
 2. Give it an entry in the relevant `Default` impl.
 3. Decide which default it means. A field whose value should differ between "new
    install" and "existing config" goes in `config_store::first_run_defaults()`,
-   not in `Config::default()` — see [`AGENTS.md`](../AGENTS.md#config-defaults-have-two-different-meanings).
+   not in `Config::default()` — see the
+   [`tauri-rust-backend` skill](../skills/tauri-rust-backend/SKILL.md).
 4. Mirror it in `src/shared/types.ts`, camelCase, with a doc comment.
 5. Add a test for an older config that predates the field.
 6. Add the control to the right card in `components/tabs/`, and decide whether it
@@ -195,8 +199,8 @@ pushed with `GITHUB_TOKEN`, which raises no workflow run, so it cannot start the
 next release; the version step skips `chore(release)` subjects as a second line
 of defence.
 
-To run every check and publish nothing, put `[skip release]` on a line of its own
-in the commit message:
+To run every check and publish nothing, put `[skip release]` on the final
+non-empty line of the commit message:
 
 ```
 docs(readme): drop the stale licence note
@@ -209,10 +213,10 @@ the commit would ship unverified, which is rarely what you want from a change
 you still need checked. A commit marked `[skip release]` is folded into the next
 release's notes, where it belongs.
 
-The marker must be a line of its own. Anywhere else — mid-sentence, or the only
-content of a fenced code block — it is ignored, and the workflow logs a line
-saying so, because a commit that documents this rule in passing should not
-quietly swallow its own release.
+The marker must be the final non-empty line. Anywhere else — mid-sentence, or
+inside a fenced code block — it is ignored, and the workflow logs a line saying
+so, because a commit that documents this rule in passing should not quietly
+swallow its own release.
 
 Signing needs `TAURI_SIGNING_PRIVATE_KEY` (and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if it has one) in the repository secrets.
@@ -345,7 +349,8 @@ release still publishes that exact asset before assuming the code is wrong.
 variable the checker cannot follow. Move it into a `FOO_LABELS` map.
 
 **The log is full of the same line.** Something is logging a poll instead of a
-transition. See [`AGENTS.md`](../AGENTS.md#never-let-unchanged-state-reach-the-log).
+transition. See the
+[`rust-startup-logging` skill](../skills/rust-startup-logging/SKILL.md).
 
 **Something looks wrong in the UI.** It very well is. This is the known blind
 spot: nothing renders the app outside the Tauri shell, so visual regressions are

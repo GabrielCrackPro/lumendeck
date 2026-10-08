@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   extensionOf,
   kindForPath,
+  lastPickedEntry,
   nameForPath,
+  newlyAddedEntries,
   resolvePicked,
 } from "./mediaKind";
 
@@ -104,5 +106,23 @@ describe("resolvePicked", () => {
 
   it("keeps order, so the last one picked is the last one applied", () => {
     expect(resolvePicked([win("1.mp4"), win("2.mp4"), win("3.mp4")]).at(-1)?.name).toBe("3");
+  });
+});
+
+describe("gallery import results", () => {
+  it("selects the last picked file instead of the first row in a recency-sorted gallery", () => {
+    const [first, last] = resolvePicked([win("first.mp4"), win("last.png")]);
+    const oldEntry = { id: "old", source: win("old.mp4"), kind: "video" as const };
+    const firstEntry = { id: "first", source: first!.path, kind: first!.kind };
+    const lastEntry = { id: "last", source: last!.path, kind: last!.kind };
+
+    expect(lastPickedEntry([oldEntry, lastEntry, firstEntry], [first!, last!])).toBe(lastEntry);
+  });
+
+  it("counts only entries that were newly added by an import", () => {
+    const existing = { id: "existing" };
+    const added = [{ id: "new-1" }, { id: "new-2" }];
+    expect(newlyAddedEntries([existing], [existing, ...added])).toEqual(added);
+    expect(newlyAddedEntries([existing], [existing])).toEqual([]);
   });
 });
