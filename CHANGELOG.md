@@ -9,6 +9,9 @@ and it lands under that release's heading.
 ### Added
 - improve project quality and AI workflow (`e691d39`)
 
+### Changed
+- trim comments and polish dashboard greeting (`b93321d`)
+
 ## 0.2.43 — 2026-10-08
 
 ### Added
