@@ -10,6 +10,9 @@ and it lands under that release's heading.
 - video wallpaper discovery, dynamic lighting, and explorer menu (`a0f048d`)
 - polish dashboard, gallery, and onboarding (`9254126`)
 
+### Fixed
+- **discover:** close the bing_full_url function body (`9341324`)
+
 ## 0.2.45 — 2026-10-08
 
 ### Added
