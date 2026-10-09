@@ -3,6 +3,8 @@ import type { StampMap } from "./components/gallery/indexStamps";
 import type { DevInfo, TransferKind, TransferPreview } from "@shared/types";
 import type {
   Config,
+  DiscoverPage,
+  DynlightStatus,
   EntryOptions,
   GalleryEntry,
   MediaInfo,
@@ -117,6 +119,11 @@ export const api = {
 
   rgbStatus: () => invoke<RgbStatus>("rgb_status"),
   openrgbStatus: () => invoke<OpenrgbStatus>("openrgb_status"),
+  dynlightStatus: () => invoke<DynlightStatus>("dynlight_status"),
+  discoverList: (source: string, query: string, page: number) =>
+    invoke<DiscoverPage>("discover_list", { source, query, page }),
+  discoverThumb: (url: string) => invoke<string>("discover_thumb", { url }),
+  openUrl: (url: string) => invoke<void>("open_url", { url }),
   openrgbInstall: () => invoke<string>("openrgb_install"),
   openrgbLaunch: (exe: string) => invoke<void>("openrgb_launch", { exe }),
   rgbRefresh: () => invoke<void>("rgb_refresh"),

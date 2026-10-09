@@ -23,6 +23,7 @@ export const EVENTS = {
   VOLUME_CHANGED: "volume-changed",
   HOTKEY_ERROR: "hotkey-error",
   HOTKEY_STATUS: "hotkey-status",
+  POWER_RESUMED: "power-resumed",
 } as const;
 
 export { DEFAULT_GLOW } from "./tokens";

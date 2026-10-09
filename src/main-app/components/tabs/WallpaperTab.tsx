@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../../store";
 import { Card, Btn, Dropdown, Slider, Toggle, TextInput, NumberField, Section, InfoNote, chipStyle, ItemTitle, displayName, EmptyState, Segmented } from "../ui";
 import { Modal } from "../Modal";
-import { IconSettings, IconImage, IconGlobe, IconFolder, IconPlus, IconTrash, IconClipboard, IconClose, IconChevronRight, IconUpload } from "../icons";
+import { IconSettings, IconImage, IconGlobe, IconFolder, IconPlus, IconTrash, IconClipboard, IconClose, IconChevronRight, IconUpload, IconSearch } from "../icons";
 import { SHADERS, SHADER_ART } from "@shared/constants";
 import type { Config, EntryOptions, GalleryEntry, WallpaperCollection, ZoneDef } from "@shared/types";
 import { api } from "../../ipc";
@@ -20,6 +20,7 @@ import { GalleryToolbar } from "../gallery/GalleryToolbar";
 import { CollectionsView } from "../gallery/CollectionsView";
 import { NowShowingCard } from "../gallery/NowShowingCard";
 import { MediaPickerModal } from "../MediaPickerModal";
+import { DiscoverPanel } from "../discover/DiscoverPanel";
 import { DEFAULT_QUERY, deriveGalleryView, type GalleryQuery, type SelectContext } from "../gallery/galleryQuery";
 import { GalleryThumb } from "../gallery/GalleryThumb";
 import { lastPickedEntry, newlyAddedEntries, resolvePicked } from "../gallery/mediaKind";
@@ -73,7 +74,7 @@ export default function WallpaperTab() {
               : "apply"
       : "apply";
 
-  const [addStep, setAddStep] = useState<null | "sources" | "url" | "picker-files" | "picker-folder">(null);
+  const [addStep, setAddStep] = useState<null | "sources" | "url" | "discover" | "picker-files" | "picker-folder">(null);
   const [urlDraft, setUrlDraft] = useState("");
   const [urlNameDraft, setUrlNameDraft] = useState("");
   const [density, setDensity] = useState<GalleryDensity>("cozy");
@@ -1038,15 +1039,20 @@ export default function WallpaperTab() {
               title={
                 addStep === "sources"
                   ? t("gallery.add-a-wallpaper")
-                  : addStep === "url"
-                    ? t("gallery.from-a-url")
-                    : addStep === "picker-files"
-                      ? t("gallery.select-wallpapers")
-                      : t("gallery.choose-wallpaper-folder")
+                  : addStep === "discover"
+                    ? t("gallery.discover-online")
+                    : addStep === "url"
+                      ? t("gallery.from-a-url")
+                      : addStep === "picker-files"
+                        ? t("gallery.select-wallpapers")
+                        : t("gallery.choose-wallpaper-folder")
               }
               onClose={() => setAddStep(null)}
               onBack={
-                addStep === "url" || addStep === "picker-files" || addStep === "picker-folder"
+                addStep === "url" ||
+                addStep === "discover" ||
+                addStep === "picker-files" ||
+                addStep === "picker-folder"
                   ? () => setAddStep("sources")
                   : undefined
               }
@@ -1055,9 +1061,11 @@ export default function WallpaperTab() {
                 maxWidth:
                   addStep === "sources"
                     ? "42rem"
-                    : addStep === "url"
-                      ? "36rem"
-                      : "56rem",
+                    : addStep === "discover"
+                      ? "52rem"
+                      : addStep === "url"
+                        ? "36rem"
+                        : "56rem",
               }}
             >
               <div key={addStep} className="modal-state-enter">
@@ -1151,6 +1159,25 @@ export default function WallpaperTab() {
                     </span>
                     <IconChevronRight className="h-4 w-4 shrink-0 text-[var(--text-faint)] transition-all group-hover:translate-x-0.5 group-hover:text-[rgb(var(--glow))]" />
                   </button>
+
+                  <button
+                    onClick={() => setAddStep("discover")}
+                    disabled={busy}
+                    className="group flex min-h-20 items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-3.5 py-3 text-left transition-colors hover:border-[var(--line-strong)] hover:bg-[var(--panel-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--glow)/0.7)] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)] text-[var(--text-dim)] transition-colors group-hover:text-[rgb(var(--glow))]">
+                      <IconSearch className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-[var(--text)]">
+                        {t("gallery.discover-online")}
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-relaxed text-[var(--text-faint)]">
+                        {t("gallery.src-discover")}
+                      </span>
+                    </span>
+                    <IconChevronRight className="h-4 w-4 shrink-0 text-[var(--text-faint)] transition-all group-hover:translate-x-0.5 group-hover:text-[rgb(var(--glow))]" />
+                  </button>
                 </div>
 
                 <div className="flex items-center gap-2 rounded-lg border border-dashed border-[var(--line-strong)] px-3 py-2.5">
@@ -1161,6 +1188,14 @@ export default function WallpaperTab() {
                 </div>
               </div>
               )}
+
+          {addStep === "discover" && (
+            <DiscoverPanel
+              onImport={(url, title) => addFromUrl(url, title)}
+              onImported={() => setAddStep(null)}
+              disabled={busy}
+            />
+          )}
 
           {(addStep === "picker-files" || addStep === "picker-folder") && (
             <MediaPickerModal

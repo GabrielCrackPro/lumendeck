@@ -90,6 +90,8 @@ export interface RgbConfig {
   nightEnd: string;
   nightBrightness: number;
   trackFlashMs: number;
+  /** Drive lights through Windows Dynamic Lighting (LampArray), not OpenRGB. */
+  dynlightEnabled: boolean;
 }
 
 export type StickerFit = "contain" | "cover" | "fill";
@@ -117,6 +119,8 @@ export interface StickerSettings {
 
 export interface GeneralConfig {
   autostart: boolean;
+  /** Explorer right-click verb for images and videos (per-user registry). */
+  explorerMenu: boolean;
   theme: ThemeMode;
   language: string;
   screenNames: Record<string, string>;
@@ -245,6 +249,7 @@ export interface LumenConfig {
   scenes: SceneProfile[];
   stickerSnap: StickerSnap;
   sticker: StickerSettings;
+  discover: DiscoverConfig;
 }
 
 export type Config = LumenConfig;
@@ -270,6 +275,51 @@ export interface OpenrgbStatus {
   sizeBytes: number;
   releasesPage: string;
   installedAt: string | null;
+}
+
+export interface DynlightArray {
+  name: string;
+  lamps: number;
+}
+
+/** Windows Dynamic Lighting availability and the worker's last error. */
+export interface DynlightStatus {
+  wanted: boolean;
+  supported: boolean;
+  arrays: DynlightArray[];
+  error: string | null;
+}
+
+export interface DiscoverItem {
+  id: string;
+  title: string;
+  /** Full-size image URL for `galleryAddFromUrl`. */
+  url: string;
+  /** Thumbnail URL; fetched through `discoverThumb` into a data URL. */
+  thumb: string;
+  width: number;
+  height: number;
+  source: string;
+  /** Clip length in seconds — video sources only. */
+  duration?: number;
+  /** Attribution line for sources that require credit ("Pixabay"). */
+  attribution?: string | null;
+}
+
+export interface DiscoverSourceCfg {
+  id: string;
+  enabled: boolean;
+  apiKey: string;
+  defaultQuery: string;
+}
+
+export interface DiscoverConfig {
+  sources: DiscoverSourceCfg[];
+}
+
+export interface DiscoverPage {
+  items: DiscoverItem[];
+  lastPage: number | null;
 }
 
 export type TransferKind = "profiles" | "config";

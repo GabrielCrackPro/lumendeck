@@ -445,7 +445,9 @@
     "{n}-hours-ago": "{{n}}h ago",
     "paused": "Paused",
     "failed": "Failed",
-    "stretch": "Stretch"
+    "stretch": "Stretch",
+    "right-click-menu-in-explorer": "Right-click menu in Explorer",
+    "adds-set-as-live-wallpaper-to-the-right-click-m": "Adds \"Set as live wallpaper\" to the right-click menu for images and videos."
   },
   "palette": {
     "app-data-wiped-closing-lumendeck": "App data wiped — closing LumenDeck…",
@@ -589,7 +591,11 @@
     "animated": "Animated",
     "color-follows-the-screen": "color follows the screen",
     "self-driven-motion": "self-driven motion",
-    "rename-device": "Rename {{name}}"
+    "rename-device": "Rename {{name}}",
+    "windows-dynamic-lighting": "Windows Dynamic Lighting",
+    "drive-your-lights-through-windows-itself-no-ope": "Drive your lights through Windows itself, no OpenRGB needed.",
+    "dynamic-lighting-is-not-available-on-this": "Dynamic Lighting is not available on this PC.",
+    "lamp-arrays-found-{n}": "Lamp arrays found: {{n}}"
   },
   "hotkeys": {
     "not-active-this-combo-is-taken-so-the-key-does-n": "Not active — this combo is taken, so the key does nothing. Another app may already own it; pick a different one.",
@@ -1164,6 +1170,34 @@
     "waiting-for-a-colour-reading": "Waiting for the first colour reading.",
     "index-after-import": "Measure on import",
     "import-settings": "Import settings",
-    "apply-and-measure-after-import": "Apply and measure after import"
+    "apply-and-measure-after-import": "Apply and measure after import",
+    "discover-online": "Discover online",
+    "src-discover": "Search free wallpaper sources without leaving the app.",
+    "bing-daily": "Bing daily",
+    "wallhaven": "Wallhaven",
+    "discover-hint-bing": "The last 8 days of Bing's homepage wallpapers.",
+    "discover-hint-wallhaven": "Search community wallpapers at 1920px or larger, safe search on.",
+    "search-wallpapers": "Search wallpapers",
+    "load-more": "Load more",
+    "no-wallpapers-found": "No wallpapers found.",
+    "pixabay": "Pixabay",
+    "coverr": "Coverr",
+    "discover-hint-pixabay": "Free stock videos from Pixabay at 1920px or larger. Needs a free API key.",
+    "discover-hint-coverr": "Free HD stock videos from Coverr, no account needed.",
+    "manage-sources": "Manage sources",
+    "manage-sources-hint": "Choose which sources appear here, and set each source's API key and default search.",
+    "api-key": "API key",
+    "api-key-hint": "Free, and stored only in your local config.",
+    "api-key-placeholder": "Paste your free key",
+    "get-api-key": "Get an API key",
+    "default-search": "Default search",
+    "default-search-placeholder": "Used when the search box is empty",
+    "needs-key-note": "Add a free API key to search this source.",
+    "add-api-key": "Add API key",
+    "no-sources-enabled": "Every source is turned off.",
+    "no-sources-enabled-hint": "Turn one back on to browse wallpapers from the web."
+  },
+  "explorer-menu": {
+    "verb": "Set as live wallpaper"
   }
 }

@@ -348,6 +348,12 @@ export default function GeneralTab() {
                 onChange={(v) => save((c) => (c.general.showDashboardOnLogin = v))}
               />
             )}
+            <Toggle
+              label={t("common.right-click-menu-in-explorer")}
+              description={t("common.adds-set-as-live-wallpaper-to-the-right-click-m")}
+              checked={cfg.general.explorerMenu ?? true}
+              onChange={(v) => save((c) => (c.general.explorerMenu = v))}
+            />
             <div className="py-2.5">
               <div className="kicker mb-2">{t("common.minimize-button")}</div>
               <Segmented

@@ -445,7 +445,9 @@
     "{n}-hours-ago": "hace {{n}}h",
     "paused": "En pausa",
     "failed": "Failed",
-    "stretch": "Stretch"
+    "stretch": "Stretch",
+    "right-click-menu-in-explorer": "Menú clic derecho en el Explorer",
+    "adds-set-as-live-wallpaper-to-the-right-click-m": "Añade \"Establecer como fondo animado\" al menú clic derecho de imágenes y vídeos."
   },
   "palette": {
     "app-data-wiped-closing-lumendeck": "Datos borrados: cerrando LumenDeck…",
@@ -589,7 +591,11 @@
     "animated": "Animado",
     "color-follows-the-screen": "el color sigue la pantalla",
     "self-driven-motion": "movimiento autónomo",
-    "rename-device": "Renombrar {{name}}"
+    "rename-device": "Renombrar {{name}}",
+    "windows-dynamic-lighting": "Iluminación dinámica de Windows",
+    "drive-your-lights-through-windows-itself-no-ope": "Controla tus luces desde Windows, sin necesidad de OpenRGB.",
+    "dynamic-lighting-is-not-available-on-this": "La iluminación dinámica no está disponible en este equipo.",
+    "lamp-arrays-found-{n}": "Matrices de lámparas encontradas: {{n}}"
   },
   "hotkeys": {
     "not-active-this-combo-is-taken-so-the-key-does-n": "No está activo: esta combinación ya está ocupada, así que la tecla no hace nada. Puede que otra app ya la posea; elige una distinta.",
@@ -1164,6 +1170,34 @@
     "waiting-for-a-colour-reading": "Esperando la primera lectura de color.",
     "index-after-import": "Medir al importar",
     "import-settings": "Opciones al importar",
-    "apply-and-measure-after-import": "Aplicar y medir al importar"
+    "apply-and-measure-after-import": "Aplicar y medir al importar",
+    "discover-online": "Descubrir en línea",
+    "src-discover": "Busca fondos en fuentes gratuitas sin salir de la aplicación.",
+    "bing-daily": "Bing diario",
+    "wallhaven": "Wallhaven",
+    "discover-hint-bing": "Los últimos 8 días de los fondos de portada de Bing.",
+    "discover-hint-wallhaven": "Busca fondos de la comunidad de 1920px o más, con filtro activado.",
+    "search-wallpapers": "Buscar fondos",
+    "load-more": "Cargar más",
+    "no-wallpapers-found": "No se encontraron fondos.",
+    "pixabay": "Pixabay",
+    "coverr": "Coverr",
+    "discover-hint-pixabay": "Vídeos libres de Pixabay de 1920px o más. Necesita una clave API gratuita.",
+    "discover-hint-coverr": "Vídeos HD gratuitos de Coverr, sin necesidad de cuenta.",
+    "manage-sources": "Gestionar fuentes",
+    "manage-sources-hint": "Elige qué fuentes aparecen aquí y configura la clave API y la búsqueda predeterminada de cada una.",
+    "api-key": "Clave API",
+    "api-key-hint": "Gratis, y se guarda solo en la configuración local.",
+    "api-key-placeholder": "Pega tu clave gratuita",
+    "get-api-key": "Obtener una clave API",
+    "default-search": "Búsqueda predeterminada",
+    "default-search-placeholder": "Se usa cuando el cuadro de búsqueda está vacío",
+    "needs-key-note": "Añade una clave API gratuita para buscar en esta fuente.",
+    "add-api-key": "Añadir clave API",
+    "no-sources-enabled": "Todas las fuentes están desactivadas.",
+    "no-sources-enabled-hint": "Vuelve a activar una para explorar fondos de la web."
+  },
+  "explorer-menu": {
+    "verb": "Establecer como fondo animado"
   }
 }

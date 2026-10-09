@@ -116,6 +116,9 @@ fn apply_side_effects_now(app: &AppHandle, cfg: &Config) {
         cfg.general.hotkeys_enabled,
         &cfg.general.hotkeys,
     );
+    if let Err(e) = crate::context_menu::apply_current() {
+        log::warn!("explorer menu: could not sync the verb: {e}");
+    }
     log::debug!(
         "side effects applied (wallpaper={}, stickers={})",
         cfg.general.wallpaper_enabled,
@@ -452,8 +455,8 @@ pub fn set_wallpaper_enabled(app: AppHandle, enabled: bool) -> Result<(), String
 
 
 
-const GALLERY_VIDEO_EXT: &[&str] = &["mp4", "webm", "mov", "mkv"];
-const GALLERY_IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif"];
+pub(crate) const GALLERY_VIDEO_EXT: &[&str] = &["mp4", "webm", "mov", "mkv"];
+pub(crate) const GALLERY_IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "webp", "bmp", "gif"];
 
 fn gallery_classify(path: &std::path::Path) -> Option<crate::config::WallpaperKind> {
     use crate::config::WallpaperKind;
@@ -1019,6 +1022,55 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    let url = https_doc_url(&url)?;
+    use tauri_plugin_opener::OpenerExt;
+    let Some(app) = crate::app_handle() else {
+        return Err("app not ready".into());
+    };
+    app.opener()
+        .open_url(url.to_string(), None::<&str>)
+        .map_err(|e| format!("opener: {e}"))
+}
+
+
+fn https_doc_url(s: &str) -> Result<url::Url, String> {
+    let trimmed = s.trim();
+    if !is_bare_http_url(trimmed) {
+        return Err(format!("not a plain URL: {trimmed}"));
+    }
+    let u = url::Url::parse(trimmed).map_err(|_| format!("not a URL: {trimmed}"))?;
+    if u.scheme() != "https" {
+        return Err(format!("only https links are opened: {trimmed}"));
+    }
+    Ok(u)
+}
+
+#[cfg(test)]
+mod open_url_tests {
+    use super::https_doc_url;
+
+    #[test]
+    fn a_bare_https_link_opens_with_surrounding_space_trimmed() {
+        let u = https_doc_url(" https://pixabay.com/api/docs/ ").unwrap();
+        assert_eq!(u.as_str(), "https://pixabay.com/api/docs/");
+    }
+
+    #[test]
+    fn anything_but_https_is_refused() {
+        for bad in [
+            "http://example.com/docs",
+            "file:///C:/Windows/System32/cmd.exe",
+            "javascript:alert(1)",
+            "example.com/docs",
+            "",
+        ] {
+            assert!(https_doc_url(bad).is_err(), "{bad} must be refused");
+        }
+    }
+}
+
+#[tauri::command]
 pub fn vault_missing() -> Vec<String> {
     use crate::config::WallpaperKind;
     let cfg = crate::config_store::get();
@@ -1109,6 +1161,32 @@ pub fn rgb_status(state: State<'_, crate::rgb::EngineState>) -> RgbStatus {
 pub async fn rgb_refresh(state: State<'_, crate::rgb::EngineState>) -> Result<(), String> {
     state.client.refresh().await;
     Ok(())
+}
+
+#[tauri::command]
+pub fn dynlight_status() -> crate::dynlight::DynlightStatus {
+    crate::dynlight::status()
+}
+
+#[tauri::command]
+pub async fn discover_list(
+    source: String,
+    query: Option<String>,
+    page: Option<u32>,
+) -> Result<crate::discover::DiscoverPage, String> {
+    let cfg = crate::config_store::get();
+    crate::discover::list(
+        &source,
+        query.as_deref().unwrap_or("").trim(),
+        page.unwrap_or(1),
+        &cfg.discover,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn discover_thumb(url: String) -> Result<String, String> {
+    crate::discover::thumb_data_url(&url).await
 }
 
 #[tauri::command]

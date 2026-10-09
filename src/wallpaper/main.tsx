@@ -835,6 +835,19 @@ function MediaSurface({
     return () => v.removeEventListener("loadedmetadata", apply);
   }, [kind, fit, screen.w, screen.h, source]);
 
+  // After system resume the decoder can sit frozen while the element still
+  // reports "playing", so the stalled/waiting handlers never fire. A play()
+  // nudge restarts the pipeline; a no-op when nothing is wrong.
+  useEffect(() => {
+    if (kind !== "video") return;
+    const un = listen<boolean>(EVENTS.POWER_RESUMED, () => {
+      videoRef.current?.play().catch(() => {});
+    });
+    return () => {
+      un.then((f) => f()).catch(() => {});
+    };
+  }, [kind]);
+
   useEffect(() => {
     if (kind !== "slideshow") return;
     invoke<string[]>("list_images", { folder: slideshow.folder ?? "" })

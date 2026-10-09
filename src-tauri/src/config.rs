@@ -117,6 +117,7 @@ pub enum ThemeMode {
 #[serde(rename_all = "camelCase", default)]
 pub struct GeneralConfig {
     pub autostart: bool,
+    pub explorer_menu: bool,
     pub theme: ThemeMode,
     pub language: String,
     #[serde(default)]
@@ -206,6 +207,7 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             autostart: false,
+            explorer_menu: true,
             theme: ThemeMode::System,
             language: "auto".to_string(),
             screen_names: HashMap::new(),
@@ -393,6 +395,8 @@ pub struct RgbConfig {
     pub night_brightness: f64,
     #[serde(default)]
     pub track_flash_ms: u64,
+    #[serde(default)]
+    pub dynlight_enabled: bool,
 }
 
 fn default_hotkey_blink_ms() -> u64 {
@@ -433,6 +437,7 @@ impl Default for RgbConfig {
             night_end: String::new(),
             night_brightness: 0.3,
             track_flash_ms: 0,
+            dynlight_enabled: false,
         }
     }
 }
@@ -679,6 +684,53 @@ impl Default for SceneProfile {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DiscoverSourceCfg {
+    pub id: String,
+    pub enabled: bool, 
+    pub api_key: String,
+    pub default_query: String,
+}
+
+impl DiscoverSourceCfg {
+    pub(crate) fn builtin(id: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            enabled: true,
+            api_key: String::new(),
+            default_query: String::new(),
+        }
+    }
+}
+
+impl Default for DiscoverSourceCfg {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            enabled: false,
+            api_key: String::new(),
+            default_query: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DiscoverConfig {
+    pub sources: Vec<DiscoverSourceCfg>,
+}
+
+impl Default for DiscoverConfig {
+    fn default() -> Self {
+        Self {
+            sources: ["bing", "wallhaven", "pixabay", "coverr"]
+                .iter()
+                .map(|id| DiscoverSourceCfg::builtin(id))
+                .collect(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -695,6 +747,7 @@ pub struct Config {
     pub scenes: Vec<SceneProfile>,
     pub sticker_snap: StickerSnap,
     pub sticker: StickerConfig,
+    pub discover: DiscoverConfig,
 }
 
 impl Default for Config {
@@ -712,6 +765,7 @@ impl Default for Config {
             scenes: Vec::new(),
             sticker_snap: StickerSnap::default(),
             sticker: StickerConfig::default(),
+            discover: DiscoverConfig::default(),
         }
     }
 }
@@ -1007,6 +1061,48 @@ mod playlist_tests {
         let cfg: Config = serde_json::from_value(old).expect("pre-blink config must parse");
         assert_eq!(cfg.general.hotkey_blink_ms, default_hotkey_blink_ms());
         assert_eq!(cfg.general.hotkey_blink_color, [255, 255, 255]);
+    }
+
+    #[test]
+    fn discover_sources_survive_an_old_config_without_the_section() {
+        let old = serde_json::json!({ "version": 1, "general": { "theme": "dark" } });
+        let cfg: Config = serde_json::from_value(old).expect("pre-discover config must parse");
+        assert_eq!(cfg.discover, DiscoverConfig::default());
+    }
+
+    #[test]
+    fn the_default_discover_list_offers_every_builtin_source_once() {
+        let defaults = Config::default();
+        let ids: Vec<&str> = defaults
+            .discover
+            .sources
+            .iter()
+            .map(|s| s.id.as_str())
+            .collect();
+        assert_eq!(ids, ["bing", "wallhaven", "pixabay", "coverr"]);
+        assert!(
+            defaults.discover.sources.iter().all(|s| s.enabled),
+            "every built-in source starts enabled"
+        );
+        for s in &defaults.discover.sources {
+            assert!(
+                s.api_key.is_empty(),
+                "{} must not ship with an API key",
+                s.id
+            );
+        }
+    }
+
+    #[test]
+    fn a_stored_discover_edit_roundtrips() {
+        let mut cfg = Config::default();
+        cfg.discover.sources[0].enabled = false;
+        cfg.discover.sources[2].api_key = "secret-key".into();
+        cfg.discover.sources[3].default_query = "ocean".into();
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: Config = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.discover, cfg.discover);
+        assert!(json.contains("secret-key"), "the key must persist");
     }
 
     #[test]

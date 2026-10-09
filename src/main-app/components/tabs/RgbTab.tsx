@@ -8,7 +8,8 @@ import { AudioLevelMeter } from "../lighting/AudioLevelMeter";
 import { ModePicker } from "../lighting/ModePicker";
 import { IconBulb, IconRefresh, IconZap } from "../icons";
 import { RGB_MODES, ANIMATION_MODES } from "@shared/constants";
-import type { RgbMode } from "@shared/types";
+import type { DynlightStatus, RgbMode } from "@shared/types";
+import { api } from "../../ipc";
 import { ledCounts } from "../deviceList";
 import { previewLiveColor } from "../deviceLights";
 import { usePending } from "../../pending";
@@ -96,6 +97,16 @@ export default function RgbTab() {
   );
   const { pending: retryPending, run: runRetry } = usePending();
   const deviceColors = useThrottledStoreSlice(selectDeviceColors);
+  const [dynlight, setDynlight] = useState<DynlightStatus | null>(null);
+  const refreshDynlight = () => {
+    api
+      .dynlightStatus()
+      .then(setDynlight)
+      .catch(() => {});
+  };
+  useEffect(() => {
+    refreshDynlight();
+  }, []);
   if (!cfg) return null;
   const rgbCfg = cfg.rgb;
   const isAnimated = (ANIMATION_MODES as ReadonlySet<RgbMode>).has(rgbCfg.mode);
@@ -237,6 +248,36 @@ export default function RgbTab() {
                 {t("common.{n}-devices-are-muted-muted-hardware-keeps-its-l", { n: mutedCount })}
               </p>
             )}
+
+            <div className="mt-3 border-t border-[var(--line)] pt-3.5">
+              <Toggle
+                label={t("lighting.windows-dynamic-lighting")}
+                description={t("lighting.drive-your-lights-through-windows-itself-no-ope")}
+                checked={rgbCfg.dynlightEnabled ?? false}
+                onChange={(v) => {
+                  save((c) => (c.rgb.dynlightEnabled = v));
+                  refreshDynlight();
+                  window.setTimeout(refreshDynlight, 1500);
+                }}
+              />
+              {rgbCfg.dynlightEnabled && dynlight?.supported === false && (
+                <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-faint)]">
+                  {t("lighting.dynamic-lighting-is-not-available-on-this")}
+                </p>
+              )}
+              {rgbCfg.dynlightEnabled &&
+                dynlight?.supported === true &&
+                dynlight.arrays.length > 0 && (
+                  <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-faint)]">
+                    {t("lighting.lamp-arrays-found-{n}", { n: dynlight.arrays.length })}
+                  </p>
+                )}
+              {rgbCfg.dynlightEnabled && dynlight?.error && (
+                <div className="mt-2">
+                  <InfoNote tone="warn">{dynlight.error}</InfoNote>
+                </div>
+              )}
+            </div>
           </Card>
 
 

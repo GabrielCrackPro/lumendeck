@@ -621,11 +621,13 @@ async fn engine_loop(
                 tokio::time::sleep(std::time::Duration::from_millis(40)).await;
             }
         }
+        let sleeping = SLEEPING.load(Ordering::Relaxed);
+        if !cfg.enabled || sleeping {
+            crate::dynlight::push_off(&cfg);
+        }
         if !cfg.enabled {
             continue;
         }
-
-        let sleeping = SLEEPING.load(Ordering::Relaxed);
 
         if !sleeping && !cfg.mode.is_animation() && latest.is_empty() && !blink_active {
             continue;
@@ -650,6 +652,7 @@ async fn engine_loop(
         last_sent_ms.store(now_ms, Ordering::Relaxed);
 
         let t = phase_start.elapsed().as_secs_f64();
+        crate::dynlight::engine_tick(&cfg, &latest, t, flash_until.is_some(), sleeping);
         let status = client.status();
         for cached in anim_frames.device_ids() {
             if !status.devices.iter().any(|d| d.id == cached) {

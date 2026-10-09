@@ -5,8 +5,11 @@ pub mod bgremove;
 pub mod config;
 pub mod config_store;
 pub mod config_watch;
+pub mod context_menu;
 pub mod dev_watchdog;
+pub mod discover;
 pub mod display_watch;
+pub mod dynlight;
 pub mod error;
 pub mod events;
 pub mod hotkeys;
@@ -24,6 +27,7 @@ pub mod pause;
 pub mod perf;
 pub mod placement_overlay;
 pub mod playlist;
+pub mod power_watch;
 pub mod rgb;
 pub mod accent_watch;
 pub mod logfmt;
@@ -221,6 +225,10 @@ pub fn run() {
     let logger = init_logging();
     crate::panic::install();
     let _ = config_store::init();
+    // A context-menu launch carries the file; captured before Tauri starts so
+    // the setup pass can apply it once the main window exists.
+    let set_wallpaper_path =
+        crate::context_menu::parse_set_wallpaper_arg(&std::env::args().collect::<Vec<_>>());
     disable_video_overlays();
     crate::media::allow_thumbs_dir();
     for g in &config_store::get().gallery {
@@ -236,7 +244,13 @@ pub fn run() {
     log::info!("startup: pre-tauri init done in {:?}", boot.elapsed());
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if let Some(path) = crate::context_menu::parse_set_wallpaper_arg(&args) {
+                if let Err(e) = crate::context_menu::handle_set_wallpaper_request(app, &path) {
+                    log::warn!("explorer-menu: set request failed: {e}");
+                }
+                return;
+            }
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.unminimize();
                 let _ = main.show();
@@ -352,6 +366,10 @@ pub fn run() {
             ipc::reveal_log,
             ipc::log_tail,
             ipc::dev_info,
+            ipc::dynlight_status,
+            ipc::discover_list,
+            ipc::discover_thumb,
+            ipc::open_url,
             ipc::vault_stamps
         ])
         .setup(|app| {
@@ -372,6 +390,9 @@ pub fn run() {
                 config_store::get().general.autostart,
             ) {
                 log::warn!("autostart: could not apply preference: {e}");
+            }
+            if let Err(e) = crate::context_menu::apply_current() {
+                log::warn!("explorer menu: could not sync the verb: {e}");
             }
 
             let dashboard =
@@ -427,6 +448,8 @@ pub fn run() {
             crate::playlist::spawn();
             display_watch::snapshot();
             display_watch::spawn();
+            power_watch::spawn();
+            crate::dynlight::spawn();
             pause::spawn();
             crate::mouse_hook::spawn();
             crate::mouse_hook::spawn_keyboard_hook();
@@ -506,6 +529,11 @@ pub fn run() {
                 first_hidden_start_hint(app.handle());
             } else {
                 main_window.show()?;
+            }
+            if let Some(path) = set_wallpaper_path {
+                if let Err(e) = crate::context_menu::handle_set_wallpaper_request(app.handle(), &path) {
+                    log::warn!("explorer-menu: set request failed: {e}");
+                }
             }
 
             if let Some(win) = app.get_webview_window("main") {

@@ -18,6 +18,7 @@ pub const SYSTEM_ACCENT: &str = "system-accent-changed";
 pub const VOLUME_CHANGED: &str = "volume-changed";
 pub const HOTKEY_ERROR: &str = "hotkey-error";
 pub const HOTKEY_STATUS: &str = "hotkey-status";
+pub const POWER_RESUMED: &str = "power-resumed";
 
 static PLACEMENT_SIZE: std::sync::Mutex<Option<i32>> = std::sync::Mutex::new(None);
 
