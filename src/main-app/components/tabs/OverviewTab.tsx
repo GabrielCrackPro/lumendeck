@@ -2,7 +2,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useEffect, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
-import { Card, Chip, ChipButton, DisplaysCard, RefreshBtn, type ChipTone } from "../ui";
+import { Card, Chip, ChipButton, DisplaysCard, GHOST_LINK, GHOST_LINK_CHEVRON, RefreshBtn, type ChipTone } from "../ui";
 import { ConfigPickerModal } from "../ConfigPickerModal";
 import { useConfigPicker } from "../useConfigPicker";
 import { attentionItems } from "../overviewCards";
@@ -332,9 +332,11 @@ export default function OverviewTab({ onNavigate }: { onNavigate: (t: string) =>
                 <button
                   type="button"
                   onClick={() => onNavigate("stickers")}
-                  className="rounded-md border border-[var(--line)] px-2 py-1 text-[10px] font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.4)] hover:text-[var(--text)]"
+                  aria-label={t("common.manage")}
+                  data-tip={t("common.manage")}
+                  className={`group ${GHOST_LINK}`}
                 >
-                  {t("common.manage")}
+                  <IconChevronRight className={GHOST_LINK_CHEVRON} />
                 </button>
               </div>
             }

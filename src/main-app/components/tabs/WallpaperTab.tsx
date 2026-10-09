@@ -348,14 +348,18 @@ export default function WallpaperTab() {
 
   const appliesOnImport = wall.applyAfterImport !== false;
 
-  const addFromUrl = (raw: string, name?: string) => {
+  const addFromUrl = (raw: string, name?: string, origin = "url") => {
     const url = raw.trim();
     if (!url) return Promise.resolve(false);
     return run(
       "url",
       async () => {
         const before = cfg.gallery;
-        const added = await api.galleryAddFromUrl(url, name?.trim() || undefined);
+        const added = await api.galleryAddFromUrl(
+          url,
+          name?.trim() || undefined,
+          origin,
+        );
         const addedCount = newlyAddedEntries(before, [added]).length;
         const applied = appliesOnImport;
         if (applied) await api.galleryApply(added.id);
@@ -805,36 +809,44 @@ export default function WallpaperTab() {
           >
 
 
-            <Dropdown
-              icon={<IconSettings className="h-4 w-4" />}
-              ariaLabel={t("gallery.import-settings")}
-              title={t("gallery.import-settings")}
-              value={importSettings}
-              onChange={(v) =>
-                save((c) => {
-                  if (v === "apply") {
-                    c.wallpaper.applyAfterImport = true;
-                    c.wallpaper.indexAfterImport = false;
-                  } else if (v === "index") {
-                    c.wallpaper.applyAfterImport = false;
-                    c.wallpaper.indexAfterImport = true;
-                  } else {
-                    c.wallpaper.applyAfterImport = true;
-                    c.wallpaper.indexAfterImport = true;
-                  }
-                })
-              }
-              options={[
-                { id: "apply", label: t("gallery.apply-after-import") },
-                { id: "index", label: t("gallery.index-after-import") },
-                { id: "both", label: t("gallery.apply-and-measure-after-import") },
-              ]}
-              className="hidden shrink-0 items-center sm:flex"
-            />
-            <Btn variant="primary" disabled={busy} onClick={() => setAddStep("sources")}>
-              <IconPlus className="h-4 w-4" />
-              {t("gallery.add-source")}
-            </Btn>
+            <div className="flex shrink-0 items-center rounded-md bg-[rgb(var(--glow))] text-black shadow-[0_2px_14px_-6px_rgb(var(--glow)/0.8)] transition-shadow duration-[var(--motion-fast)]">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setAddStep("sources")}
+                className="flex items-center gap-1.5 rounded-l-md py-2 pl-4 pr-3 text-sm font-semibold transition-colors hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <IconPlus className="h-4 w-4" />
+                {t("gallery.add-source")}
+              </button>
+              <Dropdown
+                icon={<IconSettings className="h-4 w-4" />}
+                ariaLabel={t("gallery.import-settings")}
+                title={t("gallery.import-settings")}
+                value={importSettings}
+                onChange={(v) =>
+                  save((c) => {
+                    if (v === "apply") {
+                      c.wallpaper.applyAfterImport = true;
+                      c.wallpaper.indexAfterImport = false;
+                    } else if (v === "index") {
+                      c.wallpaper.applyAfterImport = false;
+                      c.wallpaper.indexAfterImport = true;
+                    } else {
+                      c.wallpaper.applyAfterImport = true;
+                      c.wallpaper.indexAfterImport = true;
+                    }
+                  })
+                }
+                options={[
+                  { id: "apply", label: t("gallery.apply-after-import") },
+                  { id: "index", label: t("gallery.index-after-import") },
+                  { id: "both", label: t("gallery.apply-and-measure-after-import") },
+                ]}
+                className="hidden shrink-0 items-center sm:flex"
+                buttonClassName="h-9! w-9! rounded-l-none! rounded-r-md! border-transparent! bg-transparent! text-black/80! hover:bg-black/10! hover:text-black!"
+              />
+            </div>
           </GalleryToolbar>
 
           <div
@@ -1191,7 +1203,7 @@ export default function WallpaperTab() {
 
           {addStep === "discover" && (
             <DiscoverPanel
-              onImport={(url, title) => addFromUrl(url, title)}
+              onImport={(url, title, origin) => addFromUrl(url, title, origin)}
               onImported={() => setAddStep(null)}
               disabled={busy}
             />

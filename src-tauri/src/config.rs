@@ -532,6 +532,12 @@ pub struct GalleryEntry {
     pub name: String,
     pub kind: WallpaperKind,
     pub source: String,
+    /// Where this entry entered the vault from: a discover source id ("bing",
+    /// "unsplash", ...) or "url" for a manual download. Local file and folder
+    /// imports leave it empty, and configs saved before this field existed
+    /// deserialize to the same thing.
+    #[serde(default)]
+    pub origin: Option<String>,
     pub added_ms: u64,
     pub thumb: Option<String>,
     #[serde(default)]
@@ -724,7 +730,7 @@ pub struct DiscoverConfig {
 impl Default for DiscoverConfig {
     fn default() -> Self {
         Self {
-            sources: ["bing", "wallhaven", "pixabay", "coverr"]
+            sources: ["bing", "wallhaven", "apod", "unsplash", "pixabay", "coverr"]
                 .iter()
                 .map(|id| DiscoverSourceCfg::builtin(id))
                 .collect(),
@@ -1079,7 +1085,10 @@ mod playlist_tests {
             .iter()
             .map(|s| s.id.as_str())
             .collect();
-        assert_eq!(ids, ["bing", "wallhaven", "pixabay", "coverr"]);
+        assert_eq!(
+            ids,
+            ["bing", "wallhaven", "apod", "unsplash", "pixabay", "coverr"]
+        );
         assert!(
             defaults.discover.sources.iter().all(|s| s.enabled),
             "every built-in source starts enabled"
@@ -1173,6 +1182,7 @@ mod entry_options_tests {
             name: "clip".into(),
             kind: WallpaperKind::Video,
             source: "C:/clip.mp4".into(),
+            origin: None,
             added_ms: 0,
             thumb: None,
             opts: None,
@@ -1186,6 +1196,18 @@ mod entry_options_tests {
         let json = r#"{"id":"g1","name":"clip","kind":"video","source":"C:/clip.mp4","addedMs":0}"#;
         let e: GalleryEntry = serde_json::from_str(json).unwrap();
         assert!(e.opts.is_none());
+        assert!(e.origin.is_none(), "old configs predate provenance");
+    }
+
+    #[test]
+    fn an_origin_survives_the_round_trip() {
+        let e = GalleryEntry {
+            origin: Some("unsplash".into()),
+            ..entry()
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        let back: GalleryEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.origin.as_deref(), Some("unsplash"));
     }
 
     #[test]

@@ -73,6 +73,10 @@ import { BoxIcon } from "@animateicons/react/lucide/box-icon";
 import { SunMediumIcon } from "@animateicons/react/lucide/sun-medium-icon";
 import { ActivityIcon } from "@animateicons/react/lucide/activity-icon";
 import { CircleDotIcon } from "@animateicons/react/lucide/circle-dot-icon";
+import { FlameIcon } from "@animateicons/react/lucide/flame-icon";
+import { TelescopeIcon } from "@animateicons/react/lucide/telescope-icon";
+import { ClapperboardIcon } from "@animateicons/react/lucide/clapperboard-icon";
+import { CameraIcon } from "@animateicons/react/lucide/camera-icon";
 import { RainbowIcon } from "@animateicons/react/lucide/rainbow-icon";
 import { ChartSplineIcon } from "@animateicons/react/lucide/chart-spline-icon";
 import { WindIcon } from "@animateicons/react/lucide/wind-icon";
@@ -258,6 +262,10 @@ export const IconHistory = anim(HistoryIcon, "IconHistory");
 export const IconPipette = anim(PipetteIcon, "IconPipette");
 export const IconEye = anim(EyeIcon, "IconEye");
 export const IconEyeOff = anim(EyeOffIcon, "IconEyeOff");
+export const IconFlame = anim(FlameIcon, "IconFlame");
+export const IconTelescope = anim(TelescopeIcon, "IconTelescope");
+export const IconClapperboard = anim(ClapperboardIcon, "IconClapperboard");
+export const IconCamera = anim(CameraIcon, "IconCamera");
 
 
 const base = (props: P) => ({

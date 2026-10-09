@@ -21,6 +21,8 @@ export interface GalleryQuery {
   minWidth: number | null;
   picks: GalleryPick;
   display: string;
+  /** "all", a discover source id, "url", or "local". */
+  origin: string;
 }
 
 export interface SelectContext {
@@ -44,7 +46,15 @@ export const DEFAULT_QUERY: Omit<GalleryQuery, "collection"> = {
   minWidth: null,
   picks: "all",
   display: "all",
+  origin: "all",
 };
+
+export const LOCAL_ORIGIN = "local";
+
+/** Where an entry came from; anything untracked counts as a local import. */
+export function originOf(e: GalleryEntry): string {
+  return e.origin?.trim() || LOCAL_ORIGIN;
+}
 
 export function isMember(
   entry: GalleryEntry,
@@ -78,6 +88,7 @@ function matches(
 ): boolean {
   if (q.kind !== "all" && e.kind !== q.kind) return false;
   if (q.collection !== "all" && !isMember(e, collections, q.collection)) return false;
+  if (q.origin !== "all" && originOf(e) !== q.origin) return false;
 
   const needle = fold(q.search.trim());
   if (needle && !fold(e.name).includes(needle)) return false;
@@ -161,6 +172,7 @@ export function deriveGalleryView(
       query.collection !== "all" ||
       query.picks !== "all" ||
       query.display !== "all" ||
+      query.origin !== "all" ||
       query.minWidth !== null,
   };
 }
@@ -191,6 +203,23 @@ export function kindCounts(
     if (!matches(e, collections, withoutKind, ctx)) continue;
     counts.all = (counts.all ?? 0) + 1;
     counts[e.kind] = (counts[e.kind] ?? 0) + 1;
+  }
+  return counts;
+}
+
+export function originCounts(
+  entries: GalleryEntry[],
+  collections: WallpaperCollection[],
+  q: GalleryQuery,
+  ctx: SelectContext = {},
+): Record<string, number> {
+  const withoutOrigin: GalleryQuery = { ...q, origin: "all" };
+  const counts: Record<string, number> = { all: 0 };
+  for (const e of entries) {
+    if (!matches(e, collections, withoutOrigin, ctx)) continue;
+    const id = originOf(e);
+    counts.all = (counts.all ?? 0) + 1;
+    counts[id] = (counts[id] ?? 0) + 1;
   }
   return counts;
 }

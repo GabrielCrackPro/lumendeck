@@ -188,6 +188,9 @@ export interface GalleryEntry {
   name: string;
   kind: WallpaperKind;
   source: string;
+  /** Discover source id ("bing", "unsplash", ...) or "url" for a manual
+   * download; local imports carry no origin. */
+  origin?: string | null;
   addedMs: number;
   thumb?: string | null;
   opts?: EntryOptions | null;
@@ -304,6 +307,12 @@ export interface DiscoverItem {
   duration?: number;
   /** Attribution line for sources that require credit ("Pixabay"). */
   attribution?: string | null;
+  /**
+   * Source-hosted URL to ping once the bytes are saved. Unsplash's API
+   * guidelines only count a download after this answers, so the import fires
+   * it and ignores the result.
+   */
+  downloadLocation?: string | null;
 }
 
 export interface DiscoverSourceCfg {

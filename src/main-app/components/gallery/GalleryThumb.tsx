@@ -1,12 +1,10 @@
 import { useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { IconGlobe, IconLayers, IconPlay } from "../icons";
+import { SHIMMER } from "../ui";
 import { SHADER_ART } from "@shared/constants";
 import { useNearViewport } from "./useNearViewport";
 import type { GalleryEntry } from "@shared/types";
-
-const SHIMMER =
-  "animate-pulse bg-[linear-gradient(110deg,var(--panel-strong),var(--panel)_45%,var(--panel-strong))]";
 
 export interface GalleryThumbProps {
   entry: GalleryEntry;

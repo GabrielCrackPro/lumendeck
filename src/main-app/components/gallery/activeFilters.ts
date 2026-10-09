@@ -1,10 +1,10 @@
 
 import type { WallpaperCollection } from "@shared/types";
 import type { GalleryPick, GalleryQuery } from "./galleryQuery";
-import { GALLERY_KIND_LABEL } from "./kindLabels";
+import { GALLERY_KIND_LABEL, originLabel } from "./kindLabels";
 
 export interface ActiveFilter {
-  key: "search" | "kind" | "picks" | "collection" | "display" | "minWidth";
+  key: "search" | "kind" | "origin" | "picks" | "collection" | "display" | "minWidth";
   label: string;
   labelKey: string | null;
   clear:
@@ -48,6 +48,15 @@ export function activeFilters(
       label: q.kind,
       labelKey: GALLERY_KIND_LABEL[q.kind],
       clear: { kind: "query", patch: { kind: "all" } },
+    });
+  }
+
+  if (q.origin !== "all") {
+    out.push({
+      key: "origin",
+      label: q.origin,
+      labelKey: originLabel(q.origin),
+      clear: { kind: "query", patch: { origin: "all" } },
     });
   }
 

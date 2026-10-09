@@ -369,6 +369,7 @@ pub fn run() {
             ipc::dynlight_status,
             ipc::discover_list,
             ipc::discover_thumb,
+            ipc::discover_ping_download,
             ipc::open_url,
             ipc::vault_stamps
         ])

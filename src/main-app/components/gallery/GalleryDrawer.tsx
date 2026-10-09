@@ -3,9 +3,9 @@ import { createPortal } from "react-dom";
 import { IconCheck, IconClose, IconFolder, IconPencil, IconRefresh, IconTrash } from "../icons";
 import { Btn, Dropdown, Slider, displayName, type MonitorEntry } from "../ui";
 import { t } from "../../i18n";
-import { GALLERY_KIND_LABEL } from "./kindLabels";
+import { GALLERY_KIND_LABEL, originLabel } from "./kindLabels";
 import { formatDuration, formatResolution, mediaMeta, type MediaMeta } from "./mediaMeta";
-import { collectionsOf } from "./galleryQuery";
+import { collectionsOf, originOf } from "./galleryQuery";
 import type { Unhealthy } from "./vaultHealth";
 import type { EntryOptions, GalleryEntry, WallpaperCollection } from "@shared/types";
 
@@ -96,6 +96,8 @@ export function GalleryDrawer({
   const resolution = formatResolution(meta);
   const duration = formatDuration(meta?.duration ?? null);
   const mine = collectionsOf(entry, collections);
+  const origin = originOf(entry);
+  const originKey = originLabel(origin);
   const isActive = activeEntry?.id === entry.id;
   const opts = entry.opts ?? {};
   const hasOverrides = Object.keys(opts).length > 0;
@@ -249,6 +251,20 @@ export function GalleryDrawer({
                   : mine.map((c) => c.name).join(", ")
               }
             />
+            <Fact
+              label={t("common.source")}
+              value={originKey ? t(originKey) : origin}
+            />
+            <Fact
+              label={t("gallery.added")}
+              value={new Date(entry.addedMs).toLocaleDateString()}
+            />
+            {entry.lastAppliedMs ? (
+              <Fact
+                label={t("gallery.last-used")}
+                value={new Date(entry.lastAppliedMs).toLocaleDateString()}
+              />
+            ) : null}
             <div className="col-span-full min-w-0 rounded-lg border border-[var(--line)] bg-[var(--panel)] px-2.5 py-2">
               <dt className="kicker !text-[var(--text-faint)]">{t("gallery.location")}</dt>
               <dd

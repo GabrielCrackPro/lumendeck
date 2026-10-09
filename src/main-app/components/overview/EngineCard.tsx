@@ -1,5 +1,5 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
-import { Card, Chip, SwitchBtn } from "../ui";
+import { Card, Chip, GHOST_LINK, GHOST_LINK_CHEVRON, SwitchBtn } from "../ui";
 import type { LedCounts } from "../deviceList";
 import { IconBulb, IconSun, IconZap, IconChevronRight } from "../icons";
 import { RGB_MODES } from "@shared/constants";
@@ -169,10 +169,11 @@ export default function EngineCard({
       <button
         type="button"
         onClick={onOpenLighting}
-        className="group mt-3 flex w-full items-center justify-between rounded-lg border border-dashed border-[var(--line-strong)] px-3 py-2 text-xs font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.45)] hover:bg-[rgb(var(--glow)/0.06)] hover:text-[var(--text)]"
+        aria-label={t("common.manage")}
+        data-tip={t("common.manage")}
+        className={`group -ml-1 mt-3 ${GHOST_LINK}`}
       >
-        {t("common.manage")}
-        <IconChevronRight className="h-4 w-4 text-[var(--text-faint)] transition-transform group-hover:translate-x-0.5 group-hover:text-[rgb(var(--glow))]" />
+        <IconChevronRight className={GHOST_LINK_CHEVRON} />
       </button>
     </Card>
   );

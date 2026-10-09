@@ -5,7 +5,6 @@ import {
   meetsFloor,
   type TileMeta,
 } from "./tileMeta";
-import { resolutionClass } from "./NowShowingCard";
 import type { VaultIndex } from "./vaultIndex";
 import type { GalleryEntry } from "@shared/types";
 
@@ -21,32 +20,6 @@ const entry = (over: Partial<GalleryEntry> = {}): GalleryEntry => ({
 const index: VaultIndex = {
   "C:/a.mp4": { width: 3840, height: 2160, duration: 255 },
 };
-
-describe("resolutionClass", () => {
-  it("calls a 4K frame 4k", () => {
-    expect(resolutionClass(3840)).toBe("4k");
-  });
-
-  it("calls a 1080p frame hd", () => {
-    expect(resolutionClass(1920)).toBe("hd");
-  });
-
-  it("returns null for anything unmeasured", () => {
-    expect(resolutionClass(undefined)).toBeNull();
-  });
-
-  it("returns null below HD, since a label would overstate it", () => {
-    expect(resolutionClass(1280)).toBeNull();
-  });
-
-  it("treats 3440 as hd, not 4k", () => {
-    expect(resolutionClass(3440)).toBe("hd");
-  });
-
-  it("counts a 3840-wide ultrawide as 4k", () => {
-    expect(resolutionClass(3840)).toBe("4k");
-  });
-});
 
 describe("tileMetaFor", () => {
   it("reads resolution and duration off the vault index", () => {

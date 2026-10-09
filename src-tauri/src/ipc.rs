@@ -476,6 +476,7 @@ pub fn gallery_add(
     kind: crate::config::WallpaperKind,
     source: String,
     thumb: Option<String>,
+    origin: Option<String>,
 ) -> Result<crate::config::GalleryEntry, String> {
     use crate::config::GalleryEntry;
     let target_source = source.clone();
@@ -502,6 +503,7 @@ pub fn gallery_add(
                 opts: None,
                 favorite: false,
                 last_applied_ms: None,
+                origin,
             });
         }
     })?;
@@ -554,6 +556,7 @@ pub fn gallery_import_folder(folder: String) -> Result<Vec<crate::config::Galler
                 opts: None,
                 favorite: false,
                 last_applied_ms: None,
+                origin: None,
             });
             imported += 1;
         }
@@ -617,6 +620,7 @@ pub fn gallery_import_paths(
                 opts: None,
                 favorite: false,
                 last_applied_ms: None,
+                origin: None,
             });
             imported += 1;
         }
@@ -763,6 +767,7 @@ pub fn openrgb_launch(exe: String) -> Result<(), String> {
 pub async fn gallery_add_from_url(
     url: String,
     name: Option<String>,
+    origin: Option<String>,
 ) -> Result<crate::config::GalleryEntry, String> {
     const MAX_BYTES: usize = 200 * 1024 * 1024;
     let parsed = url
@@ -833,7 +838,7 @@ pub async fn gallery_add_from_url(
     let display = name
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| stem.replace(['-', '_'], " "));
-    gallery_add(display, kind, path_str, None)
+    gallery_add(display, kind, path_str, None, origin)
 }
 
 fn md5_lite(bytes: &[u8]) -> u64 {
@@ -1187,6 +1192,24 @@ pub async fn discover_list(
 #[tauri::command]
 pub async fn discover_thumb(url: String) -> Result<String, String> {
     crate::discover::thumb_data_url(&url).await
+}
+
+/// Best-effort download credit for Unsplash. The caller fires this after the
+/// bytes are saved and ignores the result: a missed ping must never surface as
+/// a failed import to the user.
+#[tauri::command]
+pub async fn discover_ping_download(
+    download_location: String,
+) -> Result<(), String> {
+    let cfg = crate::config_store::get();
+    let key = cfg
+        .discover
+        .sources
+        .iter()
+        .find(|s| s.id == "unsplash")
+        .map(|s| s.api_key.as_str())
+        .unwrap_or("");
+    crate::discover::ping_unsplash_download(&download_location, key).await
 }
 
 #[tauri::command]

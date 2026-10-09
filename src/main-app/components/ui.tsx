@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useAnchoredPanel } from "./dropdownAnchor";
 import { useShallow } from "zustand/react/shallow";
 import type { Glyph } from "./icons";
-import { IconRefresh, IconMonitor, IconCheck, IconCopy, IconPipette, IconChevronDown, IconPencil, IconSearch, IconSpinner } from "./icons";
+import { IconRefresh, IconMonitor, IconCheck, IconCopy, IconPipette, IconChevronDown, IconChevronRight, IconPencil, IconSearch, IconSpinner } from "./icons";
 import { useCopy } from "./useCopy";
 import { versionLabel } from "./buildIdentity";
 import { filterRail, foldForSearch } from "./settings/railFilter";
@@ -448,6 +448,7 @@ export function Dropdown<T extends string | number>({
   options,
   onChange,
   className,
+  buttonClassName = "",
   compact = false,
   ariaLabel,
   title,
@@ -459,6 +460,7 @@ export function Dropdown<T extends string | number>({
   options: { id: T; label: string }[];
   onChange: (v: T) => void;
   className?: string;
+  buttonClassName?: string;
   compact?: boolean;
   ariaLabel?: string;
   title?: string;
@@ -479,7 +481,7 @@ export function Dropdown<T extends string | number>({
           aria-expanded={pop.shown}
           aria-label={ariaLabel}
           data-tip={title}
-          className={`${ICON_BTN} ${pop.shown ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
+          className={`${ICON_BTN} ${pop.shown ? ICON_BTN_ACTIVE : ICON_BTN_IDLE} ${buttonClassName}`}
         >
           {icon}
         </button>
@@ -558,6 +560,10 @@ export function Dropdown<T extends string | number>({
 }
 
 export const CHIP_H = "h-[26px]";
+
+/** The skeleton fill for content that is still loading. */
+export const SHIMMER =
+  "animate-pulse bg-[linear-gradient(110deg,var(--panel-strong),var(--panel)_45%,var(--panel-strong))]";
 
 function DropdownPanel<T extends string | number>({
   shown,
@@ -689,6 +695,12 @@ export const ICON_BTN_ACTIVE = CHIP_ON;
 export const ICON_BTN_PRIMARY =
   "h-9 w-9 border-transparent bg-[rgb(var(--glow))] text-black glow-fill hover:brightness-110";
 
+/** A quiet chevron-only "go to section" affordance for card headers and footers. */
+export const GHOST_LINK =
+  "flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-faint)] transition-colors hover:bg-[var(--panel-strong)] hover:text-[var(--text)] focus-glow";
+export const GHOST_LINK_CHEVRON =
+  "h-4 w-4 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-standard)] group-hover:translate-x-0.5";
+
 export const MINI_BTN =
   "inline-flex select-none items-center gap-1 rounded-md border border-[var(--line)] px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--text-dim)] transition-[color,background-color,border-color,transform] duration-[var(--motion-fast)] ease-[var(--ease-standard)] focus-glow hover-glow active:scale-95";
 
@@ -738,33 +750,51 @@ export function Segmented<T extends string>({
   className?: string;
   label?: string;
 }) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [pill, setPill] = useState<{ left: number; width: number } | null>(
+    null,
+  );
   const index = options.findIndex((o) => o.id === value);
+  // The pill tracks the active button's measured box, so segments can size to
+  // their own labels without the equal-split trick truncating the longer one.
+  useLayoutEffect(() => {
+    const el = index >= 0 ? refs.current[index] : null;
+    if (!el) {
+      setPill(null);
+      return;
+    }
+    setPill({ left: el.offsetLeft, width: el.offsetWidth });
+  }, [index, options]);
   return (
     <div
       className={`relative flex rounded-full border border-[var(--line)] bg-[var(--panel-strong)] p-0.5 ${className}`}
       role="group"
       aria-label={label}
     >
-      {index >= 0 && (
+      {pill && (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0.5 left-0.5 rounded-full bg-[rgb(var(--glow))] shadow-[0_2px_12px_-4px_rgb(var(--glow)/0.7)]"
+          className="pointer-events-none absolute inset-y-0.5 rounded-full bg-[rgb(var(--glow))] shadow-[0_2px_12px_-4px_rgb(var(--glow)/0.7)]"
           style={{
-            width: `calc((100% - 4px) / ${options.length})`,
-            transform: `translateX(${index * 100}%)`,
-            transition: "transform var(--motion-base) var(--ease-emphasized)",
+            left: pill.left,
+            width: pill.width,
+            transition:
+              "left var(--motion-base) var(--ease-emphasized), width var(--motion-base) var(--ease-emphasized)",
           }}
         />
       )}
-      {options.map((o) => {
+      {options.map((o, i) => {
         const on = o.id === value;
         return (
           <button
             key={o.id}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
             type="button"
             onClick={() => onChange(o.id)}
             aria-pressed={on}
-            className={`relative min-w-0 flex-1 truncate rounded-full px-2.5 py-1.5 text-xs t-fast focus-glow ${
+            className={`relative shrink-0 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs t-fast focus-glow ${
               on
                 ? "font-semibold text-black"
                 : "text-[var(--text-dim)] hover:text-[var(--text)]"
@@ -1688,9 +1718,11 @@ export function DisplaysCard({
           <button
             type="button"
             onClick={onManage}
-            className="rounded-md border border-[var(--line)] px-2 py-1 text-[10px] font-semibold text-[var(--text-dim)] transition-colors hover:border-[rgb(var(--glow)/0.4)] hover:text-[var(--text)]"
+            aria-label={t("common.manage")}
+            data-tip={t("common.manage")}
+            className={`group ${GHOST_LINK}`}
           >
-            {t("common.manage")}
+            <IconChevronRight className={GHOST_LINK_CHEVRON} />
           </button>
         ) : undefined
       }

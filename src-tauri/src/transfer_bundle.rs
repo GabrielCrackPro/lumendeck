@@ -203,6 +203,7 @@ mod tests {
             name: "clip".into(),
             kind,
             source: source.into(),
+            origin: None,
             added_ms: 0,
             thumb: None,
             opts: None,

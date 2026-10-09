@@ -43,7 +43,12 @@ export const api = {
     kind: WallpaperKind;
     source: string;
     thumb?: string | null;
-  }) => invoke<GalleryEntry>("gallery_add", entry),
+    origin?: string | null;
+  }) =>
+    invoke<GalleryEntry>("gallery_add", {
+      ...entry,
+      origin: entry.origin ?? null,
+    }),
   galleryRemove: (id: string) =>
     invoke<GalleryEntry[]>("gallery_remove", { id }),
   galleryApply: (id: string) => invoke<void>("gallery_apply", { id }),
@@ -53,8 +58,12 @@ export const api = {
     invoke<GalleryEntry[]>("gallery_import_folder", { folder }),
   galleryImportPaths: (paths: string[]) =>
     invoke<GalleryEntry[]>("gallery_import_paths", { paths }),
-  galleryAddFromUrl: (url: string, name?: string) =>
-    invoke<GalleryEntry>("gallery_add_from_url", { url, name: name ?? null }),
+  galleryAddFromUrl: (url: string, name?: string, origin?: string) =>
+    invoke<GalleryEntry>("gallery_add_from_url", {
+      url,
+      name: name ?? null,
+      origin: origin ?? null,
+    }),
   gallerySetOpts: (id: string, opts: EntryOptions | null) =>
     invoke<GalleryEntry[]>("gallery_set_opts", { id, opts }),
   gallerySetFavorite: (id: string, favorite: boolean) =>
@@ -123,6 +132,12 @@ export const api = {
   discoverList: (source: string, query: string, page: number) =>
     invoke<DiscoverPage>("discover_list", { source, query, page }),
   discoverThumb: (url: string) => invoke<string>("discover_thumb", { url }),
+  /**
+   * Best-effort download credit (Unsplash). Fire after the bytes are saved and
+   * ignore the result — a missed ping must never read as a failed import.
+   */
+  discoverPingDownload: (downloadLocation: string) =>
+    invoke<void>("discover_ping_download", { downloadLocation }),
   openUrl: (url: string) => invoke<void>("open_url", { url }),
   openrgbInstall: () => invoke<string>("openrgb_install"),
   openrgbLaunch: (exe: string) => invoke<void>("openrgb_launch", { exe }),

@@ -6,6 +6,8 @@ import {
   inAnyCollection,
   isMember,
   kindCounts,
+  originCounts,
+  originOf,
   selectGallery,
   type GalleryQuery,
 } from "./galleryQuery";
@@ -322,5 +324,38 @@ describe("favourites, uncollected and per-display views", () => {
     const counts = kindCounts([...all, still], [], query({ kind: "image" }));
     expect(counts.all).toBe(4);
     expect(counts.image).toBe(1);
+  });
+});
+
+describe("origin filter", () => {
+  const fromBing = entry({ id: "a", name: "Aurora", origin: "bing" });
+  const fromLocal = entry({ id: "b", name: "Bee", origin: null });
+  const fromWeb = entry({ id: "c", name: "Coda", origin: "url" });
+
+  it("splits the vault by where each entry came from", () => {
+    const ids = (origin: string) =>
+      selectGallery([fromBing, fromLocal, fromWeb], [], query({ origin })).map((e) => e.id);
+    expect(ids("all")).toEqual(["a", "b", "c"]);
+    expect(ids("bing")).toEqual(["a"]);
+    expect(ids("url")).toEqual(["c"]);
+  });
+
+  it("files a blank or missing origin under this device", () => {
+    const blank = entry({ id: "d", name: "Dot", origin: "  " });
+    const ids = selectGallery([fromBing, blank], [], query({ origin: "local" })).map((e) => e.id);
+    expect(ids).toEqual(["d"]);
+    expect(originOf(blank)).toBe("local");
+    expect(originOf(fromBing)).toBe("bing");
+  });
+
+  it("counts each origin while ignoring the origin facet itself", () => {
+    const counts = originCounts([fromBing, fromLocal, fromWeb], [], query({ origin: "bing" }));
+    expect(counts).toEqual({ all: 3, bing: 1, local: 1, url: 1 });
+  });
+
+  it("counts an origin facet as narrowing the view", () => {
+    const view = deriveGalleryView([fromBing], [], query({ origin: "url" }), {}, 1);
+    expect(view.gallery).toEqual([]);
+    expect(view.filtered).toBe(true);
   });
 });

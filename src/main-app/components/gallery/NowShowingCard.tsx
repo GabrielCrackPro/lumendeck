@@ -23,13 +23,6 @@ export interface NowShowingCardProps {
   save: (fn: (c: Config) => void) => void;
 }
 
-export function resolutionClass(width: number | undefined): "4k" | "hd" | null {
-  if (!width) return null;
-  if (width >= 3840) return "4k";
-  if (width >= 1920) return "hd";
-  return null;
-}
-
 export function NowShowingCard({
   cfg,
   activeEntry,
@@ -42,12 +35,10 @@ export function NowShowingCard({
   const name =
     wall.kind === "shader" ? wall.source : wall.source ? basename(wall.source) : "";
 
-  const measured = activeEntry ? index?.[activeEntry.source] : undefined;
   const meta = activeEntry
     ? tileMetaFor(activeEntry, index)
     : { resolution: null, duration: null };
   const showMeta = hasTileMeta(meta);
-  const cls = resolutionClass(measured?.width);
 
   const preview: GalleryEntry = activeEntry ?? {
     id: "__now-showing",
@@ -100,11 +91,6 @@ export function NowShowingCard({
                 ? t("gallery.software-decode")
                 : t("gallery.hardware-decode")}
             </span>
-            {cls && (
-              <span className="rounded-md bg-black/55 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-white/85 backdrop-blur-sm">
-                {t(cls === "4k" ? "gallery.4k-uhd" : "gallery.hd")}
-              </span>
-            )}
             {cfg.rgb.enabled && cfg.rgb.mode === "audioReactive" && (
               <span className="flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-white/85 backdrop-blur-sm">
                 <IconZap className="h-2.5 w-2.5" />
@@ -194,11 +180,6 @@ export function NowShowingCard({
                 <span className="text-[13px] font-medium text-[var(--text)]">
                   {t("gallery.colour-extraction")}
                 </span>
-                {palette.length > 0 && (
-                  <span className="font-mono text-[10px] text-[var(--text-faint)]">
-                    {t("common.{n}-colours", { n: palette.length })}
-                  </span>
-                )}
               </div>
               <p className="mt-0.5 text-[11px] leading-snug text-[var(--text-faint)]">
                 {palette.length > 0
@@ -238,26 +219,6 @@ export function NowShowingCard({
           </div>
 
 
-          {showMeta && (
-            <dl className="mt-auto grid grid-cols-2 gap-x-4 gap-y-2 border-t border-[var(--line)] pt-2.5">
-              <div className="min-w-0">
-                <dt className="kicker !text-[var(--text-faint)]">
-                  {t("gallery.resolution")}
-                </dt>
-                <dd className="mt-0.5 truncate font-mono text-[11px] text-[var(--text)]">
-                  {meta.resolution ?? t("gallery.not-indexed-yet")}
-                </dd>
-              </div>
-              <div className="min-w-0">
-                <dt className="kicker !text-[var(--text-faint)]">
-                  {t("gallery.length")}
-                </dt>
-                <dd className="mt-0.5 truncate font-mono text-[11px] text-[var(--text)]">
-                  {meta.duration ?? t("common.nothing-applied")}
-                </dd>
-              </div>
-            </dl>
-          )}
         </div>
       </div>
 

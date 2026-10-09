@@ -37,6 +37,7 @@ function query(patch: Partial<GalleryQuery> = {}): GalleryQuery {
     minWidth: null,
     picks: "all",
     display: "all",
+    origin: "all",
     ...patch,
   };
 }
@@ -159,6 +160,32 @@ describe("activeFilters", () => {
       kind: "collection",
       id: "all",
     });
+  });
+});
+
+describe("the source chip", () => {
+  it("names a known discover source by its catalog key, not its id", () => {
+    const f = only(query({ origin: "unsplash" }));
+    expect(f.key).toBe("origin");
+    expect(f.labelKey).toBe("gallery.unsplash");
+    expect(f.clear).toEqual({ kind: "query", patch: { origin: "all" } });
+  });
+
+  it("labels manual downloads and local imports", () => {
+    expect(only(query({ origin: "url" })).labelKey).toBe("gallery.origin-the-web");
+    expect(only(query({ origin: "local" })).labelKey).toBe("gallery.origin-this-device");
+  });
+
+  it("shows an id raw rather than inventing a name for it", () => {
+    const f = only(query({ origin: "gopher" }));
+    expect(f.labelKey).toBeNull();
+    expect(f.label).toBe("gopher");
+  });
+
+  it("rides along in the all-dimensions chip list", () => {
+    const all = query({ kind: "video", origin: "bing" });
+    expect(keys(all)).toEqual(["kind", "origin"]);
+    expect(filterBadgeCount(list(all))).toBe(2);
   });
 });
 

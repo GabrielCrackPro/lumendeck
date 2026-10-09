@@ -3,8 +3,8 @@ import { IconCheck, IconInfo, IconLayers, IconPencil, IconPlay, IconStar, IconTr
 import { OVERLAY_ICON_BTN } from "../ui";
 import { t } from "../../i18n";
 import "./galleryMotion.css";
-import { GALLERY_KIND_LABEL } from "./kindLabels";
-import { collectionsOf } from "./galleryQuery";
+import { GALLERY_KIND_LABEL, originLabel } from "./kindLabels";
+import { collectionsOf, originOf, LOCAL_ORIGIN } from "./galleryQuery";
 import { hasTileMeta, tileMetaFor } from "./tileMeta";
 import type { VaultIndex } from "./vaultIndex";
 import { useNearViewport } from "./useNearViewport";
@@ -67,6 +67,9 @@ function GalleryCardImpl({
   const [popping, setPopping] = useState(false);
   const meta = tileMetaFor(entry, index);
   const showMeta = hasTileMeta(meta);
+  const origin = originOf(entry);
+  // Local imports are the uninteresting majority; only a recorded provenance earns a badge.
+  const originKey = origin === LOCAL_ORIGIN ? null : originLabel(origin);
   const entryCollections = collectionsOf(entry, collections);
   const collectionNames = entryCollections.map((collection) => collection.name).join(", ");
   useEffect(() => {
@@ -261,6 +264,11 @@ function GalleryCardImpl({
                 </span>
               )}
             </>
+          )}
+          {origin !== LOCAL_ORIGIN && (
+            <span className="min-w-0 max-w-[8rem] shrink-0 truncate">
+              {originKey ? t(originKey) : origin}
+            </span>
           )}
           {entryCollections.length > 0 && (
             <span

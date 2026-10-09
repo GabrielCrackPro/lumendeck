@@ -5,6 +5,7 @@ import {
   activeSources,
   canLoadMore,
   formatDuration,
+  formatResolution,
   missingApiKey,
   sourceById,
   sourceConfig,
@@ -27,6 +28,8 @@ describe("discover sources", () => {
     expect(DISCOVER_SOURCES.map((s) => s.id)).toEqual([
       "bing",
       "wallhaven",
+      "apod",
+      "unsplash",
       "pixabay",
       "coverr",
     ]);
@@ -39,20 +42,49 @@ describe("discover sources", () => {
     }
   });
 
-  it("gates only pixabay behind a key, and only lets it link out over https", () => {
+  it("gives every source its own picker glyph", () => {
+    expect(DISCOVER_SOURCES.map((s) => s.icon)).toEqual([
+      "globe",
+      "flame",
+      "telescope",
+      "camera",
+      "play",
+      "clapperboard",
+    ]);
+    const distinct = new Set(DISCOVER_SOURCES.map((s) => s.icon));
+    expect(distinct.size).toBe(DISCOVER_SOURCES.length);
+  });
+
+  it("gates the paid-key sources, and only lets them link out over https", () => {
     expect(DISCOVER_SOURCES.filter((s) => s.needsKey).map((s) => s.id)).toEqual([
+      "unsplash",
       "pixabay",
     ]);
     for (const s of DISCOVER_SOURCES) {
       if (s.keyUrl) expect(s.keyUrl).toMatch(/^https:\/\//);
     }
+    expect(sourceById("unsplash").keyUrl).toBeDefined();
     expect(sourceById("pixabay").keyUrl).toBeDefined();
     expect(sourceById("coverr").keyUrl).toBeUndefined();
   });
 
-  it("marks every source but the fixed Bing feed searchable", () => {
+  it("offers NASA a key that lifts a limit instead of gating access", () => {
+    const apod = sourceById("apod");
+    expect(apod.optionalKey).toBe(true);
+    expect(apod.needsKey).toBeFalsy();
+    expect(missingApiKey(apod, undefined)).toBe(false);
+    expect(missingApiKey(apod, entry("apod"))).toBe(false);
+    expect(apod.keyUrl).toMatch(/^https:\/\//);
+    // Optional-key sources never block the first browse.
+    expect(
+      DISCOVER_SOURCES.filter((s) => s.needsKey && !s.optionalKey).map((s) => s.id),
+    ).toEqual(["unsplash", "pixabay"]);
+  });
+
+  it("marks the two fixed daily feeds unsearchable", () => {
     expect(sourceById("bing").searchable).toBe(false);
-    for (const id of ["wallhaven", "pixabay", "coverr"]) {
+    expect(sourceById("apod").searchable).toBe(false);
+    for (const id of ["wallhaven", "unsplash", "pixabay", "coverr"]) {
       expect(sourceById(id).searchable).toBe(true);
     }
   });
@@ -78,7 +110,15 @@ describe("activeSources", () => {
       entry("wallhaven"),
       entry("pixabay"),
     ]);
-    expect(active.map((s) => s.id)).toEqual(["coverr", "wallhaven", "pixabay"]);
+    // apod and unsplash joined the registry after this config was saved, so
+    // the fallback appends them behind the entries the config did record.
+    expect(active.map((s) => s.id)).toEqual([
+      "coverr",
+      "wallhaven",
+      "pixabay",
+      "apod",
+      "unsplash",
+    ]);
   });
 
   it("adds a built-in the saved config never recorded as enabled", () => {
@@ -88,6 +128,8 @@ describe("activeSources", () => {
     expect(active.map((s) => s.id)).toEqual([
       "bing",
       "wallhaven",
+      "apod",
+      "unsplash",
       "pixabay",
       "coverr",
     ]);
@@ -102,7 +144,13 @@ describe("activeSources", () => {
     ]);
     // Saved entries first (the disabled bing claims its slot), then the
     // registry entries the config never recorded.
-    expect(active.map((s) => s.id)).toEqual(["coverr", "wallhaven", "pixabay"]);
+    expect(active.map((s) => s.id)).toEqual([
+      "coverr",
+      "wallhaven",
+      "apod",
+      "unsplash",
+      "pixabay",
+    ]);
   });
 
   it("falls back to every source enabled while no config is loaded", () => {
@@ -150,6 +198,26 @@ describe("formatDuration", () => {
     expect(formatDuration(undefined)).toBe("");
     expect(formatDuration(Number.NaN)).toBe("");
     expect(formatDuration(-1)).toBe("");
+  });
+});
+
+describe("formatResolution", () => {
+  it("renders pixel dimensions as W×H", () => {
+    expect(formatResolution(1920, 1080)).toBe("1920×1080");
+    expect(formatResolution(3840, 2160)).toBe("3840×2160");
+  });
+
+  it("rounds fractional dimensions from a source", () => {
+    expect(formatResolution(1919.6, 1079.2)).toBe("1920×1079");
+  });
+
+  it("is empty when the source reported no size", () => {
+    expect(formatResolution(0, 0)).toBe("");
+    expect(formatResolution(1920, 0)).toBe("");
+    expect(formatResolution(0, 1080)).toBe("");
+    expect(formatResolution(-1, 1080)).toBe("");
+    expect(formatResolution(Number.NaN, 1080)).toBe("");
+    expect(formatResolution(1920, Number.POSITIVE_INFINITY)).toBe("");
   });
 });
 

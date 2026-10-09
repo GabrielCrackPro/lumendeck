@@ -5,8 +5,8 @@ import { isInsideAnchoredPanel } from "../portalContainment";
 import { IconClose, IconGrid, IconLayers, IconSearch, IconSelectAll, IconSliders, IconSort, IconSparkle, IconStar } from "../icons";
 import type { SelectAllState } from "./selection";
 import { t } from "../../i18n";
-import { GALLERY_KINDS, GALLERY_KIND_LABEL } from "./kindLabels";
-import { kindCounts, type GalleryPick, type GalleryQuery, type GallerySort, type SelectContext } from "./galleryQuery";
+import { GALLERY_KINDS, GALLERY_KIND_LABEL, originLabel } from "./kindLabels";
+import { kindCounts, originCounts, type GalleryPick, type GalleryQuery, type GallerySort, type SelectContext } from "./galleryQuery";
 import { activeFilters, filterBadgeCount } from "./activeFilters";
 import { CHIP_H, chipStyle, Dropdown, ICON_BTN, ICON_BTN_ACTIVE, ICON_BTN_IDLE } from "../ui";
 import type { GalleryEntry, WallpaperCollection } from "@shared/types";
@@ -156,9 +156,15 @@ export function GalleryToolbar({
       minWidth: null,
       picks: "all",
       display: "all",
+      origin: "all",
     });
     onCollection("all");
   };
+
+  const origins = originCounts(entries, collections, query, countCtx);
+  const originIds = Object.keys(origins)
+    .filter((id) => id !== "all")
+    .sort((a, b) => (origins[b] ?? 0) - (origins[a] ?? 0));
 
   const chips = activeFilters(query, collections, {
     floors: WIDTH_FLOORS,
@@ -173,83 +179,92 @@ export function GalleryToolbar({
     <div className="mb-4 space-y-2.5">
       <div className="flex flex-wrap items-center gap-2">
         {view === "wallpapers" && (
-        <div className="relative min-w-[9rem] flex-1 sm:max-w-[18rem]">
-          <input
-            ref={searchRef}
-            value={query.search}
-            onChange={(e) => onQuery({ search: e.target.value })}
-            placeholder={t("common.search-vault")}
-            aria-label={t("common.search-wallpapers-by-name")}
-            className="focus-glow w-full rounded-full border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-1.5 pl-7 text-xs text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[rgb(var(--glow)/0.5)]"
-          />
-          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-faint)]">
-            <IconSearch className="h-3 w-3" />
-          </span>
+        <div className="min-w-[9rem] flex-1 sm:max-w-[22rem]">
+          <div className="flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--panel-strong)] py-1.5 pl-3 pr-1.5 transition-colors focus-within:border-[rgb(var(--glow)/0.5)]">
+            <IconSearch className="h-3.5 w-3.5 shrink-0 text-[var(--text-faint)]" />
+            <input
+              ref={searchRef}
+              value={query.search}
+              onChange={(e) => onQuery({ search: e.target.value })}
+              placeholder={t("common.search-vault")}
+              aria-label={t("common.search-wallpapers-by-name")}
+              className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]"
+            />
+            {query.search !== "" && (
+              <button
+                type="button"
+                onClick={() => onQuery({ search: "" })}
+                aria-label={t("gallery.clear-search")}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--text-faint)] transition-colors hover:bg-[var(--panel)] hover:text-[var(--text)]"
+              >
+                <IconClose className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         </div>
         )}
 
         {view === "wallpapers" && (
-        <>
-        <Dropdown
-          icon={<IconSort className="h-4 w-4" />}
-          ariaLabel={t("gallery.sort-by")}
-          title={`${t("gallery.sort-by")}: ${t(SORTS.find((s) => s.id === query.sort)?.label ?? "gallery.sort-recent")}`}
-          value={query.sort}
-          onChange={(v) => onQuery({ sort: v as GallerySort })}
-          options={SORTS.map((s) => ({ id: s.id, label: t(s.label) }))}
-        />
+        <div className="ml-1 flex shrink-0 items-center gap-1 rounded-lg border border-[var(--line)] bg-[var(--panel-sunken)]/50 p-1">
+          <Dropdown
+            icon={<IconSort className="h-4 w-4" />}
+            ariaLabel={t("gallery.sort-by")}
+            title={`${t("gallery.sort-by")}: ${t(SORTS.find((s) => s.id === query.sort)?.label ?? "gallery.sort-recent")}`}
+            value={query.sort}
+            onChange={(v) => onQuery({ sort: v as GallerySort })}
+            options={SORTS.map((s) => ({ id: s.id, label: t(s.label) }))}
+          />
 
-        <Dropdown
-          icon={<IconGrid className="h-4 w-4" />}
-          ariaLabel={t("gallery.density")}
-          title={`${t("gallery.density")}: ${t(DENSITIES.find((d) => d.id === density)?.label ?? "gallery.density-cozy")}`}
-          value={density}
-          onChange={(v) => onDensity(v as GalleryDensity)}
-          options={DENSITIES.map((d) => ({ id: d.id, label: t(d.label) }))}
-        />
+          <Dropdown
+            icon={<IconGrid className="h-4 w-4" />}
+            ariaLabel={t("gallery.density")}
+            title={`${t("gallery.density")}: ${t(DENSITIES.find((d) => d.id === density)?.label ?? "gallery.density-cozy")}`}
+            value={density}
+            onChange={(v) => onDensity(v as GalleryDensity)}
+            options={DENSITIES.map((d) => ({ id: d.id, label: t(d.label) }))}
+          />
 
+          <button
+            role="checkbox"
+            aria-checked={selectAllState === "all" ? true : selectAllState === "some" ? "mixed" : false}
+            aria-label={t("gallery.select-all")}
+            data-tip={
+              selectAllState === "all"
+                ? t("gallery.clear-the-selection")
+                : t("gallery.select-all-hint")
+            }
+            onClick={() => onSelectAll(selectAllState !== "all")}
+            className={`${ICON_BTN} ${selectAllState === "none" ? ICON_BTN_IDLE : ICON_BTN_ACTIVE}`}
+          >
+            <IconSelectAll state={selectAllState} className="h-4 w-4" />
+          </button>
 
-        <button
-          role="checkbox"
-          aria-checked={selectAllState === "all" ? true : selectAllState === "some" ? "mixed" : false}
-          aria-label={t("gallery.select-all")}
-          data-tip={
-            selectAllState === "all"
-              ? t("gallery.clear-the-selection")
-              : t("gallery.select-all-hint")
-          }
-          onClick={() => onSelectAll(selectAllState !== "all")}
-          className={`${ICON_BTN} ${selectAllState === "none" ? ICON_BTN_IDLE : ICON_BTN_ACTIVE}`}
-        >
-          <IconSelectAll state={selectAllState} className="h-4 w-4" />
-        </button>
-
-        <button
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          aria-controls="gallery-filter-panel"
-          aria-label={t("gallery.filters")}
-          data-tip={t("gallery.filters")}
-          className={`${ICON_BTN} relative ${open || activeCount > 0 ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
-        >
-          <IconSliders className="h-4 w-4" />
-          {activeCount > 0 && (
-            <span
-              className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[rgb(var(--glow))] px-0.5 font-mono text-[8px] font-bold text-[var(--on-accent)]"
-              aria-hidden
-            >
-              {activeCount}
-            </span>
-          )}
-        </button>
-        </>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            aria-controls="gallery-filter-panel"
+            aria-label={t("gallery.filters")}
+            data-tip={t("gallery.filters")}
+            className={`${ICON_BTN} relative ${open || activeCount > 0 ? ICON_BTN_ACTIVE : ICON_BTN_IDLE}`}
+          >
+            <IconSliders className="h-4 w-4" />
+            {activeCount > 0 && (
+              <span
+                className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[rgb(var(--glow))] px-0.5 font-mono text-[8px] font-bold text-[var(--on-accent)]"
+                aria-hidden
+              >
+                {activeCount}
+              </span>
+            )}
+          </button>
+        </div>
         )}
 
         <div className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2.5">
 
           {!open && collectionEditor}
           {children}
-          <span className="text-dim-sm hidden xl:block">
+          <span className="hidden items-center border-l border-[var(--line)] pl-3 text-[11px] italic text-[var(--text-faint)] xl:flex">
             {t("common.or-drop-files-and-folders-anywhere-in-the-vault")}
           </span>
         </div>
@@ -356,6 +371,31 @@ export function GalleryToolbar({
             );
           })}
             </FilterGroup>
+
+            <FilterGroup label={t("gallery.filter-source")}>
+              <button
+                onClick={() => onQuery({ origin: "all" })}
+                aria-pressed={query.origin === "all"}
+                className={`rounded-full px-3 py-1 text-xs ${chipStyle(query.origin === "all")}`}
+              >
+                {`${t("common.all")} · ${origins.all ?? 0}`}
+              </button>
+              {originIds.map((id) => {
+                const label = originLabel(id);
+                const active = query.origin === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => onQuery({ origin: active ? "all" : id })}
+                    aria-pressed={active}
+                    className={`rounded-full px-3 py-1 text-xs ${chipStyle(active)}`}
+                  >
+                    {`${label ? t(label) : id} · ${origins[id] ?? 0}`}
+                  </button>
+                );
+              })}
+            </FilterGroup>
+
             <FilterGroup label={t("gallery.filter-in")}>
 
             <button
