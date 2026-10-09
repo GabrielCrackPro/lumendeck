@@ -7,6 +7,7 @@ and it lands under that release's heading.
 ## 0.2.47 — 2026-10-09
 
 ### Added
+- unsplash source, gallery provenance filter, and discover polish (`7203af9`)
 - video wallpaper discovery, dynamic lighting, and explorer menu (`a0f048d`)
 
 ### Fixed
