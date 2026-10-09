@@ -51,6 +51,7 @@ pub fn bing_full_url(urlbase: &str) -> Result<String, String> {
         return Err(format!("unexpected Bing image reference: {urlbase}"));
     }
     Ok(format!("https://www.bing.com{urlbase}_1920x1080.jpg"))
+}
 
 pub fn bing_thumb_url(urlbase: &str) -> Result<String, String> {
     if !urlbase.starts_with("/th?id=OHR.") || urlbase.contains("..") || urlbase.contains('&') {
